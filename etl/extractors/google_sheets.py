@@ -1,21 +1,19 @@
 """
 Extractor: Google Sheets
-Lee el sheet de Mike Rhodes (r_camp, r_ag, r_prod_t, r_prod_t_180, r_ads, r_allads, zombies)
-y el sheet de smec (End Result) vía Google Sheets API v4.
-No requiere credenciales de Google Ads — solo acceso de lectura al Sheet.
+Lee el sheet de Mike Rhodes y smec con mejor manejo de errores.
 """
 
 import os
+import json
 import logging
 from typing import Any
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from datetime import date
+from google.oauth2.service_account import Credentials
 
 log = logging.getLogger(__name__)
 
 SCOPES = [
-    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
     "https://www.googleapis.com/auth/drive.readonly"
 ]
 
@@ -23,12 +21,25 @@ SCOPES = [
 def _get_client() -> gspread.Client:
     """Autentica con la cuenta de servicio de Google."""
     creds_path = os.environ["GOOGLE_CREDENTIALS_PATH"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(creds_path, SCOPES)
+    
+    # Verificar que el archivo existe
+    if not os.path.exists(creds_path):
+        raise FileNotFoundError(f"Credentials file not found: {creds_path}")
+    
+    # Cargar y verificar el JSON
+    with open(creds_path, 'r') as f:
+        creds_data = json.load(f)
+    
+    log.info(f"   Credenciales cargadas para: {creds_data.get('client_email', 'unknown')}")
+    log.info(f"   Project ID: {creds_data.get('project_id', 'unknown')}")
+    
+    # Usar google-auth directamente (más confiable que oauth2client)
+    creds = Credentials.from_service_account_info(creds_data, scopes=SCOPES)
     return gspread.authorize(creds)
 
 
 def _sheet_to_dicts(ws) -> list[dict]:
-    """Convierte una hoja en lista de dicts usando la primera fila como headers."""
+    """Convierte una hoja en lista de dicts."""
     rows = ws.get_all_values()
     if len(rows) < 2:
         return []
@@ -51,12 +62,21 @@ def _safe_int(val: Any, default=0) -> int:
 
 
 def extract_mike_rhodes(sheet_id: str) -> dict:
-    """
-    Lee el Google Sheet de Mike Rhodes y retorna datos normalizados.
-    IMPORTANTE: cost_micros se divide entre 1_000_000 aquí.
-    """
+    """Lee el Google Sheet de Mike Rhodes."""
+    log.info(f"   Conectando a Sheet ID: {sheet_id}")
     gc = _get_client()
-    sh = gc.open_by_key(sheet_id)
+    
+    try:
+        sh = gc.open_by_key(sheet_id)
+        log.info(f"   Sheet abierto: {sh.title}")
+    except gspread.exceptions.APIError as e:
+        log.error(f"   Error APIError: {e}")
+        log.error(f"   Response status: {e.response.status_code if hasattr(e, 'response') else 'unknown'}")
+        log.error(f"   Response text: {e.response.text if hasattr(e, 'response') else 'unknown'}")
+        raise
+    except Exception as e:
+        log.error(f"   Error abriendo sheet: {type(e).__name__}: {e}")
+        raise
 
     result = {
         "campaigns":    [],
@@ -67,7 +87,7 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
         "zombies":      []
     }
 
-    # ── r_camp: Campañas diarias ──────────────────────────────
+    # r_camp
     try:
         ws = sh.worksheet("r_camp")
         rows = _sheet_to_dicts(ws)
@@ -90,7 +110,7 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
     except Exception as e:
         log.error(f"   r_camp error: {e}")
 
-    # ── r_ag: Asset Groups ────────────────────────────────────
+    # r_ag
     try:
         ws = sh.worksheet("r_ag")
         rows = _sheet_to_dicts(ws)
@@ -114,7 +134,7 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
     except Exception as e:
         log.error(f"   r_ag error: {e}")
 
-    # ── r_prod_t: Productos 30 días ───────────────────────────
+    # r_prod_t
     try:
         ws = sh.worksheet("r_prod_t")
         rows = _sheet_to_dicts(ws)
@@ -137,11 +157,11 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
                 "impressions":      _safe_int(r.get("metrics_impressions", 0)),
                 "roas":             round(conv_value / cost, 4) if cost > 0 else 0,
             })
-        log.info(f"   r_prod_t (30d): {len(result['products_30d'])} filas")
+        log.info(f"   r_prod_t: {len(result['products_30d'])} filas")
     except Exception as e:
         log.error(f"   r_prod_t error: {e}")
 
-    # ── r_prod_t_180: Productos 180 días ─────────────────────
+    # r_prod_t_180
     try:
         ws = sh.worksheet("r_prod_t_180")
         rows = _sheet_to_dicts(ws)
@@ -168,46 +188,35 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
     except Exception as e:
         log.error(f"   r_prod_t_180 error: {e}")
 
-    # ── r_ads + r_allads: Assets con performance label ────────
+    # r_ads + r_allads
     try:
         ws_ads    = sh.worksheet("r_ads")
         ws_allads = sh.worksheet("r_allads")
-
         ads_rows    = _sheet_to_dicts(ws_ads)
         allads_rows = _sheet_to_dicts(ws_allads)
-
-        # Construir lookup de asset_id → detalles del asset
         asset_lookup = {}
         for a in allads_rows:
             aid = a.get("asset_id", "")
             if aid:
                 asset_lookup[aid] = {
-                    "asset_type":         a.get("asset_type", ""),
-                    "asset_text":         a.get("asset_text_asset_text", ""),
-                    "image_url":          a.get("asset_image_asset_full_size_url", ""),
-                    "youtube_video_id":   a.get("asset_youtube_video_asset_youtube_video_id", ""),
-                    "youtube_title":      a.get("asset_youtube_video_asset_youtube_video_title", ""),
-                    "final_url":          a.get("asset_final_urls", ""),
-                    "source":             a.get("asset_source", ""),
+                    "asset_type":       a.get("asset_type", ""),
+                    "asset_text":       a.get("asset_text_asset_text", ""),
+                    "image_url":        a.get("asset_image_asset_full_size_url", ""),
+                    "youtube_video_id": a.get("asset_youtube_video_asset_youtube_video_id", ""),
+                    "youtube_title":    a.get("asset_youtube_video_asset_youtube_video_title", ""),
+                    "final_url":        a.get("asset_final_urls", ""),
+                    "source":           a.get("asset_source", ""),
                 }
-
         for r in ads_rows:
-            # Extraer asset_id del resource_name (formato: customers/123/assets/456)
             resource_name = r.get("asset_resource_name", "")
             asset_id = resource_name.split("/")[-1] if "/" in resource_name else resource_name
-
             asset_detail = asset_lookup.get(asset_id, {})
-
-            # Inferir emplazamiento dominante por tipo de asset
-            asset_type = asset_detail.get("asset_type", "")
-            inferred_placement = _infer_placement(asset_type, r.get("field_type", ""))
-
             result["assets"].append({
                 "campaign_name":     r.get("campaign_name", ""),
                 "asset_group_name":  r.get("asset_group_name", ""),
                 "asset_group_id":    r.get("asset_group_id", ""),
                 "asset_id":          asset_id,
-                "asset_type":        asset_type,
+                "asset_type":        asset_detail.get("asset_type", ""),
                 "field_type":        r.get("asset_group_asset_field_type", ""),
                 "performance_label": r.get("asset_group_asset_performance_label", ""),
                 "ad_strength":       r.get("asset_group_ad_strength", ""),
@@ -218,13 +227,12 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
                 "youtube_video_id":  asset_detail.get("youtube_video_id", ""),
                 "youtube_title":     asset_detail.get("youtube_title", ""),
                 "final_url":         asset_detail.get("final_url", ""),
-                "inferred_placement": inferred_placement,
             })
         log.info(f"   r_ads: {len(result['assets'])} assets")
     except Exception as e:
         log.error(f"   r_ads error: {e}")
 
-    # ── zombies: Productos sin clics ──────────────────────────
+    # zombies
     try:
         ws = sh.worksheet("zombies")
         rows = _sheet_to_dicts(ws)
@@ -233,49 +241,26 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
                 "product_item_id": r.get("segments_product_item_id", ""),
                 "product_title":   r.get("segments_product_title", ""),
                 "impressions":     _safe_int(r.get("metrics_impressions", 0)),
-                "clicks":          0,   # por definición siempre 0
+                "clicks":          0,
             })
-        log.info(f"   zombies: {len(result['zombies'])} productos sin clics")
+        log.info(f"   zombies: {len(result['zombies'])} productos")
     except Exception as e:
         log.error(f"   zombies error: {e}")
 
     return result
 
 
-def _infer_placement(asset_type: str, field_type: str) -> str:
-    """
-    Infiere el emplazamiento probable de un asset basado en su tipo.
-    Alta confianza: TEXT → Search, VIDEO → YouTube
-    Media confianza: IMAGE → Display o Shopping según CTR
-    """
-    asset_type = asset_type.upper()
-    field_type = field_type.upper()
-
-    if asset_type == "YOUTUBE_VIDEO":
-        return "youtube"
-    if asset_type == "TEXT" or field_type in ("HEADLINE", "DESCRIPTION", "LONG_HEADLINE"):
-        return "search"
-    if asset_type == "IMAGE":
-        if field_type == "MARKETING_IMAGE":
-            return "display"
-        if field_type in ("SQUARE_MARKETING_IMAGE", "PORTRAIT_MARKETING_IMAGE"):
-            return "display_or_shopping"
-    return "unknown"
-
-
 def extract_smec_search_terms(sheet_id: str) -> list[dict]:
-    """
-    Lee el sheet de smec (End Result) con datos de branded vs non-branded.
-    Columnas: start, end, branded conversions, non-branded conversions, etc.
-    """
+    """Lee el sheet de smec."""
+    log.info(f"   Conectando a smec Sheet ID: {sheet_id}")
     gc = _get_client()
-    sh = gc.open_by_key(sheet_id)
 
     try:
-        ws   = sh.worksheet("End Result")
+        sh  = gc.open_by_key(sheet_id)
+        ws  = sh.worksheet("End Result")
         rows = _sheet_to_dicts(ws)
     except Exception as e:
-        log.error(f"   smec End Result error: {e}")
+        log.error(f"   smec error: {e}")
         return []
 
     result = []
@@ -284,29 +269,25 @@ def extract_smec_search_terms(sheet_id: str) -> list[dict]:
         period_end   = r.get("timeframe_end_date", "")
         if not period_start or not period_end:
             continue
-
         result.append({
             "period_start":               period_start,
             "period_end":                 period_end,
-            # Branded
             "conversions_branded":        _safe_float(r.get("branded_conversions", 0)),
             "conv_value_branded":         _safe_float(r.get("branded_conv__value", 0)),
             "clicks_branded":             _safe_int(r.get("branded_clicks", 0)),
             "impressions_branded":        _safe_int(r.get("branded_impressions", 0)),
             "ctr_branded":                _safe_float(r.get("ctrbranded", 0)),
-            "conv_rate_branded":          _safe_float(r.get("convrate_branded", 0)),  # corrección: puede variar el header
+            "conv_rate_branded":          _safe_float(r.get("convrate_branded", 0)),
             "ratio_branded_conv":         _safe_float(r.get("ratiobranded_conversions", 0)),
             "ratio_branded_conv_value":   _safe_float(r.get("ratiobranded_conv_value", 0)),
             "ratio_branded_clicks":       _safe_float(r.get("ratiobranded_clicks", 0)),
             "ratio_branded_impressions":  _safe_float(r.get("ratiobranded_impressions", 0)),
-            # Non-branded
             "conversions_nonbranded":     _safe_float(r.get("non-branded_conversions", 0)),
             "conv_value_nonbranded":      _safe_float(r.get("non-branded_conv__value", 0)),
             "clicks_nonbranded":          _safe_int(r.get("non-branded_clicks", 0)),
             "impressions_nonbranded":     _safe_int(r.get("non-branded_impressions", 0)),
             "ctr_nonbranded":             _safe_float(r.get("ctrnonbranded", 0)),
             "conv_rate_nonbranded":       _safe_float(r.get("convrate_nonbranded", 0)),
-            # Blank
             "conversions_blank":          _safe_float(r.get("blank_conversions", 0)),
             "conv_value_blank":           _safe_float(r.get("blank_conv__value", 0)),
             "clicks_blank":               _safe_int(r.get("blank_clicks", 0)),
@@ -315,5 +296,5 @@ def extract_smec_search_terms(sheet_id: str) -> list[dict]:
             "conv_rate_blank":            _safe_float(r.get("convrate_blank", 0)),
         })
 
-    log.info(f"   smec search terms: {len(result)} períodos")
+    log.info(f"   smec: {len(result)} períodos")
     return result

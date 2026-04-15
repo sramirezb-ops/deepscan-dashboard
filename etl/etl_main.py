@@ -1,6 +1,6 @@
 """
 DeepScan Dashboard · ETL Principal
-Lee: Google Sheets (Mike Rhodes + smec), Meta Ads API, GA4 API, Shopify API, Clarity (CSV)
+Lee: Google Sheets (Mike Rhodes + smec), Meta Ads API, GA4 API (x2), Shopify API, Clarity (CSV)
 Escribe: Supabase (PostgreSQL)
 
 Corre diario via GitHub Actions (gratis hasta 2000 min/mes)
@@ -11,7 +11,6 @@ import logging
 from datetime import date, timedelta
 from dotenv import load_dotenv
 
-# Importar todos los extractores
 from extractors.google_sheets   import extract_mike_rhodes, extract_smec_search_terms
 from extractors.meta_ads        import extract_meta_ads
 from extractors.ga4             import extract_ga4
@@ -27,6 +26,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# ── Las dos propiedades de GA4 ─────────────────────────────────
+GA4_PROPERTIES = [
+    os.environ.get("GA4_PROPERTY_ID_CLIENTE1", "508597206"),
+    os.environ.get("GA4_PROPERTY_ID_CLIENTE2", "523524806"),
+]
+
 
 def run_etl(client_id: str, days_back: int = 30):
     log.info(f"▶ Iniciando ETL para client_id={client_id}, días={days_back}")
@@ -37,7 +42,7 @@ def run_etl(client_id: str, days_back: int = 30):
     )
 
     date_from = date.today() - timedelta(days=days_back)
-    date_to   = date.today() - timedelta(days=1)      # ayer
+    date_to   = date.today() - timedelta(days=1)
 
     # ── 1. GOOGLE ADS · Mike Rhodes Sheet ──────────────────────
     log.info("── Google Ads (Mike Rhodes Sheet)")
@@ -73,17 +78,31 @@ def run_etl(client_id: str, days_back: int = 30):
     loader.upsert("meta_campaigns", meta_rows, client_id)
     log.info(f"   ✓ Anuncios Meta: {len(meta_rows)} filas")
 
-    # ── 4. GOOGLE ANALYTICS 4 ───────────────────────────────────
-    log.info("── Google Analytics 4")
-    ga4_rows, ga4_funnel = extract_ga4(
-        property_id=os.environ["GA4_PROPERTY_ID"],
-        credentials_path=os.environ["GOOGLE_CREDENTIALS_PATH"],
-        date_from=date_from,
-        date_to=date_to
-    )
-    loader.upsert("ga4_metrics", ga4_rows,   client_id)
-    loader.upsert("ga4_funnel",  ga4_funnel, client_id)
-    log.info(f"   ✓ GA4 métricas: {len(ga4_rows)} filas")
+    # ── 4. GOOGLE ANALYTICS 4 (dos propiedades) ─────────────────
+    log.info("── Google Analytics 4 (2 propiedades)")
+    all_ga4_rows   = []
+    all_ga4_funnel = []
+
+    for property_id in GA4_PROPERTIES:
+        log.info(f"   Procesando GA4 property: {property_id}")
+        try:
+            ga4_rows, ga4_funnel = extract_ga4(
+                property_id=property_id,
+                credentials_path=os.environ["GOOGLE_CREDENTIALS_PATH"],
+                date_from=date_from,
+                date_to=date_to
+            )
+            # Agregar el property_id a cada fila para distinguirlas
+            for row in ga4_rows:
+                row["source_medium"] = f"{property_id} / {row.get('source_medium', 'direct')}"
+            all_ga4_rows.extend(ga4_rows)
+            all_ga4_funnel.extend(ga4_funnel)
+            log.info(f"   ✓ GA4 {property_id}: {len(ga4_rows)} filas")
+        except Exception as e:
+            log.error(f"   ✗ GA4 {property_id} error: {e}")
+
+    loader.upsert("ga4_metrics", all_ga4_rows,   client_id)
+    loader.upsert("ga4_funnel",  all_ga4_funnel, client_id)
 
     # ── 5. GOOGLE MERCHANT CENTER ───────────────────────────────
     log.info("── Google Merchant Center")

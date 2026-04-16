@@ -1,54 +1,48 @@
 """
 Extractor: Google Sheets
-Lee sheets públicos via HTTP directo (CSV export) sin necesidad de autenticación.
-Funciona porque los sheets de Mike Rhodes y smec son públicos (cualquiera con el link puede ver).
+Lee los 4 scripts via CSV público (sheets públicos, sin autenticación):
+  1. PMAX Insights (Mike Rhodes v30) — r_camp, r_ag, r_prod_t, r_prod_t_180, r_ads, r_allads, zombies, r_placements_pmax, r_placements_detail
+  2. Brand Analyzer (smec) — End Result
+  3. PMAX Search Terms — categories, terms
+  4. Flowboost Labelizer — Flowbelizer, productSummary
 """
 
 import logging
 import requests
-from typing import Any
 import csv
 import io
+import os
+from typing import Any
 
 log = logging.getLogger(__name__)
 
 
 def _read_sheet_csv(sheet_id: str, tab_name: str) -> list[dict]:
-    """
-    Lee una pestaña de un Google Sheet público via exportación CSV.
-    No requiere autenticación — funciona con sheets públicos.
-    """
+    """Lee una pestaña de un Google Sheet público via CSV."""
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={tab_name}"
-    
     try:
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
-        
         if not resp.text or len(resp.text) < 10:
-            log.warning(f"   Tab {tab_name}: respuesta vacía")
+            log.warning(f"   Tab '{tab_name}': respuesta vacía")
             return []
-        
         reader = csv.DictReader(io.StringIO(resp.text))
         rows = []
         for row in reader:
-            # Normalizar headers
             normalized = {}
             for k, v in row.items():
                 key = k.strip().lower()\
-                    .replace(" ", "_")\
-                    .replace(".", "_")\
-                    .replace("(", "")\
-                    .replace(")", "")\
-                    .replace("/", "_")
+                    .replace(" ", "_").replace(".", "_")\
+                    .replace("(", "").replace(")", "")\
+                    .replace("/", "_").replace("-", "_")
                 normalized[key] = v.strip()
             rows.append(normalized)
-        
         return rows
     except requests.exceptions.HTTPError as e:
-        log.error(f"   Tab {tab_name} HTTP error: {e.response.status_code}")
+        log.error(f"   Tab '{tab_name}' HTTP {e.response.status_code}")
         return []
     except Exception as e:
-        log.error(f"   Tab {tab_name} error: {type(e).__name__}: {e}")
+        log.error(f"   Tab '{tab_name}' error: {type(e).__name__}: {e}")
         return []
 
 
@@ -66,22 +60,27 @@ def _safe_int(val: Any, default=0) -> int:
         return default
 
 
+# ════════════════════════════════════════════════════════════════
+# 1. PMAX INSIGHTS — Mike Rhodes v30
+# ════════════════════════════════════════════════════════════════
+
 def extract_mike_rhodes(sheet_id: str) -> dict:
-    """Lee el Google Sheet de Mike Rhodes via CSV público."""
-    log.info(f"   Leyendo Sheet ID: {sheet_id} via CSV público")
+    """Lee el Google Sheet de Mike Rhodes v30 via CSV público."""
+    log.info(f"   Mike Rhodes sheet: {sheet_id}")
 
     result = {
-        "campaigns":    [],
-        "asset_groups": [],
-        "products_30d": [],
-        "products_180d":[],
-        "assets":       [],
-        "zombies":      []
+        "campaigns":         [],
+        "asset_groups":      [],
+        "products_30d":      [],
+        "products_180d":     [],
+        "assets":            [],
+        "zombies":           [],
+        "placements_pmax":   [],
+        "placements_detail": [],
     }
 
     # r_camp
-    rows = _read_sheet_csv(sheet_id, "r_camp")
-    for r in rows:
+    for r in _read_sheet_csv(sheet_id, "r_camp"):
         cost = _safe_float(r.get("metrics_cost_micros", 0)) / 1_000_000
         conv_value = _safe_float(r.get("metrics_conversions_value", 0))
         if not r.get("segments_date"):
@@ -94,37 +93,35 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
             "conv_value":    round(conv_value, 2),
             "impressions":   _safe_int(r.get("metrics_impressions", 0)),
             "clicks":        _safe_int(r.get("metrics_clicks", 0)),
-            "video_views":   _safe_int(r.get("metrics_video_views", 0)),
-            "avg_cpv":       _safe_float(r.get("metrics_average_cpv", 0)),
+            "video_views":   0,
+            "avg_cpv":       0,
             "roas":          round(conv_value / cost, 4) if cost > 0 else 0,
         })
     log.info(f"   r_camp: {len(result['campaigns'])} filas")
 
     # r_ag
-    rows = _read_sheet_csv(sheet_id, "r_ag")
-    for r in rows:
+    for r in _read_sheet_csv(sheet_id, "r_ag"):
         cost = _safe_float(r.get("metrics_cost_micros", 0)) / 1_000_000
         conv_value = _safe_float(r.get("metrics_conversions_value", 0))
         if not r.get("segments_date"):
             continue
         result["asset_groups"].append({
-            "date":              r.get("segments_date", ""),
-            "campaign_name":     r.get("campaign_name", ""),
-            "asset_group_name":  r.get("asset_group_name", ""),
-            "ad_strength":       r.get("asset_group_ad_strength", ""),
-            "status":            r.get("asset_group_status", ""),
-            "impressions":       _safe_int(r.get("metrics_impressions", 0)),
-            "clicks":            _safe_int(r.get("metrics_clicks", 0)),
-            "cost":              round(cost, 2),
-            "conversions":       _safe_float(r.get("metrics_conversions", 0)),
-            "conv_value":        round(conv_value, 2),
-            "roas":              round(conv_value / cost, 4) if cost > 0 else 0,
+            "date":             r.get("segments_date", ""),
+            "campaign_name":    r.get("campaign_name", ""),
+            "asset_group_name": r.get("asset_group_name", ""),
+            "ad_strength":      r.get("asset_group_ad_strength", ""),
+            "status":           r.get("asset_group_status", ""),
+            "impressions":      _safe_int(r.get("metrics_impressions", 0)),
+            "clicks":           _safe_int(r.get("metrics_clicks", 0)),
+            "cost":             round(cost, 2),
+            "conversions":      _safe_float(r.get("metrics_conversions", 0)),
+            "conv_value":       round(conv_value, 2),
+            "roas":             round(conv_value / cost, 4) if cost > 0 else 0,
         })
     log.info(f"   r_ag: {len(result['asset_groups'])} filas")
 
-    # r_prod_t
-    rows = _read_sheet_csv(sheet_id, "r_prod_t")
-    for r in rows:
+    # r_prod_t (30d)
+    for r in _read_sheet_csv(sheet_id, "r_prod_t"):
         cost = _safe_float(r.get("metrics_cost_micros", 0)) / 1_000_000
         conv_value = _safe_float(r.get("metrics_conversions_value", 0))
         result["products_30d"].append({
@@ -146,8 +143,7 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
     log.info(f"   r_prod_t: {len(result['products_30d'])} filas")
 
     # r_prod_t_180
-    rows = _read_sheet_csv(sheet_id, "r_prod_t_180")
-    for r in rows:
+    for r in _read_sheet_csv(sheet_id, "r_prod_t_180"):
         cost = _safe_float(r.get("metrics_cost_micros", 0)) / 1_000_000
         conv_value = _safe_float(r.get("metrics_conversions_value", 0))
         result["products_180d"].append({
@@ -169,9 +165,7 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
     log.info(f"   r_prod_t_180: {len(result['products_180d'])} filas")
 
     # r_ads + r_allads
-    ads_rows    = _read_sheet_csv(sheet_id, "r_ads")
     allads_rows = _read_sheet_csv(sheet_id, "r_allads")
-
     asset_lookup = {}
     for a in allads_rows:
         aid = a.get("asset_id", "")
@@ -185,8 +179,7 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
                 "final_url":        a.get("asset_final_urls", ""),
                 "source":           a.get("asset_source", ""),
             }
-
-    for r in ads_rows:
+    for r in _read_sheet_csv(sheet_id, "r_ads"):
         resource_name = r.get("asset_resource_name", "")
         asset_id = resource_name.split("/")[-1] if "/" in resource_name else resource_name
         asset_detail = asset_lookup.get(asset_id, {})
@@ -210,8 +203,7 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
     log.info(f"   r_ads: {len(result['assets'])} assets")
 
     # zombies
-    rows = _read_sheet_csv(sheet_id, "zombies")
-    for r in rows:
+    for r in _read_sheet_csv(sheet_id, "zombies"):
         if not r.get("segments_product_item_id"):
             continue
         result["zombies"].append({
@@ -222,18 +214,51 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
         })
     log.info(f"   zombies: {len(result['zombies'])} productos")
 
+    # r_placements_pmax
+    for r in _read_sheet_csv(sheet_id, "r_placements_pmax"):
+        result["placements_pmax"].append({
+            "campaign_name": r.get("campaign_name", ""),
+            "display_name":  r.get("performance_max_placement_view_display_name", ""),
+            "placement":     r.get("performance_max_placement_view_placement", ""),
+            "placement_type":r.get("performance_max_placement_view_placement_type", ""),
+            "target_url":    r.get("performance_max_placement_view_target_url", ""),
+            "impressions":   _safe_int(r.get("metrics_impressions", 0)),
+        })
+    log.info(f"   r_placements_pmax: {len(result['placements_pmax'])} filas")
+
+    # r_placements_detail
+    for r in _read_sheet_csv(sheet_id, "r_placements_detail"):
+        cost = _safe_float(r.get("metrics_cost_micros", 0)) / 1_000_000
+        conv_value = _safe_float(r.get("metrics_conversions_value", 0))
+        result["placements_detail"].append({
+            "campaign_name":  r.get("campaign_name", ""),
+            "channel_type":   r.get("campaign_advertising_channel_type", ""),
+            "display_name":   r.get("detail_placement_view_display_name", ""),
+            "placement":      r.get("detail_placement_view_placement", ""),
+            "placement_type": r.get("detail_placement_view_placement_type", ""),
+            "target_url":     r.get("detail_placement_view_target_url", ""),
+            "impressions":    _safe_int(r.get("metrics_impressions", 0)),
+            "clicks":         _safe_int(r.get("metrics_clicks", 0)),
+            "cost":           round(cost, 2),
+            "conversions":    _safe_float(r.get("metrics_conversions", 0)),
+            "conv_value":     round(conv_value, 2),
+        })
+    log.info(f"   r_placements_detail: {len(result['placements_detail'])} filas")
+
     return result
 
 
-def extract_smec_search_terms(sheet_id: str) -> list[dict]:
-    """Lee el sheet de smec via CSV público."""
-    log.info(f"   Leyendo smec Sheet ID: {sheet_id}")
+# ════════════════════════════════════════════════════════════════
+# 2. BRAND ANALYZER — smec
+# ════════════════════════════════════════════════════════════════
 
+def extract_smec_search_terms(sheet_id: str) -> list[dict]:
+    """Lee el sheet de smec — pestaña End Result."""
+    log.info(f"   smec sheet: {sheet_id}")
     rows = _read_sheet_csv(sheet_id, "End Result")
     if not rows:
-        log.warning("   smec: sin datos en End Result")
+        log.warning("   smec: sin datos")
         return []
-
     result = []
     for r in rows:
         period_start = r.get("timeframe_start_date", "")
@@ -253,10 +278,10 @@ def extract_smec_search_terms(sheet_id: str) -> list[dict]:
             "ratio_branded_conv_value":   _safe_float(r.get("ratiobranded_conv_value", 0)),
             "ratio_branded_clicks":       _safe_float(r.get("ratiobranded_clicks", 0)),
             "ratio_branded_impressions":  _safe_float(r.get("ratiobranded_impressions", 0)),
-            "conversions_nonbranded":     _safe_float(r.get("non-branded_conversions", 0)),
-            "conv_value_nonbranded":      _safe_float(r.get("non-branded_conv_value", 0)),
-            "clicks_nonbranded":          _safe_int(r.get("non-branded_clicks", 0)),
-            "impressions_nonbranded":     _safe_int(r.get("non-branded_impressions", 0)),
+            "conversions_nonbranded":     _safe_float(r.get("non_branded_conversions", 0)),
+            "conv_value_nonbranded":      _safe_float(r.get("non_branded_conv_value", 0)),
+            "clicks_nonbranded":          _safe_int(r.get("non_branded_clicks", 0)),
+            "impressions_nonbranded":     _safe_int(r.get("non_branded_impressions", 0)),
             "ctr_nonbranded":             _safe_float(r.get("ctrnonbranded", 0)),
             "conv_rate_nonbranded":       _safe_float(r.get("convrate_nonbranded", 0)),
             "conversions_blank":          _safe_float(r.get("blank_conversions", 0)),
@@ -266,6 +291,98 @@ def extract_smec_search_terms(sheet_id: str) -> list[dict]:
             "ctr_blank":                  _safe_float(r.get("ctrblank", 0)),
             "conv_rate_blank":            _safe_float(r.get("convrate_blank", 0)),
         })
-
     log.info(f"   smec: {len(result)} períodos")
+    return result
+
+
+# ════════════════════════════════════════════════════════════════
+# 3. PMAX SEARCH TERMS
+# ════════════════════════════════════════════════════════════════
+
+def extract_pmax_search_terms(sheet_id: str) -> dict:
+    """
+    Lee el sheet de PMAX Search Terms.
+    Pestañas: categories, terms
+    """
+    log.info(f"   PMAX Search Terms sheet: {sheet_id}")
+    result = {"categories": [], "terms": []}
+
+    for r in _read_sheet_csv(sheet_id, "categories"):
+        result["categories"].append({
+            "campaign_name":  r.get("campaign_name", ""),
+            "campaign_id":    r.get("campaign_id", ""),
+            "category_label": r.get("category_label", ""),
+            "category_id":    r.get("category_id", ""),
+            "clicks":         _safe_int(r.get("clicks", 0)),
+            "impressions":    _safe_int(r.get("impr", 0)),
+            "conversions":    _safe_float(r.get("conv", 0)),
+            "conv_value":     _safe_float(r.get("value", 0)),
+            "ctr":            r.get("ctr", "0%").replace("%", ""),
+            "cvr":            r.get("cvr", "0%").replace("%", ""),
+            "aov":            _safe_float(r.get("aov", 0)),
+        })
+    log.info(f"   categories: {len(result['categories'])} filas")
+
+    for r in _read_sheet_csv(sheet_id, "terms"):
+        result["terms"].append({
+            "campaign_name":  r.get("campaign_name", ""),
+            "campaign_id":    r.get("campaign_id", ""),
+            "category_label": r.get("category_label", ""),
+            "search_term":    r.get("search_term", ""),
+            "clicks":         _safe_int(r.get("clicks", 0)),
+            "impressions":    _safe_int(r.get("impr", 0)),
+            "conversions":    _safe_float(r.get("conv", 0)),
+            "conv_value":     _safe_float(r.get("value", 0)),
+            "ctr":            r.get("ctr", "0%").replace("%", ""),
+            "cvr":            r.get("cvr", "0%").replace("%", ""),
+            "aov":            _safe_float(r.get("aov", 0)),
+        })
+    log.info(f"   terms: {len(result['terms'])} filas")
+
+    return result
+
+
+# ════════════════════════════════════════════════════════════════
+# 4. FLOWBOOST LABELIZER
+# ════════════════════════════════════════════════════════════════
+
+def extract_flowboost(sheet_id: str) -> dict:
+    """
+    Lee el sheet de Flowboost Labelizer.
+    Pestañas: Flowbelizer, productSummary
+    """
+    log.info(f"   Flowboost sheet: {sheet_id}")
+    result = {"products": [], "summary": []}
+
+    # Flowbelizer — producto por producto con label
+    for r in _read_sheet_csv(sheet_id, "Flowbelizer"):
+        product_id = r.get("offer_id", r.get("segments_product_item_id", ""))
+        if not product_id:
+            continue
+        result["products"].append({
+            "product_item_id": product_id,
+            "impressions":     _safe_int(r.get("impressions", 0)),
+            "clicks":          _safe_int(r.get("clicks", 0)),
+            "cost":            _safe_float(r.get("cost", 0)),
+            "conversions":     _safe_float(r.get("conversions", 0)),
+            "conv_value":      _safe_float(r.get("conversionvalue", r.get("conversion_value", 0))),
+            "roas":            _safe_float(r.get("convvaluepercostvp", r.get("conv_value_per_cost", 0))),
+            "label":           r.get("isproducttype", r.get("label", "")),  # over-index, index, near-index, under-index, no-index
+        })
+    log.info(f"   Flowbelizer: {len(result['products'])} productos")
+
+    # productSummary
+    for r in _read_sheet_csv(sheet_id, "productSummary"):
+        result["summary"].append({
+            "label":       r.get("label", r.get("isproducttype", "")),
+            "count":       _safe_int(r.get("count", 0)),
+            "impressions": _safe_int(r.get("impressions", 0)),
+            "clicks":      _safe_int(r.get("clicks", 0)),
+            "cost":        _safe_float(r.get("cost", 0)),
+            "conversions": _safe_float(r.get("conversions", 0)),
+            "conv_value":  _safe_float(r.get("conv_value", 0)),
+            "roas":        _safe_float(r.get("roas", 0)),
+        })
+    log.info(f"   productSummary: {len(result['summary'])} filas")
+
     return result

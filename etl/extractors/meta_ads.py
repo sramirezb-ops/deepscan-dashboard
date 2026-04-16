@@ -12,7 +12,6 @@ import requests
 log = logging.getLogger(__name__)
 
 BASE_URL  = "https://graph.facebook.com/v19.0"
-# Campos que pedimos a la API — todos los que el dashboard necesita
 AD_FIELDS = ",".join([
     "campaign_id", "campaign_name",
     "adset_id", "adset_name",
@@ -20,15 +19,14 @@ AD_FIELDS = ",".join([
     "status",
     "spend",
     "impressions", "clicks", "reach",
-    "ctr", "cpm", "cpp", "frequency",
-    "actions",           # aquí viven purchases, add_to_cart, etc.
-    "action_values",     # aquí vive purchase_value
+    "ctr", "cpm", "frequency",
+    "actions",
+    "action_values",
     "cost_per_action_type",
 ])
 
 
 def _get_action(actions: list, action_type: str) -> float:
-    """Extrae el valor de una acción específica del array de actions."""
     if not actions:
         return 0.0
     for a in actions:
@@ -43,14 +41,10 @@ def extract_meta_ads(
     date_from: date,
     date_to: date
 ) -> list[dict]:
-    """
-    Extrae métricas de anuncios de Meta Ads API con paginación automática.
-    Nivel: anuncio por día (time_increment=1).
-    """
     params = {
         "level":          "ad",
         "fields":         AD_FIELDS,
-        "time_increment": "1",           # una fila por día
+        "time_increment": "1",
         "time_range":     f'{{"since":"{date_from}","until":"{date_to}"}}',
         "limit":          500,
         "access_token":   access_token,
@@ -67,15 +61,14 @@ def extract_meta_ads(
         data = resp.json()
 
         for r in data.get("data", []):
-            actions      = r.get("actions", [])
-            action_values= r.get("action_values", [])
-            cpa_list     = r.get("cost_per_action_type", [])
+            actions       = r.get("actions", [])
+            action_values = r.get("action_values", [])
 
-            purchases     = _get_action(actions,       "purchase")
-            purchase_value= _get_action(action_values, "purchase")
-            add_to_cart   = _get_action(actions,       "add_to_cart")
-            initiate_chk  = _get_action(actions,       "initiate_checkout")
-            view_content  = _get_action(actions,       "view_content")
+            purchases      = _get_action(actions,       "purchase")
+            purchase_value = _get_action(action_values, "purchase")
+            add_to_cart    = _get_action(actions,       "add_to_cart")
+            initiate_chk   = _get_action(actions,       "initiate_checkout")
+            view_content   = _get_action(actions,       "view_content")
 
             spend = float(r.get("spend", 0) or 0)
             roas  = round(purchase_value / spend, 4) if spend > 0 else 0
@@ -96,7 +89,7 @@ def extract_meta_ads(
                 "reach":             int(r.get("reach", 0) or 0),
                 "ctr":               float(r.get("ctr", 0) or 0),
                 "cpm":               float(r.get("cpm", 0) or 0),
-                "cpp":               float(r.get("cpp", 0) or 0),
+                "cpp":               0.0,
                 "frequency":         float(r.get("frequency", 0) or 0),
                 "purchases":         purchases,
                 "purchase_value":    purchase_value,
@@ -105,17 +98,16 @@ def extract_meta_ads(
                 "initiate_checkout": initiate_chk,
                 "view_content":      view_content,
                 "cpa":               cpa,
-                "thumb_url":         "",  # se puede enriquecer con /ad endpoint si se necesita
+                "thumb_url":         "",
             })
 
-        # Paginación
         paging = data.get("paging", {})
         next_url = paging.get("next")
         url = next_url if next_url else None
-        params = {}  # los params ya van en la URL de paginación
+        params = {}
 
         if next_url:
-            time.sleep(0.3)   # respetar rate limits de Meta
+            time.sleep(0.3)
 
     log.info(f"   Meta Ads: {len(rows)} filas ({page} páginas)")
     return rows

@@ -22,7 +22,6 @@ AD_FIELDS = ",".join([
     "ctr", "cpm", "frequency",
     "actions",
     "action_values",
-    "cost_per_action_type",
 ])
 
 

@@ -1,5 +1,5 @@
 """
-Loader: Supabase — upsert por lotes
+Loader: Supabase — upsert por lotes con deduplicación y cap de ROAS
 """
 
 import logging
@@ -7,6 +7,7 @@ from supabase import create_client, Client
 
 log = logging.getLogger(__name__)
 BATCH_SIZE = 500
+ROAS_MAX   = 9999.0   # cap para evitar numeric overflow en roas numeric(8,4)
 
 
 class SupabaseLoader:
@@ -16,10 +17,36 @@ class SupabaseLoader:
     def upsert(self, table: str, rows: list[dict], client_id: str):
         if not rows:
             return
+
+        # 1. Inyectar client_id
         enriched = [{**row, "client_id": client_id} for row in rows]
-        total, inserted, errors = len(enriched), 0, 0
+
+        # 2. Capear ROAS para evitar numeric overflow
+        for row in enriched:
+            if "roas" in row and row["roas"] is not None:
+                try:
+                    row["roas"] = min(float(row["roas"]), ROAS_MAX)
+                except (TypeError, ValueError):
+                    row["roas"] = 0.0
+
+        # 3. Deduplicar por columnas de conflicto dentro del mismo batch
+        conflict_cols = self._conflict_columns(table).split(",")
+        seen = set()
+        deduped = []
+        for row in enriched:
+            # Construir clave de deduplicación
+            key = tuple(str(row.get(col.strip(), "")) for col in conflict_cols)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(row)
+
+        duplicates = len(enriched) - len(deduped)
+        if duplicates > 0:
+            log.debug(f"   {table}: {duplicates} duplicados eliminados antes del upsert")
+
+        total, inserted, errors = len(deduped), 0, 0
         for i in range(0, total, BATCH_SIZE):
-            batch = enriched[i:i + BATCH_SIZE]
+            batch = deduped[i:i + BATCH_SIZE]
             try:
                 self.client.table(table)\
                     .upsert(batch, on_conflict=self._conflict_columns(table))\
@@ -28,11 +55,11 @@ class SupabaseLoader:
             except Exception as e:
                 errors += len(batch)
                 log.error(f"   {table} batch {i//BATCH_SIZE + 1} error: {e}")
+
         log.info(f"   ✓ {table}: {inserted}/{total} filas (errores: {errors})")
 
     def _conflict_columns(self, table: str) -> str:
         conflict_map = {
-            # originales
             "meta_campaigns":           "client_id,date,ad_id",
             "gads_campaigns":           "client_id,date,campaign_name",
             "gads_asset_groups":        "client_id,date,campaign_name,asset_group_name",
@@ -48,7 +75,6 @@ class SupabaseLoader:
             "shopify_funnel":           "client_id,date",
             "clarity_metrics":          "client_id,date",
             "clarity_pages":            "client_id,date,page_url",
-            # nuevas
             "gads_placements":          "client_id,campaign_name,placement",
             "gads_flowboost_products":  "client_id,product_item_id",
             "gads_flowboost_summary":   "client_id,label",

@@ -160,7 +160,7 @@ export default function Overview({ data, period, onPeriod, currency = 'COP' }: O
                 />
                 <YAxis hide />
                 <Tooltip
-                  formatter={(v: number) => formatCurrency(v, currency)}
+                  formatter={(v) => formatCurrency(Number(v), currency)}
                   labelFormatter={(l) => `Día ${l}`}
                   contentStyle={{ fontSize: 11, borderRadius: 6 }}
                 />

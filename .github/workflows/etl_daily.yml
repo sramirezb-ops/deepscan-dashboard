@@ -2,9 +2,8 @@ name: DeepScan ETL · Daily
 
 on:
   schedule:
-    # Corre a las 6:00 AM hora Colombia (UTC-5 = 11:00 UTC)
     - cron: "0 11 * * *"
-  workflow_dispatch:   # permite correr manualmente desde GitHub UI
+  workflow_dispatch:
 
 jobs:
   etl:
@@ -37,19 +36,22 @@ jobs:
 
       - name: Correr ETL
         env:
-          SUPABASE_URL:             ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY:     ${{ secrets.SUPABASE_SERVICE_KEY }}
-          MIKE_RHODES_SHEET_ID:     ${{ secrets.MIKE_RHODES_SHEET_ID }}
-          SMEC_SHEET_ID:            ${{ secrets.SMEC_SHEET_ID }}
-          META_ACCESS_TOKEN:        ${{ secrets.META_ACCESS_TOKEN }}
-          META_AD_ACCOUNT_ID:       ${{ secrets.META_AD_ACCOUNT_ID }}
-          GA4_PROPERTY_ID:          ${{ secrets.GA4_PROPERTY_ID }}
-          GMC_MERCHANT_ID:          ${{ secrets.GMC_MERCHANT_ID }}
-          SHOPIFY_SHOP_URL:         ${{ secrets.SHOPIFY_SHOP_URL }}
-          SHOPIFY_ACCESS_TOKEN:     ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
-          GOOGLE_CREDENTIALS_PATH:  /tmp/google_credentials.json
-          CLARITY_CSV_PATH:         /tmp/clarity_export.csv
-          DEFAULT_CLIENT_ID:        ${{ secrets.DEFAULT_CLIENT_ID }}
+          SUPABASE_URL:                 ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:         ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MIKE_RHODES_SHEET_ID:         ${{ secrets.MIKE_RHODES_SHEET_ID }}
+          SMEC_SHEET_ID:                ${{ secrets.SMEC_SHEET_ID }}
+          PMAX_SEARCH_TERMS_SHEET_ID:   ${{ secrets.PMAX_SEARCH_TERMS_SHEET_ID }}
+          FLOWBOOST_SHEET_ID:           ${{ secrets.FLOWBOOST_SHEET_ID }}
+          META_ACCESS_TOKEN:            ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID:           ${{ secrets.META_AD_ACCOUNT_ID }}
+          GA4_PROPERTY_ID_CLIENTE1:     ${{ secrets.GA4_PROPERTY_ID_CLIENTE1 }}
+          GA4_PROPERTY_ID_CLIENTE2:     ${{ secrets.GA4_PROPERTY_ID_CLIENTE2 }}
+          GMC_MERCHANT_ID:              ${{ secrets.GMC_MERCHANT_ID }}
+          SHOPIFY_SHOP_URL:             ${{ secrets.SHOPIFY_SHOP_URL }}
+          SHOPIFY_ACCESS_TOKEN:         ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          GOOGLE_CREDENTIALS_PATH:      /tmp/google_credentials.json
+          CLARITY_CSV_PATH:             /tmp/clarity_export.csv
+          DEFAULT_CLIENT_ID:            ${{ secrets.DEFAULT_CLIENT_ID }}
         run: |
           cd etl
           python etl_main.py

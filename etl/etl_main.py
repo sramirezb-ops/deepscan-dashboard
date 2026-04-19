@@ -1,7 +1,8 @@
 """
-DeepScan Dashboard · ETL Principal v4
+DeepScan Dashboard · ETL Principal v5
 Fuentes: PMAX Insights, Brand Analyzer, PMAX Search Terms, Flowboost Labelizer,
-         Meta Ads API, GA4 API (x2), Shopify API, GMC, Clarity
+         Meta Ads API, GA4 API (x2), Shopify API, GMC, Clarity,
+         Google Ads API directa (campañas, keywords, search terms, geo, ads)
 """
 
 import os
@@ -20,6 +21,7 @@ from extractors.ga4             import extract_ga4
 from extractors.shopify         import extract_shopify
 from extractors.clarity         import extract_clarity
 from extractors.gmc             import extract_gmc
+from extractors.google_ads_api  import run as run_google_ads_api
 from loaders.supabase_loader    import SupabaseLoader
 
 load_dotenv()
@@ -173,6 +175,14 @@ def run_etl(client_id: str, days_back: int = 30):
             log.error(f"   ✗ Clarity error: {e}")
     else:
         log.warning("   ⚠ Clarity CSV no encontrado — saltando")
+
+    # ── 10. GOOGLE ADS API DIRECTA ──────────────────────────────
+    log.info("── Google Ads API (datos completos)")
+    try:
+        run_google_ads_api()
+        log.info("   ✓ Google Ads API completado")
+    except Exception as e:
+        log.error(f"   ✗ Google Ads API error: {e}")
 
     log.info(f"✅ ETL completado para client_id={client_id}")
 

@@ -1,61 +1,57 @@
 name: DeepScan ETL · Daily
-
 on:
   schedule:
     - cron: "0 11 * * *"
   workflow_dispatch:
-
 jobs:
   etl:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
-
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
-
       - name: Instalar dependencias
         run: |
           pip install -r etl/requirements.txt
-
+          pip install google-ads==30.0.0
       - name: Escribir credenciales Google
         run: |
           echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/google_credentials.json
-
       - name: Escribir Clarity CSV (si aplica)
         run: |
           if [ -n "${{ secrets.CLARITY_CSV_BASE64 }}" ]; then
             echo '${{ secrets.CLARITY_CSV_BASE64 }}' | base64 -d > /tmp/clarity_export.csv
           fi
-
       - name: Correr ETL
         env:
-          SUPABASE_URL:                 ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY:         ${{ secrets.SUPABASE_SERVICE_KEY }}
-          MIKE_RHODES_SHEET_ID:         ${{ secrets.MIKE_RHODES_SHEET_ID }}
-          SMEC_SHEET_ID:                ${{ secrets.SMEC_SHEET_ID }}
-          PMAX_SEARCH_TERMS_SHEET_ID:   ${{ secrets.PMAX_SEARCH_TERMS_SHEET_ID }}
-          FLOWBOOST_SHEET_ID:           ${{ secrets.FLOWBOOST_SHEET_ID }}
-          META_ACCESS_TOKEN:            ${{ secrets.META_ACCESS_TOKEN }}
-          META_AD_ACCOUNT_ID:           ${{ secrets.META_AD_ACCOUNT_ID }}
-          GA4_PROPERTY_ID_CLIENTE1:     ${{ secrets.GA4_PROPERTY_ID_CLIENTE1 }}
-          GA4_PROPERTY_ID_CLIENTE2:     ${{ secrets.GA4_PROPERTY_ID_CLIENTE2 }}
-          GMC_MERCHANT_ID:              ${{ secrets.GMC_MERCHANT_ID }}
-          SHOPIFY_SHOP_URL:             ${{ secrets.SHOPIFY_SHOP_URL }}
-          SHOPIFY_ACCESS_TOKEN:         ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
-          GOOGLE_CREDENTIALS_PATH:      /tmp/google_credentials.json
-          CLARITY_CSV_PATH:             /tmp/clarity_export.csv
-          DEFAULT_CLIENT_ID:            ${{ secrets.DEFAULT_CLIENT_ID }}
+          SUPABASE_URL:                     ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:             ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MIKE_RHODES_SHEET_ID:             ${{ secrets.MIKE_RHODES_SHEET_ID }}
+          SMEC_SHEET_ID:                    ${{ secrets.SMEC_SHEET_ID }}
+          PMAX_SEARCH_TERMS_SHEET_ID:       ${{ secrets.PMAX_SEARCH_TERMS_SHEET_ID }}
+          FLOWBOOST_SHEET_ID:               ${{ secrets.FLOWBOOST_SHEET_ID }}
+          META_ACCESS_TOKEN:                ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID:               ${{ secrets.META_AD_ACCOUNT_ID }}
+          GA4_PROPERTY_ID_CLIENTE1:         ${{ secrets.GA4_PROPERTY_ID_CLIENTE1 }}
+          GA4_PROPERTY_ID_CLIENTE2:         ${{ secrets.GA4_PROPERTY_ID_CLIENTE2 }}
+          GMC_MERCHANT_ID:                  ${{ secrets.GMC_MERCHANT_ID }}
+          SHOPIFY_SHOP_URL:                 ${{ secrets.SHOPIFY_SHOP_URL }}
+          SHOPIFY_ACCESS_TOKEN:             ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          GOOGLE_CREDENTIALS_PATH:          /tmp/google_credentials.json
+          CLARITY_CSV_PATH:                 /tmp/clarity_export.csv
+          DEFAULT_CLIENT_ID:                ${{ secrets.DEFAULT_CLIENT_ID }}
+          GOOGLE_ADS_DEVELOPER_TOKEN:       ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
+          GOOGLE_ADS_LOGIN_CUSTOMER_ID:     ${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}
+          GOOGLE_CREDENTIALS_JSON:          ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          GADS_DAYS:                        "30"
         run: |
           cd etl
           python etl_main.py
-
       - name: Notificar error en Slack (opcional)
         if: failure()
         run: |

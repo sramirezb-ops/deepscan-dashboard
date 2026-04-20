@@ -76,8 +76,6 @@ def extract_campaigns(client, customer_id, client_id, date_start, date_end):
             metrics.clicks,
             metrics.conversions,
             metrics.conversions_value,
-            metrics.video_views,
-            metrics.average_cpv,
             metrics.ctr,
             metrics.average_cpc
         FROM campaign
@@ -105,8 +103,6 @@ def extract_campaigns(client, customer_id, client_id, date_start, date_end):
                 "clicks": row.metrics.clicks,
                 "conversions": round(row.metrics.conversions, 2),
                 "conv_value": round(conv_value, 2),
-                "video_views": row.metrics.video_views,
-                "avg_cpv": round(row.metrics.average_cpv / 1_000_000, 4) if row.metrics.average_cpv else 0,
                 "ctr": round(row.metrics.ctr, 4),
                 "cpc": round(row.metrics.average_cpc / 1_000_000, 2) if row.metrics.average_cpc else 0,
                 "roas": round(conv_value / cost, 4) if cost > 0 else 0,
@@ -267,8 +263,7 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
                 "ad_group_id": str(row.ad_group.id),
                 "ad_group_name": row.ad_group.name,
                 "search_term": row.search_term_view.search_term,
-                "cost": round(cost, 2),
-                "impressions": row.metrics.impressions,
+                "cost": round(cost, 2),                "impressions": row.metrics.impressions,
                 "clicks": row.metrics.clicks,
                 "conversions": round(row.metrics.conversions, 2),
                 "conv_value": round(row.metrics.conversions_value, 2),
@@ -294,7 +289,6 @@ def extract_geo(client, customer_id, client_id, date_start, date_end):
             metrics.conversions_value
         FROM geographic_view
         WHERE segments.date BETWEEN '{date_start}' AND '{date_end}'
-            AND geographic_view.location_type = 'CITY'
         ORDER BY segments.date DESC, metrics.cost_micros DESC
         LIMIT 3000
     """

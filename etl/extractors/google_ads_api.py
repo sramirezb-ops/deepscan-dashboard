@@ -326,7 +326,18 @@ def extract_geo(client, customer_id, client_id, date_start, date_end):
             })
     except GoogleAdsException as e:
         log.error(f"Geo error {customer_id}: {e}")
-    return rows
+    seen = {}
+    for r in rows:
+        key = (r["client_id"], r["date_start"], r["campaign_id"], r["city"])
+        if key not in seen:
+            seen[key] = r
+        else:
+            seen[key]["cost"] = round(seen[key]["cost"] + r["cost"], 2)
+            seen[key]["impressions"] += r["impressions"]
+            seen[key]["clicks"] += r["clicks"]
+            seen[key]["conversions"] = round(seen[key]["conversions"] + r["conversions"], 2)
+            seen[key]["conv_value"] = round(seen[key]["conv_value"] + r["conv_value"], 2)
+    return list(seen.values())
 
 
 def extract_ads(client, customer_id, client_id, date_start, date_end):

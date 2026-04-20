@@ -3,20 +3,27 @@
 interface NavItem {
   id:      string
   label:   string
-  color:   string
+  icon:    string
   badge?:  number
   section: string
 }
 
 const navItems: NavItem[] = [
-  { id: 'overview',    label: 'Overview',          color: '#534AB7', section: 'Resumen' },
-  { id: 'meta',        label: 'Meta Ads',           color: '#534AB7', section: 'Plataformas' },
-  { id: 'google',      label: 'Google Ads · PMAX',  color: '#1D9E75', section: 'Plataformas' },
-  { id: 'ga4',         label: 'Google Analytics',   color: '#378ADD', section: 'Plataformas' },
-  { id: 'merchant',    label: 'Google Merchant',    color: '#BA7517', section: 'Plataformas' },
-  { id: 'shopify',     label: 'Shopify',            color: '#EF9F27', section: 'Ecommerce' },
-  { id: 'clarity',     label: 'Clarity / Web',      color: '#D4537E', section: 'UX' },
+  { id: 'overview',  label: 'Overview',          icon: '◈', section: 'Resumen' },
+  { id: 'google',    label: 'Google Ads',         icon: '◎', section: 'Plataformas' },
+  { id: 'meta',      label: 'Meta Ads',           icon: '◎', section: 'Plataformas' },
+  { id: 'ga4',       label: 'Analytics',          icon: '◎', section: 'Plataformas' },
+  { id: 'merchant',  label: 'Merchant Center',    icon: '◎', section: 'Plataformas' },
+  { id: 'shopify',   label: 'Shopify',            icon: '◎', section: 'Ecommerce' },
+  { id: 'clarity',   label: 'Clarity / CRO',      icon: '◎', section: 'UX' },
 ]
+
+const accentBySection: Record<string, string> = {
+  'Resumen':     '#00d97e',
+  'Plataformas': '#378add',
+  'Ecommerce':   '#f59e0b',
+  'UX':          '#8b5cf6',
+}
 
 interface SidebarProps {
   active:   string
@@ -29,68 +36,120 @@ export default function Sidebar({ active, onChange, client, alerts = {} }: Sideb
   const sections = [...new Set(navItems.map(i => i.section))]
 
   return (
-    <div className="w-48 bg-white border-r border-gray-100 flex flex-col flex-shrink-0 min-h-screen">
+    <div
+      className="flex flex-col flex-shrink-0 min-h-screen"
+      style={{
+        width: '196px',
+        background: 'var(--bg-card)',
+        borderRight: '1px solid var(--border)',
+      }}
+    >
       {/* Logo */}
-      <div className="px-4 py-4 border-b border-gray-50">
-        <div className="text-[15px] font-medium tracking-tight text-gray-900">
-          deep<span className="text-indigo-600">scan</span>
+      <div
+        className="flex items-center gap-2 px-5 py-5"
+        style={{ borderBottom: '1px solid var(--border)' }}
+      >
+        <div
+          className="w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold"
+          style={{ background: 'var(--accent)', color: '#0f1117' }}
+        >
+          DS
         </div>
+        <span
+          style={{
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontWeight: 600,
+            fontSize: '14px',
+            color: 'var(--text-1)',
+            letterSpacing: '-0.02em',
+          }}
+        >
+          deep<span style={{ color: 'var(--accent)' }}>scan</span>
+        </span>
       </div>
 
       {/* Cliente */}
       {client && (
-        <div className="mx-3 my-2 px-3 py-2 bg-gray-50 rounded-lg">
-          <div className="text-xs font-medium text-gray-800 truncate">{client}</div>
-          <div className="flex items-center gap-1 mt-0.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-            <div className="text-[10px] text-green-700">Datos en vivo</div>
+        <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div
+            className="rounded-lg px-3 py-2.5"
+            style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
+          >
+            <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-1)' }} className="truncate">
+              {client}
+            </div>
+            <div className="flex items-center gap-1.5 mt-1">
+              <div
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: 'var(--accent)', boxShadow: '0 0 4px var(--accent)' }}
+              />
+              <span style={{ fontSize: '10px', color: 'var(--accent)' }}>En vivo</span>
+            </div>
           </div>
         </div>
       )}
 
       {/* Nav */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto py-2">
         {sections.map(section => (
-          <div key={section}>
-            <div className="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-gray-300">
+          <div key={section} className="mb-1">
+            <div
+              className="px-5 pt-4 pb-1.5"
+              style={{ fontSize: '9px', fontWeight: 600, letterSpacing: '0.1em', color: 'var(--text-3)', textTransform: 'uppercase' }}
+            >
               {section}
             </div>
             {navItems
               .filter(item => item.section === section)
-              .map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => onChange(item.id)}
-                  className={`w-full flex items-center gap-2 px-4 py-1.5 text-xs text-left transition-colors border-l-2 ${
-                    active === item.id
-                      ? 'bg-indigo-50 text-indigo-800 font-medium border-indigo-500'
-                      : 'text-gray-500 hover:bg-gray-50 border-transparent'
-                  }`}
-                >
-                  <div
-                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    style={{ background: item.color }}
-                  />
-                  <span className="flex-1 truncate">{item.label}</span>
-                  {alerts[item.id] > 0 && (
-                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">
-                      {alerts[item.id]}
+              .map(item => {
+                const isActive = active === item.id
+                const accent = accentBySection[item.section]
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onChange(item.id)}
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-left transition-all relative"
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: isActive ? 500 : 400,
+                      color: isActive ? 'var(--text-1)' : 'var(--text-2)',
+                      background: isActive ? 'var(--bg-hover)' : 'transparent',
+                      borderLeft: `2px solid ${isActive ? accent : 'transparent'}`,
+                    }}
+                  >
+                    <span style={{ color: isActive ? accent : 'var(--text-3)', fontSize: '10px' }}>
+                      {item.icon}
                     </span>
-                  )}
-                </button>
-              ))}
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {alerts[item.id] > 0 && (
+                      <span
+                        className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                        style={{ background: '#ff4d4d22', color: '#ff4d4d' }}
+                      >
+                        {alerts[item.id]}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
           </div>
         ))}
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-50 flex items-center gap-2">
-        <div className="w-7 h-7 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-medium text-indigo-600">
-          DS
+      <div
+        className="px-4 py-4 flex items-center gap-2.5"
+        style={{ borderTop: '1px solid var(--border)' }}
+      >
+        <div
+          className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+          style={{ background: 'var(--accent-dim)', color: 'var(--accent)', fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          SR
         </div>
         <div>
-          <div className="text-xs font-medium text-gray-700">DeepScan</div>
-          <div className="text-[10px] text-gray-300">Admin</div>
+          <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--text-1)' }}>DeepScan</div>
+          <div style={{ fontSize: '10px', color: 'var(--text-3)' }}>Admin</div>
         </div>
       </div>
     </div>

@@ -13,7 +13,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className="antialiased bg-gray-50 text-gray-900">
+      <body
+        className="antialiased"
+        style={{
+          background: 'var(--bg)',
+          color: 'var(--text-1)',
+          fontFamily: "'DM Sans', sans-serif",
+        }}
+      >
         {children}
       </body>
     </html>

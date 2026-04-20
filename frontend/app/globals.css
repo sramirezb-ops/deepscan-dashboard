@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 * {
   box-sizing: border-box;
@@ -7,4 +8,32 @@
 body {
   margin: 0;
   padding: 0;
+}
+
+:root {
+  --bg:        #0f1117;
+  --bg-card:   #161b27;
+  --bg-hover:  #1c2333;
+  --border:    #1e2a3a;
+  --accent:    #00d97e;
+  --accent-dim:#00d97e22;
+  --text-1:    #f0f4f8;
+  --text-2:    #7a8a9e;
+  --text-3:    #3d4f63;
+  --red:       #ff4d4d;
+  --amber:     #f59e0b;
+  --blue:      #378add;
+  --purple:    #8b5cf6;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* Número estilo Space Grotesk */
+.font-num {
+  font-family: 'Space Grotesk', monospace;
+  font-variant-numeric: tabular-nums;
 }

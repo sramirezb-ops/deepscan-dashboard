@@ -1,6 +1,7 @@
 """
 DeepScan — Extractor Google Ads API
 Extrae datos completos via GAQL para todos los clientes en Supabase.
+Usa OAuth2 con refresh_token para autenticación.
 """
 
 import os
@@ -37,19 +38,13 @@ def build_client(customer_id: str) -> GoogleAdsClient:
     config = {
         "developer_token": DEVELOPER_TOKEN,
         "use_proto_plus": True,
+        "client_id": os.environ["GOOGLE_ADS_CLIENT_ID"],
+        "client_secret": os.environ["GOOGLE_ADS_CLIENT_SECRET"],
+        "refresh_token": os.environ["GOOGLE_ADS_REFRESH_TOKEN"],
     }
-    # Login customer ID = MCC si está disponible
     login_cid = os.environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID")
     if login_cid:
         config["login_customer_id"] = login_cid.replace("-", "")
-
-    # Credenciales OAuth desde GOOGLE_CREDENTIALS_JSON
-    import json, tempfile
-    creds_json = os.environ["GOOGLE_CREDENTIALS_JSON"]
-    creds = json.loads(creds_json)
-    config["client_id"] = creds.get("client_id") or creds.get("installed", {}).get("client_id")
-    config["client_secret"] = creds.get("client_secret") or creds.get("installed", {}).get("client_secret")
-    config["refresh_token"] = creds.get("refresh_token")
 
     return GoogleAdsClient.load_from_dict(config)
 
@@ -69,7 +64,6 @@ def upsert(table: str, rows: list, conflict: str):
 # ── QUERIES GAQL ─────────────────────────────────────────────────────────────
 
 def extract_campaigns(client, customer_id, client_id, date_start, date_end):
-    """Campañas con métricas completas por día."""
     query = f"""
         SELECT
             campaign.id,
@@ -123,7 +117,6 @@ def extract_campaigns(client, customer_id, client_id, date_start, date_end):
 
 
 def extract_ad_groups(client, customer_id, client_id, date_start, date_end):
-    """Grupos de anuncios con métricas por día."""
     query = f"""
         SELECT
             campaign.id,
@@ -177,7 +170,6 @@ def extract_ad_groups(client, customer_id, client_id, date_start, date_end):
 
 
 def extract_keywords(client, customer_id, client_id, date_start, date_end):
-    """Keywords con % de impresiones."""
     query = f"""
         SELECT
             campaign.id,
@@ -240,7 +232,6 @@ def extract_keywords(client, customer_id, client_id, date_start, date_end):
 
 
 def extract_search_terms(client, customer_id, client_id, date_start, date_end):
-    """Términos de búsqueda reales."""
     query = f"""
         SELECT
             campaign.id,
@@ -248,7 +239,6 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
             ad_group.id,
             ad_group.name,
             search_term_view.search_term,
-            segments.keyword.info.match_type,
             segments.date,
             metrics.cost_micros,
             metrics.impressions,
@@ -277,7 +267,6 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
                 "ad_group_id": str(row.ad_group.id),
                 "ad_group_name": row.ad_group.name,
                 "search_term": row.search_term_view.search_term,
-                "match_type": row.segments.keyword.info.match_type.name if row.segments.keyword.info.match_type else None,
                 "cost": round(cost, 2),
                 "impressions": row.metrics.impressions,
                 "clicks": row.metrics.clicks,
@@ -292,12 +281,10 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
 
 
 def extract_geo(client, customer_id, client_id, date_start, date_end):
-    """Métricas por ciudad/geo."""
     query = f"""
         SELECT
             campaign.id,
             campaign.name,
-            geographic_view.country_criterion_id,
             segments.geo_target_city,
             segments.date,
             metrics.cost_micros,
@@ -337,7 +324,6 @@ def extract_geo(client, customer_id, client_id, date_start, date_end):
 
 
 def extract_ads(client, customer_id, client_id, date_start, date_end):
-    """Anuncios individuales con métricas."""
     query = f"""
         SELECT
             campaign.id,
@@ -414,32 +400,26 @@ def run():
         try:
             gads = build_client(customer_id)
 
-            # Campañas
             rows = extract_campaigns(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_campaigns", rows, "client_id,date,campaign_id")
             log.info(f"   ✓ gads_campaigns: {n} filas")
 
-            # Grupos de anuncios
             rows = extract_ad_groups(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_ad_groups", rows, "client_id,date_start,ad_group_id")
             log.info(f"   ✓ gads_ad_groups: {n} filas")
 
-            # Keywords
             rows = extract_keywords(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_keywords", rows, "client_id,date_start,keyword_id")
             log.info(f"   ✓ gads_keywords: {n} filas")
 
-            # Search terms
             rows = extract_search_terms(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_search_term_details", rows, "client_id,date_start,campaign_id,search_term")
             log.info(f"   ✓ gads_search_term_details: {n} filas")
 
-            # Geo
             rows = extract_geo(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_geo", rows, "client_id,date_start,campaign_id,city")
             log.info(f"   ✓ gads_geo: {n} filas")
 
-            # Ads
             rows = extract_ads(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_ads", rows, "client_id,date_start,ad_id")
             log.info(f"   ✓ gads_ads: {n} filas")

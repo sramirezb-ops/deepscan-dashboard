@@ -272,7 +272,19 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
             })
     except GoogleAdsException as e:
         log.error(f"Search terms error {customer_id}: {e}")
-    return rows
+    # Deduplicar por clave única
+    seen = {}
+    for r in rows:
+        key = (r["client_id"], r["date_start"], r["campaign_id"], r["search_term"])
+        if key not in seen:
+            seen[key] = r
+        else:
+            seen[key]["cost"] = round(seen[key]["cost"] + r["cost"], 2)
+            seen[key]["impressions"] += r["impressions"]
+            seen[key]["clicks"] += r["clicks"]
+            seen[key]["conversions"] = round(seen[key]["conversions"] + r["conversions"], 2)
+            seen[key]["conv_value"] = round(seen[key]["conv_value"] + r["conv_value"], 2)
+    return list(seen.values())
 
 
 def extract_geo(client, customer_id, client_id, date_start, date_end):

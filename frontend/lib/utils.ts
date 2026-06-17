@@ -1,63 +1,102 @@
-// Formatea números como moneda
-export function formatCurrency(value: number, currency = 'COP'): string {
-  return new Intl.NumberFormat('es-CO', {
+// Helpers de formato
+
+export function formatCurrency(value: number, currency = 'MXN'): string {
+  if (value == null || isNaN(value)) return '—';
+  // Abreviar si es grande: $1.15M, $237K
+  if (Math.abs(value) >= 1_000_000) {
+    return `$${(value / 1_000_000).toFixed(2)}M`;
+  }
+  if (Math.abs(value) >= 1_000) {
+    return `$${Math.round(value / 1_000)}K`;
+  }
+  return `$${Math.round(value).toLocaleString('en-US')}`;
+}
+
+export function formatCurrencyFull(value: number, currency = 'MXN'): string {
+  if (value == null || isNaN(value)) return '—';
+  return new Intl.NumberFormat('es-MX', {
     style: 'currency',
     currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(value)
+  }).format(value);
 }
 
-// Formatea números grandes (1.2M, 450K, etc.)
 export function formatNumber(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000)     return `${(value / 1_000).toFixed(1)}K`
-  return value.toLocaleString('es-CO')
+  if (value == null || isNaN(value)) return '—';
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return Math.round(value).toLocaleString('en-US');
 }
 
-// Formatea porcentajes
-export function formatPercent(value: number, decimals = 1): string {
-  return `${(value * 100).toFixed(decimals)}%`
+export function formatInt(value: number): string {
+  if (value == null || isNaN(value)) return '—';
+  return Math.round(value).toLocaleString('en-US');
 }
 
-// Formatea ROAS
+export function formatPercent(value: number, decimals = 2): string {
+  if (value == null || isNaN(value)) return '—';
+  return `${(value * 100).toFixed(decimals)}%`;
+}
+
+export function formatPercentRaw(value: number, decimals = 1): string {
+  // Ya viene como porcentaje (ej: 24.3 no 0.243)
+  if (value == null || isNaN(value)) return '—';
+  return `${value.toFixed(decimals)}%`;
+}
+
 export function formatROAS(value: number): string {
-  return `${value.toFixed(2)}x`
+  if (value == null || isNaN(value)) return '—';
+  return `${value.toFixed(2)}×`;
 }
 
-// Calcula delta entre dos valores
+export function formatDelta(value: number, suffix = '%'): string {
+  if (value == null || isNaN(value)) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(1)}${suffix}`;
+}
+
+export function deltaDirection(value: number): 'up' | 'down' | 'neutral' {
+  if (value == null || isNaN(value) || value === 0) return 'neutral';
+  return value > 0 ? 'up' : 'down';
+}
+
 export function calcDelta(current: number, previous: number): number {
-  if (previous === 0) return 0
-  return ((current - previous) / previous) * 100
+  if (previous === 0 || previous == null) return 0;
+  return ((current - previous) / previous) * 100;
 }
 
-// Rango de fechas
-export function getDateRange(days: number): { from: string; to: string } {
-  const to   = new Date()
-  const from = new Date()
-  from.setDate(from.getDate() - days)
+// Rangos de fecha
+export type Period = '7d' | '30d' | '90d' | 'mtd' | 'ytd';
+
+export function getDateRange(period: Period = '30d'): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date();
+
+  if (period === 'mtd') {
+    from.setDate(1);
+  } else if (period === 'ytd') {
+    from.setMonth(0, 1);
+  } else {
+    const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+    from.setDate(from.getDate() - days);
+  }
+
   return {
     from: from.toISOString().split('T')[0],
-    to:   to.toISOString().split('T')[0],
-  }
+    to: to.toISOString().split('T')[0],
+  };
 }
 
-// Tipos base
-export type Period = '7d' | '30d' | '90d'
-
-export interface KPI {
-  label:    string
-  value:    string
-  delta:    number
-  goal?:    string
-  status:   'green' | 'amber' | 'red'
-  source?:  string
-}
-
-export interface ChartDataPoint {
-  date:   string
-  meta?:  number
-  google?:number
-  prev?:  number
-  value?: number
+// Rango de período anterior (para comparación)
+export function getPreviousRange(period: Period = '30d'): { from: string; to: string } {
+  const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
+  const to = new Date();
+  to.setDate(to.getDate() - days);
+  const from = new Date(to);
+  from.setDate(from.getDate() - days);
+  return {
+    from: from.toISOString().split('T')[0],
+    to: to.toISOString().split('T')[0],
+  };
 }

@@ -1,73 +1,87 @@
-'use client'
-import type { KPI } from '@/lib/utils'
+import type { KpiData } from '@/lib/types';
 
-const statusColor = {
-  green: 'var(--accent)',
-  amber: '#f59e0b',
-  red:   '#ff4d4d',
+interface KpiCardProps extends KpiData {
+  className?: string;
 }
 
-const deltaColor = (delta: number) =>
-  delta > 0 ? 'var(--accent)' : delta < 0 ? '#ff4d4d' : 'var(--text-3)'
-
-export default function KPICard({ kpi }: { kpi: KPI }) {
-  const color = statusColor[kpi.status]
+export function KpiCard({
+  label,
+  value,
+  delta,
+  ytd,
+  ytdValue,
+  comparison,
+  spark,
+  variant = 'violet',
+  className = '',
+}: KpiCardProps) {
+  const variantClass = `k-${variant}`;
 
   return (
-    <div
-      className="rounded-xl p-4 flex flex-col gap-3"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}
-    >
-      {/* Label */}
-      <div style={{ fontSize: '11px', color: 'var(--text-2)', fontWeight: 400 }}>
-        {kpi.label}
-      </div>
-
-      {/* Value */}
-      <div
-        className="font-num"
-        style={{
-          fontSize: '24px',
-          fontWeight: 600,
-          color: 'var(--text-1)',
-          letterSpacing: '-0.03em',
-          lineHeight: 1,
-        }}
-      >
-        {kpi.value}
-      </div>
-
-      {/* Delta + Goal */}
-      <div className="flex items-center justify-between">
-        {kpi.delta !== undefined && (
-          <div
-            className="flex items-center gap-1 text-[11px] font-medium"
-            style={{ color: deltaColor(kpi.delta) }}
+    <div className={`kpi ${variantClass} ${className}`}>
+      <div className="kpi-lbl">{label}</div>
+      <div className="kpi-val">{value}</div>
+      <div className="kpi-bot">
+        {delta && (
+          <span
+            className={`kpi-delta ${
+              delta.direction === 'up' ? 'tgu' : delta.direction === 'down' ? 'tgd' : 'tgm'
+            }`}
           >
-            <span>{kpi.delta > 0 ? '↑' : kpi.delta < 0 ? '↓' : '→'}</span>
-            <span>{Math.abs(kpi.delta).toFixed(1)}%</span>
-          </div>
+            {delta.value}
+          </span>
         )}
-        {kpi.goal && (
-          <div style={{ fontSize: '10px', color: 'var(--text-3)' }} className="truncate max-w-[120px]">
-            {kpi.goal}
-          </div>
+        {ytd && (
+          <span className="dcmp">
+            {ytd} {ytdValue && <b>{ytdValue}</b>}
+          </span>
         )}
-      </div>
-
-      {/* Status bar */}
-      <div
-        className="h-0.5 rounded-full"
-        style={{ background: 'var(--border)' }}
-      >
-        <div
-          className="h-full rounded-full"
-          style={{ background: color, width: kpi.status === 'green' ? '80%' : kpi.status === 'amber' ? '50%' : '25%' }}
-        />
+        {comparison && !ytd && <span className="dcmp">{comparison}</span>}
+        {spark && spark.length > 0 && (
+          <span className="spark">
+            {spark.map((h, i) => (
+              <span key={i} className="spark-bar" style={{ height: `${h}%` }} />
+            ))}
+          </span>
+        )}
       </div>
     </div>
-  )
+  );
+}
+
+// Versión Hero-stat para la tarjeta grande de Overview
+interface HeroStatProps {
+  label: string;
+  value: string;
+  delta?: { value: string; direction: 'up' | 'down' | 'neutral' };
+  comparison?: string;
+  ytd?: string;
+  ytdValue?: string;
+}
+
+export function HeroStat({ label, value, delta, comparison, ytd, ytdValue }: HeroStatProps) {
+  return (
+    <div>
+      <div className="hero-stat-lbl">{label}</div>
+      <div className="hero-stat-val">{value}</div>
+      <div className="hero-stat-sub">
+        {delta && (
+          <span
+            className={`tg ${
+              delta.direction === 'up' ? 'tgu' : delta.direction === 'down' ? 'tgd' : 'tgm'
+            }`}
+          >
+            {delta.value}
+          </span>
+        )}{' '}
+        {(ytd || comparison) && (
+          <span className="dcmp">
+            {ytd && `${ytd} `}
+            {ytdValue && <b>{ytdValue}</b>}
+            {comparison && comparison}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }

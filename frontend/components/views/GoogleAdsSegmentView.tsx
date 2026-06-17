@@ -35,6 +35,8 @@ export interface GoogleAdsSegmentViewProps {
   icon?: string;
   /** Texto bajo la tabla, explicando qué partes aún no tienen fuente real. */
   pendingNote?: string;
+  /** Sección opcional inyectada entre la tabla de campañas y el aviso "Próximamente". */
+  extraSection?: React.ReactNode;
 }
 
 /**
@@ -51,6 +53,7 @@ export function GoogleAdsSegmentView({
   channelLabel,
   icon = '🟢',
   pendingNote,
+  extraSection,
 }: GoogleAdsSegmentViewProps) {
   const client = useClient();
   const { range, previous } = usePeriod();
@@ -242,6 +245,9 @@ export function GoogleAdsSegmentView({
           </tbody>
         </table>
       </div>
+
+      {/* Sección extra inyectada por la vista concreta (ej. productos en PMAX). */}
+      {extraSection}
 
       {/* Bloques sin fuente real — aviso honesto */}
       <div

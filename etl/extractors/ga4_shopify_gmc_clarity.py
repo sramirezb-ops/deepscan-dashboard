@@ -472,6 +472,9 @@ def _clarity_log_schema(payload: list, label: str) -> None:
         info = metric.get("information") or []
         sample = info[0] if info else {}
         log.info(f"   ░░ metric='{name}' filas={len(info)} ejemplo={sample}")
+
+
+def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[list[dict], list[dict]]:
     """
     Microsoft Clarity · Data Export API (project-live-insights).
 

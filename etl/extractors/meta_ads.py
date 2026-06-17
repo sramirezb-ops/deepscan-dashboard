@@ -301,12 +301,67 @@ def extract_meta_messaging(
     return rows
 
 
+def _fetch_ad_thumbnails(
+    access_token: str,
+    ad_account_id: str,
+    width: int = 120,
+    height: int = 120,
+) -> dict:
+    """
+    Mapa ad_id → thumbnail_url del creativo (imagen o frame de miniatura del video).
+
+    Una sola consulta paginada al edge /ads con field expansion
+    `creative{thumbnail_url}`. La miniatura es configuración del creativo (no
+    depende de fechas), así que se trae una vez y se cruza por ad_id con los
+    insights — igual que _fetch_adset_config hace con los adsets.
+
+    Pedimos 120×120 (nítida en pantallas Retina) vía thumbnail_width/height; se
+    muestra a 40px en la tabla. Tolerante: si algo falla, el llamador la envuelve
+    en try/except y los anuncios quedan sin miniatura, sin romper el resto del ETL.
+    """
+    url = f"{BASE_URL}/act_{ad_account_id}/ads"
+    params = {
+        "fields":           "id,creative{thumbnail_url}",
+        "thumbnail_width":  width,
+        "thumbnail_height": height,
+        "limit":            500,
+        "access_token":     access_token,
+    }
+    thumbs: dict = {}
+    page = 0
+    while url:
+        page += 1
+        resp = requests.get(url, params=params if page == 1 else {})
+        resp.raise_for_status()
+        data = resp.json()
+        for a in data.get("data", []):
+            creative = a.get("creative") or {}
+            turl = creative.get("thumbnail_url") or ""
+            if turl:
+                thumbs[a.get("id")] = turl
+        next_url = data.get("paging", {}).get("next")
+        url = next_url if next_url else None
+        params = {}
+        if next_url:
+            time.sleep(0.3)
+    return thumbs
+
+
 def extract_meta_ads(
     access_token: str,
     ad_account_id: str,
     date_from: date,
     date_to: date
 ) -> list[dict]:
+    # Miniaturas de los creativos (por ad_id) — una consulta aparte; si falla,
+    # seguimos sin miniaturas en vez de tumbar todo el extractor de Meta.
+    try:
+        thumb_map = _fetch_ad_thumbnails(access_token, ad_account_id)
+        log.info(f"   Meta Ads: {len(thumb_map)} miniaturas de creativos")
+    except Exception as e:
+        log.warning(f"   Meta Ads: no se pudieron traer miniaturas ({e})")
+        thumb_map = {}
+
     params = {
         "level":          "ad",
         "fields":         AD_FIELDS,
@@ -364,7 +419,7 @@ def extract_meta_ads(
                 "initiate_checkout": initiate_chk,
                 "view_content":      view_content,
                 "cpa":               cpa,
-                "thumb_url":         "",
+                "thumb_url":         thumb_map.get(r.get("ad_id", ""), ""),
             })
 
         paging = data.get("paging", {})

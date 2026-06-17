@@ -1,2 +1,2 @@
-import { MetaOverview } from '@/components/views/MetaOverview';
-export default function Page() { return <MetaOverview />; }
+import { MetaCompras } from '@/components/views/MetaCompras';
+export default function Page() { return <MetaCompras />; }

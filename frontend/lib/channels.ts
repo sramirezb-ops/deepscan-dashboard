@@ -172,7 +172,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Meta Ads · ACP',
     items: [
-      { id: 'meta', label: 'Overview', icon: '◈', href: '/meta', crumb1: 'Meta Ads', crumb2: 'Overview', dotColor: 'warn' },
+      { id: 'meta', label: 'Compras', icon: '🛒', href: '/meta', crumb1: 'Meta Ads', crumb2: 'Compras', dotColor: 'warn' },
       { id: 'mili', label: 'Análisis milimétrico', icon: '📊', href: '/meta/milimetric', crumb1: 'Meta Ads', crumb2: 'Milimétrico', isSubItem: true },
       { id: 'wa', label: 'WhatsApp', icon: '💬', href: '/meta/whatsapp', crumb1: 'Meta Ads', crumb2: 'WhatsApp', isSubItem: true },
       { id: 'ig', label: 'Instagram', icon: '📱', href: '/meta/instagram', crumb1: 'Meta Ads', crumb2: 'Instagram', isSubItem: true },

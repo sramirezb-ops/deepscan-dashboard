@@ -79,6 +79,7 @@ class SupabaseLoader:
         conflict_map = {
             "meta_campaigns":           "client_id,date,ad_id",
             "meta_platform":            "client_id,date,publisher_platform,campaign_name",
+            "meta_messaging":           "client_id,date,campaign_name,adset_name",
             "gads_campaigns":           "client_id,date,campaign_name",
             "gads_asset_groups":        "client_id,date,campaign_name,asset_group_name",
             "gads_products":            "client_id,period,campaign_name,product_item_id",

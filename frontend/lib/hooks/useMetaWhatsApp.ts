@@ -44,6 +44,7 @@ export interface WaAdRow {
   adset: string;
   campaign: string;
   thumbUrl: string | null;
+  status: string; // effective_status crudo de Meta (ACTIVE / PAUSED / …)
   spend: number;
   impressions: number;
   clicks: number;
@@ -176,6 +177,7 @@ interface AdRaw {
   adset_name: string | null;
   campaign_name: string | null;
   thumb_url: string | null;
+  status: string | null;
   spend: number | null;
   impressions: number | null;
   clicks: number | null;
@@ -183,8 +185,9 @@ interface AdRaw {
 }
 
 const AD_SELECT_FULL =
-  'ad_id, ad_name, adset_name, campaign_name, thumb_url, spend, impressions, clicks, conversations';
-const AD_SELECT_BASE = 'ad_id, ad_name, adset_name, campaign_name, thumb_url, spend, impressions, clicks';
+  'ad_id, ad_name, adset_name, campaign_name, thumb_url, status, spend, impressions, clicks, conversations';
+const AD_SELECT_BASE =
+  'ad_id, ad_name, adset_name, campaign_name, thumb_url, status, spend, impressions, clicks';
 
 /**
  * Trae los anuncios (meta_campaigns nivel ad) de las campañas de mensajería del
@@ -238,6 +241,7 @@ interface AdAgg {
   adset: string;
   campaign: string;
   thumbUrl: string | null;
+  status: string;
   spend: number;
   impressions: number;
   clicks: number;
@@ -257,6 +261,7 @@ function aggregateAds(rows: AdRaw[]): AdAgg[] {
         adset: r.adset_name || '(sin conjunto)',
         campaign: r.campaign_name || '(sin nombre)',
         thumbUrl: r.thumb_url || null,
+        status: r.status || '',
         spend: 0,
         impressions: 0,
         clicks: 0,
@@ -265,6 +270,7 @@ function aggregateAds(rows: AdRaw[]): AdAgg[] {
       map.set(adId, a);
     }
     if ((a.thumbUrl === null || a.thumbUrl === '') && r.thumb_url) a.thumbUrl = r.thumb_url;
+    if (!a.status && r.status) a.status = r.status;
     a.spend += Number(r.spend) || 0;
     a.impressions += Number(r.impressions) || 0;
     a.clicks += Number(r.clicks) || 0;
@@ -331,6 +337,7 @@ function buildAdsByAdset(
       adset: a.adset,
       campaign: a.campaign,
       thumbUrl: a.thumbUrl === '' ? null : a.thumbUrl,
+      status: a.status,
       spend: a.spend,
       impressions: a.impressions,
       clicks: a.clicks,

@@ -301,33 +301,37 @@ def extract_meta_messaging(
     return rows
 
 
-def _fetch_ad_thumbnails(
+def _fetch_ad_creatives(
     access_token: str,
     ad_account_id: str,
     width: int = 120,
     height: int = 120,
 ) -> dict:
     """
-    Mapa ad_id → thumbnail_url del creativo (imagen o frame de miniatura del video).
+    Mapa ad_id → {"thumb": thumbnail_url, "status": effective_status}.
 
     Una sola consulta paginada al edge /ads con field expansion
-    `creative{thumbnail_url}`. La miniatura es configuración del creativo (no
-    depende de fechas), así que se trae una vez y se cruza por ad_id con los
-    insights — igual que _fetch_adset_config hace con los adsets.
+    `creative{thumbnail_url}` + `effective_status`. Ambas cosas son configuración
+    del anuncio (no dependen de fechas), así que se traen una vez y se cruzan por
+    ad_id con los insights — igual que _fetch_adset_config hace con los adsets.
 
-    Pedimos 120×120 (nítida en pantallas Retina) vía thumbnail_width/height; se
-    muestra a 40px en la tabla. Tolerante: si algo falla, el llamador la envuelve
-    en try/except y los anuncios quedan sin miniatura, sin romper el resto del ETL.
+    `effective_status` es el estado REAL de entrega (ACTIVE / PAUSED /
+    ADSET_PAUSED / CAMPAIGN_PAUSED / ARCHIVED…), lo que permite marcar en la vista
+    si el anuncio sigue activo o está pausado.
+
+    Pedimos miniatura 120×120 (nítida en Retina); se muestra a 40px. Tolerante:
+    si algo falla, el llamador lo envuelve en try/except y los anuncios quedan sin
+    miniatura ni estado, sin romper el resto del ETL.
     """
     url = f"{BASE_URL}/act_{ad_account_id}/ads"
     params = {
-        "fields":           "id,creative{thumbnail_url}",
+        "fields":           "id,effective_status,creative{thumbnail_url}",
         "thumbnail_width":  width,
         "thumbnail_height": height,
         "limit":            500,
         "access_token":     access_token,
     }
-    thumbs: dict = {}
+    info: dict = {}
     page = 0
     while url:
         page += 1
@@ -336,15 +340,16 @@ def _fetch_ad_thumbnails(
         data = resp.json()
         for a in data.get("data", []):
             creative = a.get("creative") or {}
-            turl = creative.get("thumbnail_url") or ""
-            if turl:
-                thumbs[a.get("id")] = turl
+            info[a.get("id")] = {
+                "thumb":  creative.get("thumbnail_url") or "",
+                "status": a.get("effective_status", "") or "",
+            }
         next_url = data.get("paging", {}).get("next")
         url = next_url if next_url else None
         params = {}
         if next_url:
             time.sleep(0.3)
-    return thumbs
+    return info
 
 
 def extract_meta_ads(
@@ -353,14 +358,14 @@ def extract_meta_ads(
     date_from: date,
     date_to: date
 ) -> list[dict]:
-    # Miniaturas de los creativos (por ad_id) — una consulta aparte; si falla,
-    # seguimos sin miniaturas en vez de tumbar todo el extractor de Meta.
+    # Creativos por ad_id (miniatura + estado real de entrega) — una consulta
+    # aparte; si falla, seguimos sin esos campos en vez de tumbar todo el ETL.
     try:
-        thumb_map = _fetch_ad_thumbnails(access_token, ad_account_id)
-        log.info(f"   Meta Ads: {len(thumb_map)} miniaturas de creativos")
+        ad_info = _fetch_ad_creatives(access_token, ad_account_id)
+        log.info(f"   Meta Ads: {len(ad_info)} creativos (miniatura + estado)")
     except Exception as e:
-        log.warning(f"   Meta Ads: no se pudieron traer miniaturas ({e})")
-        thumb_map = {}
+        log.warning(f"   Meta Ads: no se pudieron traer creativos ({e})")
+        ad_info = {}
 
     params = {
         "level":          "ad",
@@ -408,7 +413,7 @@ def extract_meta_ads(
                 "adset_name":        r.get("adset_name", ""),
                 "ad_id":             r.get("ad_id", ""),
                 "ad_name":           r.get("ad_name", ""),
-                "status":            "",
+                "status":            ad_info.get(r.get("ad_id", ""), {}).get("status", ""),
                 "spend":             spend,
                 "impressions":       int(r.get("impressions", 0) or 0),
                 "clicks":            int(r.get("clicks", 0) or 0),
@@ -426,7 +431,7 @@ def extract_meta_ads(
                 "cpa":               cpa,
                 "conversations":          conversations,
                 "cost_per_conversation":  cost_per_conversation,
-                "thumb_url":         thumb_map.get(r.get("ad_id", ""), ""),
+                "thumb_url":         ad_info.get(r.get("ad_id", ""), {}).get("thumb", ""),
             })
 
         paging = data.get("paging", {})

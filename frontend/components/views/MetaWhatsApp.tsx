@@ -113,6 +113,32 @@ function AnalysisBadge({ tone, label }: { tone: WaAdTone; label: string }) {
   );
 }
 
+// Estado de entrega del anuncio (effective_status de Meta) → etiqueta + color.
+function statusInfo(raw: string): { label: string; dot: string; fg: string } {
+  const s = (raw || '').toUpperCase();
+  if (s === 'ACTIVE') return { label: 'Activo', dot: '#22d97a', fg: '#22d97a' };
+  if (s.includes('PAUSED')) return { label: 'Pausado', dot: '#f59e0b', fg: '#f59e0b' };
+  if (s === 'ARCHIVED' || s === 'DELETED')
+    return { label: 'Archivado', dot: 'var(--mu)', fg: 'var(--mu)' };
+  if (!s) return { label: '—', dot: 'var(--mu)', fg: 'var(--mu)' };
+  // DISAPPROVED, WITH_ISSUES, PENDING_REVIEW, IN_PROCESS…
+  const pretty = s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, ' ');
+  return { label: pretty, dot: '#ef4444', fg: '#ef4444' };
+}
+
+function StatusPill({ status }: { status: string }) {
+  const s = statusInfo(status);
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: s.fg }}>
+      <span
+        aria-hidden
+        style={{ width: 8, height: 8, borderRadius: '50%', background: s.dot, display: 'inline-block' }}
+      />
+      {s.label}
+    </span>
+  );
+}
+
 // Celda del emoji marcador. Si el conjunto no trae emoji, mostramos un guion mudo.
 function EmojiMark({ emoji }: { emoji: string }) {
   if (!emoji) {
@@ -505,6 +531,7 @@ export function MetaWhatsApp() {
                   <th data-cat="cost">Inversión</th>
                   <th data-cat="cost,conv">Costo / conv.</th>
                   <th data-cat="impr">CTR</th>
+                  <th data-cat="dim">Estado</th>
                   <th data-cat="dim">Análisis</th>
                 </tr>
               </thead>
@@ -539,6 +566,7 @@ export function MetaWhatsApp() {
                       {ad.conversations > 0 ? formatCurrency(ad.costPerConversation, cur) : '—'}
                     </td>
                     <td data-cat="impr">{formatPercent(ad.ctr, 1)}</td>
+                    <td data-cat="dim"><StatusPill status={ad.status} /></td>
                     <td data-cat="dim">
                       <AnalysisBadge tone={ad.analysisTone} label={ad.analysisLabel} />
                     </td>

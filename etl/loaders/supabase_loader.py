@@ -44,17 +44,34 @@ class SupabaseLoader:
         if duplicates > 0:
             log.debug(f"   {table}: {duplicates} duplicados eliminados antes del upsert")
 
+        conflict = self._conflict_columns(table)
         total, inserted, errors = len(deduped), 0, 0
         for i in range(0, total, BATCH_SIZE):
             batch = deduped[i:i + BATCH_SIZE]
             try:
                 self.client.table(table)\
-                    .upsert(batch, on_conflict=self._conflict_columns(table))\
+                    .upsert(batch, on_conflict=conflict)\
                     .execute()
                 inserted += len(batch)
             except Exception as e:
-                errors += len(batch)
-                log.error(f"   {table} batch {i//BATCH_SIZE + 1} error: {e}")
+                # Un lote puede fallar por una sola fila conflictiva (p.ej. carrera
+                # entre dos corridas del ETL que tocan la misma clave a la vez).
+                # En vez de descartar el lote entero, reintentamos fila por fila:
+                # la segunda pasada reabsorbe la fila (ya existe → se actualiza) y
+                # no arrastra a las demás.
+                log.warning(
+                    f"   {table} batch {i//BATCH_SIZE + 1} falló en lote "
+                    f"({e}); reintentando fila por fila…"
+                )
+                for row in batch:
+                    try:
+                        self.client.table(table)\
+                            .upsert(row, on_conflict=conflict)\
+                            .execute()
+                        inserted += 1
+                    except Exception as row_err:
+                        errors += 1
+                        log.error(f"   {table} fila descartada: {row_err}")
 
         log.info(f"   ✓ {table}: {inserted}/{total} filas (errores: {errors})")
 

@@ -1,1 +1,1 @@
-from .ga4_shopify_gmc_clarity import extract_shopify
+from .ga4_shopify_gmc_clarity import extract_shopify, get_shopify_access_token

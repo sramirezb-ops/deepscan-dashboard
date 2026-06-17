@@ -236,6 +236,29 @@ def extract_gmc(merchant_id: str, credentials_path: str) -> list[dict]:
 # SHOPIFY
 # ════════════════════════════════════════════════════════════════
 
+def get_shopify_access_token(shop_url: str, client_id: str, client_secret: str) -> str:
+    """
+    Obtiene un access token del Admin API usando el client credentials grant.
+    Las apps del Dev Dashboard ya no entregan un token estático; se pide uno
+    fresco (válido ~24h) con Client ID + Client Secret. Devuelve un token
+    'shpat_...' listo para el header X-Shopify-Access-Token.
+    shop_url: mi-tienda.myshopify.com  (sin https://)
+    """
+    import requests as req
+
+    url = f"https://{shop_url}/admin/oauth/access_token"
+    resp = req.post(url, data={
+        "grant_type":    "client_credentials",
+        "client_id":     client_id,
+        "client_secret": client_secret,
+    })
+    resp.raise_for_status()
+    token = resp.json().get("access_token")
+    if not token:
+        raise RuntimeError("Shopify no devolvió access_token en el client credentials grant")
+    return token
+
+
 def extract_shopify(
     shop_url: str,
     access_token: str,

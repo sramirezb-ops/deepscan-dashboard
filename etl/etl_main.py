@@ -18,7 +18,7 @@ from extractors.google_sheets   import (
 )
 from extractors.meta_ads        import extract_meta_ads, extract_meta_platform, extract_meta_messaging
 from extractors.ga4             import extract_ga4
-from extractors.shopify         import extract_shopify
+from extractors.shopify         import extract_shopify, get_shopify_access_token
 from extractors.clarity         import extract_clarity
 from extractors.gmc             import extract_gmc
 from extractors.google_ads_api  import run as run_google_ads_api
@@ -171,11 +171,20 @@ def run_etl(client_id: str, days_back: int = 30):
 
     # ── 8. SHOPIFY ──────────────────────────────────────────────
     log.info("── Shopify")
-    shopify_token = os.environ.get("SHOPIFY_ACCESS_TOKEN", "")
-    if shopify_token:
+    shopify_shop_url      = os.environ.get("SHOPIFY_SHOP_URL", "")
+    shopify_client_id     = os.environ.get("SHOPIFY_CLIENT_ID", "")
+    shopify_client_secret = os.environ.get("SHOPIFY_CLIENT_SECRET", "")
+    if shopify_shop_url and shopify_client_id and shopify_client_secret:
         try:
+            # Las apps del Dev Dashboard no dan token estático: se pide uno
+            # fresco (~24h) con el client credentials grant en cada corrida.
+            shopify_token = get_shopify_access_token(
+                shop_url=shopify_shop_url,
+                client_id=shopify_client_id,
+                client_secret=shopify_client_secret,
+            )
             shop_orders, shop_products, shop_funnel = extract_shopify(
-                shop_url=os.environ["SHOPIFY_SHOP_URL"],
+                shop_url=shopify_shop_url,
                 access_token=shopify_token,
                 date_from=date_from,
                 date_to=date_to
@@ -187,7 +196,7 @@ def run_etl(client_id: str, days_back: int = 30):
         except Exception as e:
             log.error(f"   ✗ Shopify error: {e}")
     else:
-        log.warning("   ⚠ SHOPIFY_ACCESS_TOKEN no configurado — saltando")
+        log.warning("   ⚠ Shopify sin credenciales (SHOPIFY_SHOP_URL / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET) — saltando")
 
     # ── 9. MICROSOFT CLARITY ────────────────────────────────────
     log.info("── Microsoft Clarity")

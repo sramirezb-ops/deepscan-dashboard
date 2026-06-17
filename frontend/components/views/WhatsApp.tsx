@@ -29,7 +29,13 @@ const DEST_COLOR: Record<string, string> = {
 };
 
 function destColor(d: string): string {
-  return DEST_COLOR[d] || '#7c5cff';
+  if (DEST_COLOR[d]) return DEST_COLOR[d];
+  // destinos combinados (p.ej. "WhatsApp + Instagram Direct"): color por la
+  // primera app presente, dando prioridad a WhatsApp.
+  if (d.includes('WhatsApp')) return '#25D366';
+  if (d.includes('Messenger')) return '#0084FF';
+  if (d.includes('Instagram')) return '#E1306C';
+  return '#7c5cff';
 }
 
 const ROW_LIMIT = 30;

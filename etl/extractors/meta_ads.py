@@ -173,14 +173,36 @@ def _fetch_adset_config(access_token: str, ad_account_id: str) -> dict:
 
 
 def _classify_destination(cfg: dict) -> tuple[str, str]:
-    """Devuelve (etiqueta_legible, destination_type_crudo)."""
+    """
+    Devuelve (etiqueta_legible, destination_type_crudo).
+    Maneja destinos exactos (WHATSAPP / MESSENGER / INSTAGRAM_DIRECT) y los
+    combinados de Meta (p.ej. MESSAGING_INSTAGRAM_DIRECT_WHATSAPP), que son
+    anuncios de mensajes que ofrecen varias apps; se etiquetan por las apps
+    que incluyen, p.ej. "WhatsApp + Instagram Direct".
+    """
     dt = (cfg.get("destination_type") or "").upper()
+
+    # destino exacto
     if dt in DEST_LABELS:
         return DEST_LABELS[dt], dt
+
+    # destino combinado de mensajería: construir etiqueta por apps presentes
+    if "WHATSAPP" in dt or "MESSENGER" in dt or "INSTAGRAM_DIRECT" in dt:
+        parts = []
+        if "WHATSAPP" in dt:
+            parts.append("WhatsApp")
+        if "INSTAGRAM_DIRECT" in dt:
+            parts.append("Instagram Direct")
+        if "MESSENGER" in dt:
+            parts.append("Messenger")
+        if parts:
+            return " + ".join(parts), dt
+
     # respaldo: promoted_object con número de WhatsApp ⇒ es WhatsApp
     po = cfg.get("promoted_object") or {}
     if po.get("whatsapp_phone_number") or po.get("whatsapp_number"):
         return "WhatsApp", "WHATSAPP"
+
     return "Sin clasificar", dt
 
 
@@ -235,15 +257,24 @@ def extract_meta_messaging(
             actions       = r.get("actions", [])
             conversations = _msg_conversations(actions)
             adset_id      = r.get("adset_id", "")
-            cfg           = cfg_map.get(adset_id, {})
-            opt_goal      = cfg.get("optimization_goal", "")
+            cfg           = cfg_map.get(adset_id)
 
-            # solo campañas de mensajes: meta=CONVERSATIONS o con conversaciones reales
-            is_messaging = (opt_goal == MESSAGING_OPT_GOAL) or (conversations > 0)
-            if not is_messaging:
-                continue
+            # Solo campañas de MENSAJES (optimization_goal = CONVERSATIONS).
+            # Esto excluye campañas de visitas al perfil, web/compras, etc. que
+            # podrían registrar alguna conexión de mensajería de forma incidental.
+            if cfg is None:
+                # Sin config del adset (p.ej. archivado): lo incluimos solo si
+                # registró conversaciones reales, marcándolo como Sin clasificar.
+                if conversations <= 0:
+                    continue
+                opt_goal = ""
+                destination, dtype = "Sin clasificar", ""
+            else:
+                opt_goal = cfg.get("optimization_goal", "")
+                if opt_goal != MESSAGING_OPT_GOAL:
+                    continue
+                destination, dtype = _classify_destination(cfg)
 
-            destination, dtype = _classify_destination(cfg)
             spend = float(r.get("spend", 0) or 0)
 
             rows.append({

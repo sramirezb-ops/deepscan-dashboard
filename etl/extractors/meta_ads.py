@@ -33,6 +33,89 @@ def _get_action(actions: list, action_type: str) -> float:
     return 0.0
 
 
+# Campos para el desglose por plataforma (Facebook / Instagram / etc.).
+# A nivel campaña para poder mostrar qué campañas corren en cada plataforma.
+PLATFORM_FIELDS = ",".join([
+    "campaign_name",
+    "spend",
+    "impressions", "clicks", "reach",
+    "ctr",
+    "actions",
+    "action_values",
+])
+
+
+def extract_meta_platform(
+    access_token: str,
+    ad_account_id: str,
+    date_from: date,
+    date_to: date
+) -> list[dict]:
+    """
+    Extrae Meta Ads DESGLOSADO por plataforma de publicación
+    (publisher_platform: facebook / instagram / messenger / audience_network),
+    a nivel campaña × plataforma × día. Alimenta la tabla `meta_platform`,
+    que es lo que la vista Instagram lee filtrando publisher_platform='instagram'.
+
+    Reutiliza el mismo token y cuenta que extract_meta_ads: no requiere
+    credenciales nuevas, solo el parámetro breakdowns=publisher_platform.
+    """
+    params = {
+        "level":          "campaign",
+        "fields":         PLATFORM_FIELDS,
+        "breakdowns":     "publisher_platform",
+        "time_increment": "1",
+        "time_range":     f'{{"since":"{date_from}","until":"{date_to}"}}',
+        "limit":          500,
+        "access_token":   access_token,
+    }
+
+    url = f"{BASE_URL}/act_{ad_account_id}/insights"
+    rows = []
+    page = 0
+
+    while url:
+        page += 1
+        resp = requests.get(url, params=params if page == 1 else {})
+        resp.raise_for_status()
+        data = resp.json()
+
+        for r in data.get("data", []):
+            actions       = r.get("actions", [])
+            action_values = r.get("action_values", [])
+
+            purchases      = _get_action(actions,       "purchase")
+            purchase_value = _get_action(action_values, "purchase")
+
+            spend = float(r.get("spend", 0) or 0)
+            roas  = round(purchase_value / spend, 4) if spend > 0 else 0
+
+            rows.append({
+                "date":               r.get("date_start", ""),
+                "publisher_platform": r.get("publisher_platform", ""),
+                "campaign_name":      r.get("campaign_name", ""),
+                "spend":              spend,
+                "impressions":        int(r.get("impressions", 0) or 0),
+                "clicks":             int(r.get("clicks", 0) or 0),
+                "reach":              int(r.get("reach", 0) or 0),
+                "ctr":                float(r.get("ctr", 0) or 0),
+                "purchases":          purchases,
+                "purchase_value":     purchase_value,
+                "roas":               roas,
+            })
+
+        paging = data.get("paging", {})
+        next_url = paging.get("next")
+        url = next_url if next_url else None
+        params = {}
+
+        if next_url:
+            time.sleep(0.3)
+
+    log.info(f"   Meta Platform: {len(rows)} filas ({page} páginas)")
+    return rows
+
+
 def extract_meta_ads(
     access_token: str,
     ad_account_id: str,

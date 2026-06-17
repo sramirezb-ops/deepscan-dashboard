@@ -16,7 +16,7 @@ from extractors.google_sheets   import (
     extract_pmax_search_terms,
     extract_flowboost,
 )
-from extractors.meta_ads        import extract_meta_ads
+from extractors.meta_ads        import extract_meta_ads, extract_meta_platform
 from extractors.ga4             import extract_ga4
 from extractors.shopify         import extract_shopify
 from extractors.clarity         import extract_clarity
@@ -107,6 +107,20 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Meta Ads: {len(meta_rows)} filas")
     except Exception as e:
         log.error(f"   ✗ Meta Ads error: {e}")
+
+    # ── 5b. META ADS POR PLATAFORMA (Instagram / Facebook / etc.) ─
+    log.info("── Meta Ads por plataforma (publisher_platform)")
+    try:
+        platform_rows = extract_meta_platform(
+            access_token=os.environ["META_ACCESS_TOKEN"],
+            ad_account_id=os.environ["META_AD_ACCOUNT_ID"],
+            date_from=date_from,
+            date_to=date_to
+        )
+        loader.upsert("meta_platform", platform_rows, client_id)
+        log.info(f"   ✓ Meta Platform: {len(platform_rows)} filas")
+    except Exception as e:
+        log.error(f"   ✗ Meta Platform error: {e}")
 
     # ── 6. GOOGLE ANALYTICS 4 ───────────────────────────────────
     log.info("── Google Analytics 4 (2 propiedades)")

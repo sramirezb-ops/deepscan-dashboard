@@ -390,10 +390,15 @@ def extract_meta_ads(
             add_to_cart    = _get_action(actions,       "add_to_cart")
             initiate_chk   = _get_action(actions,       "initiate_checkout")
             view_content   = _get_action(actions,       "view_content")
+            # Conversaciones iniciadas a nivel anuncio (mismo dato real que la
+            # mensajería usa por ad set). Permite la tabla "anuncios por conjunto"
+            # de la vista de WhatsApp con resultados por creativo.
+            conversations  = _msg_conversations(actions)
 
             spend = float(r.get("spend", 0) or 0)
             roas  = round(purchase_value / spend, 4) if spend > 0 else 0
             cpa   = round(spend / purchases, 2)      if purchases > 0 else 0
+            cost_per_conversation = round(spend / conversations, 2) if conversations > 0 else 0
 
             rows.append({
                 "date":              r.get("date_start", ""),
@@ -419,6 +424,8 @@ def extract_meta_ads(
                 "initiate_checkout": initiate_chk,
                 "view_content":      view_content,
                 "cpa":               cpa,
+                "conversations":          conversations,
+                "cost_per_conversation":  cost_per_conversation,
                 "thumb_url":         thumb_map.get(r.get("ad_id", ""), ""),
             })
 

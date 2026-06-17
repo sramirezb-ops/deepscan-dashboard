@@ -403,11 +403,156 @@ def extract_shopify(
 # MICROSOFT CLARITY
 # ════════════════════════════════════════════════════════════════
 
+CLARITY_API_URL = "https://www.clarity.ms/export-data/api/v1/project-live-insights"
+
+
+def _clarity_norm(s) -> str:
+    """Normaliza un nombre de campo/métrica: minúsculas, solo alfanuméricos."""
+    return "".join(ch for ch in str(s).lower() if ch.isalnum())
+
+
+def _clarity_num(v):
+    """Convierte un valor de la API a float, tolerando strings con comas."""
+    if v is None:
+        return None
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def _clarity_get(token: str, params: dict) -> list:
+    """GET autenticado al endpoint project-live-insights de Clarity."""
+    import requests as req
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    resp = req.get(CLARITY_API_URL, params=params, headers=headers, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
+def _clarity_metric(payload: list, *keywords: str) -> list[dict]:
+    """Devuelve la lista 'information' de la primera métrica cuyo nombre
+    normalizado contenga TODAS las keywords dadas. [] si no existe."""
+    for metric in payload:
+        name = _clarity_norm(metric.get("metricName", ""))
+        if all(kw in name for kw in keywords):
+            info = metric.get("information")
+            return info if isinstance(info, list) else []
+    return []
+
+
+def _clarity_pick(rows: list[dict], *field_keywords: str):
+    """Suma, sobre todas las filas, el primer campo numérico cuyo nombre
+    normalizado contenga alguna de las keywords. None si no hay match."""
+    total = 0.0
+    found = False
+    for row in rows:
+        for k, v in row.items():
+            nk = _clarity_norm(k)
+            if any(fk in nk for fk in field_keywords):
+                n = _clarity_num(v)
+                if n is not None:
+                    total += n
+                    found = True
+                break
+    return total if found else None
+
+
+def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[list[dict], list[dict]]:
+    """
+    Microsoft Clarity · Data Export API (project-live-insights).
+
+    A diferencia del CSV manual, trae datos solos vía API. Limitaciones de
+    Microsoft: solo últimos 1–3 días (sin histórico), máx 10 req/proyecto/día,
+    máx 1000 filas, zona horaria UTC. Por eso los datos se acumulan hacia
+    adelante: cada corrida diaria agrega la ventana más reciente.
+
+    Hace 2 requests:
+      1. Agregado (sin dimensión)  → fila diaria en clarity_metrics.
+      2. dimension1=URL            → detalle por página en clarity_pages.
+
+    Devuelve (metrics_rows, pages_rows) con el mismo esquema que el extractor
+    CSV, para que el loader y el dashboard no cambien.
+    """
+    d = run_date.isoformat()
+
+    # ── 1. Agregado diario (sin dimensiones) ──────────────────────
+    agg = _clarity_get(token, {"numOfDays": str(num_days)})
+    log.info(f"   Clarity API · respuesta agregada (cruda): {agg}")
+
+    sessions = _clarity_pick(_clarity_metric(agg, "traffic"), "totalsessioncount", "sessioncount") or 0
+    sessions = int(sessions)
+
+    scroll_rows = _clarity_metric(agg, "scroll", "depth") or _clarity_metric(agg, "scrolldepth")
+    scroll_val = _clarity_pick(scroll_rows, "scroll", "depth")
+    scroll_depth = round((scroll_val or 0) / 100, 4)  # API entrega 0–100 → guardamos 0–1
+
+    dead = _clarity_pick(_clarity_metric(agg, "dead", "click"), "deadclick", "count", "sessions") or 0
+    rage = _clarity_pick(_clarity_metric(agg, "rage", "click"), "rageclick", "count", "sessions") or 0
+    quick = _clarity_pick(_clarity_metric(agg, "quickback"), "quickback", "count", "sessions") or 0
+
+    denom = sessions or 1
+    metrics_rows = [{
+        "date":             d,
+        "sessions":         sessions,
+        "scroll_depth":     scroll_depth,
+        "dead_click_rate":  round(dead / denom, 4),
+        "rage_click_rate":  round(rage / denom, 4),
+        "quick_back_rate":  round(quick / denom, 4),
+    }]
+
+    # ── 2. Detalle por página (dimension1=URL) ────────────────────
+    pages_rows = []
+    try:
+        per_url = _clarity_get(token, {"numOfDays": str(num_days), "dimension1": "URL"})
+        log.info(f"   Clarity API · respuesta por URL (cruda): {per_url}")
+
+        # Indexar cada métrica por su valor de URL para cruzar campos.
+        def index_by_url(rows: list[dict]) -> dict:
+            out: dict[str, dict] = {}
+            for row in rows:
+                url = ""
+                for k, v in row.items():
+                    if _clarity_norm(k) in ("url", "pageurl", "page"):
+                        url = str(v)
+                        break
+                if url:
+                    out[url] = row
+            return out
+
+        traffic_by_url = index_by_url(_clarity_metric(per_url, "traffic"))
+        scroll_by_url  = index_by_url(_clarity_metric(per_url, "scroll"))
+        dead_by_url    = index_by_url(_clarity_metric(per_url, "dead", "click"))
+        rage_by_url    = index_by_url(_clarity_metric(per_url, "rage", "click"))
+
+        for url, trow in traffic_by_url.items():
+            s = int(_clarity_pick([trow], "totalsessioncount", "sessioncount") or 0)
+            sc_val = _clarity_pick([scroll_by_url.get(url, {})], "scroll", "depth")
+            pages_rows.append({
+                "date":         d,
+                "page_url":     url,
+                "sessions":     s,
+                "scroll_depth": round((sc_val or 0) / 100, 4),
+                "dead_clicks":  int(_clarity_pick([dead_by_url.get(url, {})], "deadclick", "count", "sessions") or 0),
+                "rage_clicks":  int(_clarity_pick([rage_by_url.get(url, {})], "rageclick", "count", "sessions") or 0),
+                "exit_rate":    0,  # Clarity no expone exit rate en este endpoint
+            })
+    except Exception as e:
+        log.warning(f"   Clarity API · detalle por URL falló: {e}")
+
+    log.info(f"   Clarity API: {len(metrics_rows)} día(s), {len(pages_rows)} páginas, {sessions} sesiones")
+    return metrics_rows, pages_rows
+
+
 def extract_clarity(csv_path: str) -> tuple[list[dict], list[dict]]:
     """
-    Microsoft Clarity no tiene API pública robusta.
-    Lee el CSV exportado manualmente desde el panel de Clarity.
+    Fallback CSV: lee el export manual del panel de Clarity.
     Formato esperado: Date, Sessions, ScrollDepth, DeadClicks, RageClicks, QuickBack, Page
+    Se usa solo si no hay CLARITY_API_TOKEN configurado.
     """
     metrics_by_date: dict[str, list] = {}
     pages_rows = []

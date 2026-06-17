@@ -194,18 +194,35 @@ def run_etl(client_id: str, days_back: int = 30):
 
     # ── 9. MICROSOFT CLARITY ────────────────────────────────────
     log.info("── Microsoft Clarity")
-    clarity_csv_path = os.environ.get("CLARITY_CSV_PATH")
-    if clarity_csv_path and os.path.exists(clarity_csv_path):
+    clarity_api_token = os.environ.get("CLARITY_API_TOKEN", "")
+    clarity_csv_path  = os.environ.get("CLARITY_CSV_PATH")
+    if clarity_api_token:
+        # Fuente preferida: Data Export API (datos automáticos, sin CSV manual).
+        # Solo trae los últimos 1–3 días en UTC → los datos se acumulan hacia
+        # adelante en cada corrida diaria.
+        try:
+            from extractors.clarity import extract_clarity_api
+            clarity_metrics, clarity_pages = extract_clarity_api(
+                token=clarity_api_token,
+                run_date=date_to,   # etiqueta la ventana con el día más reciente cerrado
+                num_days=1,
+            )
+            loader.upsert("clarity_metrics", clarity_metrics, client_id)
+            loader.upsert("clarity_pages",   clarity_pages,   client_id)
+            log.info(f"   ✓ Clarity (API): {len(clarity_metrics)} día(s), {len(clarity_pages)} páginas")
+        except Exception as e:
+            log.error(f"   ✗ Clarity API error: {e}")
+    elif clarity_csv_path and os.path.exists(clarity_csv_path):
         try:
             from extractors.clarity import extract_clarity
             clarity_metrics, clarity_pages = extract_clarity(clarity_csv_path)
             loader.upsert("clarity_metrics", clarity_metrics, client_id)
             loader.upsert("clarity_pages",   clarity_pages,   client_id)
-            log.info(f"   ✓ Clarity: {len(clarity_metrics)} días")
+            log.info(f"   ✓ Clarity (CSV): {len(clarity_metrics)} días")
         except Exception as e:
             log.error(f"   ✗ Clarity error: {e}")
     else:
-        log.warning("   ⚠ Clarity CSV no encontrado — saltando")
+        log.warning("   ⚠ Clarity sin CLARITY_API_TOKEN ni CSV — saltando")
 
     # ── 10. GOOGLE ADS API DIRECTA ──────────────────────────────
     log.info("── Google Ads API (datos completos)")

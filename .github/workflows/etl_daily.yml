@@ -44,6 +44,7 @@ jobs:
           SHOPIFY_ACCESS_TOKEN:             ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
           GOOGLE_CREDENTIALS_PATH:          /tmp/google_credentials.json
           CLARITY_CSV_PATH:                 /tmp/clarity_export.csv
+          CLARITY_API_TOKEN:                ${{ secrets.CLARITY_API_TOKEN }}
           DEFAULT_CLIENT_ID:                ${{ secrets.DEFAULT_CLIENT_ID }}
           GOOGLE_ADS_DEVELOPER_TOKEN:       ${{ secrets.GOOGLE_ADS_DEVELOPER_TOKEN }}
           GOOGLE_ADS_LOGIN_CUSTOMER_ID:     ${{ secrets.GOOGLE_ADS_LOGIN_CUSTOMER_ID }}

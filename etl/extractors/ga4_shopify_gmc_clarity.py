@@ -462,7 +462,16 @@ def _clarity_pick(rows: list[dict], *field_keywords: str):
     return total if found else None
 
 
-def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[list[dict], list[dict]]:
+def _clarity_log_schema(payload: list, label: str) -> None:
+    """Loguea, de forma compacta, el esquema real: por cada métrica su nombre
+    y la primera fila de ejemplo (campos + valores). Evita volcar las 1000
+    filas; así el nombre exacto de cada campo es fácil de encontrar en los logs."""
+    log.info(f"   ░░ CLARITY_SCHEMA [{label}] ░░ {len(payload)} métricas")
+    for metric in payload:
+        name = metric.get("metricName", "?")
+        info = metric.get("information") or []
+        sample = info[0] if info else {}
+        log.info(f"   ░░ metric='{name}' filas={len(info)} ejemplo={sample}")
     """
     Microsoft Clarity · Data Export API (project-live-insights).
 
@@ -482,7 +491,7 @@ def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[
 
     # ── 1. Agregado diario (sin dimensiones) ──────────────────────
     agg = _clarity_get(token, {"numOfDays": str(num_days)})
-    log.info(f"   Clarity API · respuesta agregada (cruda): {agg}")
+    _clarity_log_schema(agg, "agregado")
 
     sessions = _clarity_pick(_clarity_metric(agg, "traffic"), "totalsessioncount", "sessioncount") or 0
     sessions = int(sessions)
@@ -491,9 +500,11 @@ def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[
     scroll_val = _clarity_pick(scroll_rows, "scroll", "depth")
     scroll_depth = round((scroll_val or 0) / 100, 4)  # API entrega 0–100 → guardamos 0–1
 
-    dead = _clarity_pick(_clarity_metric(agg, "dead", "click"), "deadclick", "count", "sessions") or 0
-    rage = _clarity_pick(_clarity_metric(agg, "rage", "click"), "rageclick", "count", "sessions") or 0
-    quick = _clarity_pick(_clarity_metric(agg, "quickback"), "quickback", "count", "sessions") or 0
+    # Conteos de clics: buscar SOLO el nombre específico de la métrica, nunca
+    # campos genéricos de sesión (totalSessionCount también contiene "count").
+    dead = _clarity_pick(_clarity_metric(agg, "dead", "click"), "deadclick") or 0
+    rage = _clarity_pick(_clarity_metric(agg, "rage", "click"), "rageclick") or 0
+    quick = _clarity_pick(_clarity_metric(agg, "quickback"), "quickback") or 0
 
     denom = sessions or 1
     metrics_rows = [{
@@ -509,7 +520,7 @@ def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[
     pages_rows = []
     try:
         per_url = _clarity_get(token, {"numOfDays": str(num_days), "dimension1": "URL"})
-        log.info(f"   Clarity API · respuesta por URL (cruda): {per_url}")
+        _clarity_log_schema(per_url, "por URL")
 
         # Indexar cada métrica por su valor de URL para cruzar campos.
         def index_by_url(rows: list[dict]) -> dict:
@@ -537,8 +548,8 @@ def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[
                 "page_url":     url,
                 "sessions":     s,
                 "scroll_depth": round((sc_val or 0) / 100, 4),
-                "dead_clicks":  int(_clarity_pick([dead_by_url.get(url, {})], "deadclick", "count", "sessions") or 0),
-                "rage_clicks":  int(_clarity_pick([rage_by_url.get(url, {})], "rageclick", "count", "sessions") or 0),
+                "dead_clicks":  int(_clarity_pick([dead_by_url.get(url, {})], "deadclick") or 0),
+                "rage_clicks":  int(_clarity_pick([rage_by_url.get(url, {})], "rageclick") or 0),
                 "exit_rate":    0,  # Clarity no expone exit rate en este endpoint
             })
     except Exception as e:

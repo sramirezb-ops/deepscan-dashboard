@@ -496,27 +496,30 @@ def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[
     agg = _clarity_get(token, {"numOfDays": str(num_days)})
     _clarity_log_schema(agg, "agregado")
 
-    sessions = _clarity_pick(_clarity_metric(agg, "traffic"), "totalsessioncount", "sessioncount") or 0
-    sessions = int(sessions)
+    # Esquema real de Clarity (confirmado en logs):
+    #   Traffic        → totalSessionCount
+    #   ScrollDepth    → averageScrollDepth (0–100)
+    #   DeadClickCount / RageClickCount / QuickbackClick →
+    #       sessionsWithMetricPercentage = % de sesiones CON el problema
+    #       subTotal = total de eventos del clic (cuenta cruda)
+    sessions = int(_clarity_pick(_clarity_metric(agg, "traffic"), "totalsessioncount") or 0)
 
-    scroll_rows = _clarity_metric(agg, "scroll", "depth") or _clarity_metric(agg, "scrolldepth")
-    scroll_val = _clarity_pick(scroll_rows, "scroll", "depth")
-    scroll_depth = round((scroll_val or 0) / 100, 4)  # API entrega 0–100 → guardamos 0–1
+    scroll_val = _clarity_pick(_clarity_metric(agg, "scrolldepth"), "averagescrolldepth")
+    scroll_depth = round((scroll_val or 0) / 100, 4)  # 0–100 → 0–1
 
-    # Conteos de clics: buscar SOLO el nombre específico de la métrica, nunca
-    # campos genéricos de sesión (totalSessionCount también contiene "count").
-    dead = _clarity_pick(_clarity_metric(agg, "dead", "click"), "deadclick") or 0
-    rage = _clarity_pick(_clarity_metric(agg, "rage", "click"), "rageclick") or 0
-    quick = _clarity_pick(_clarity_metric(agg, "quickback"), "quickback") or 0
+    # La "tasa" es la fracción de sesiones con el problema (lo que Clarity llama
+    # sessionsWithMetricPercentage), no eventos/sesiones.
+    dead = _clarity_pick(_clarity_metric(agg, "deadclick"), "sessionswithmetricpercentage")
+    rage = _clarity_pick(_clarity_metric(agg, "rageclick"), "sessionswithmetricpercentage")
+    quick = _clarity_pick(_clarity_metric(agg, "quickback"), "sessionswithmetricpercentage")
 
-    denom = sessions or 1
     metrics_rows = [{
         "date":             d,
         "sessions":         sessions,
         "scroll_depth":     scroll_depth,
-        "dead_click_rate":  round(dead / denom, 4),
-        "rage_click_rate":  round(rage / denom, 4),
-        "quick_back_rate":  round(quick / denom, 4),
+        "dead_click_rate":  round((dead or 0) / 100, 4),
+        "rage_click_rate":  round((rage or 0) / 100, 4),
+        "quick_back_rate":  round((quick or 0) / 100, 4),
     }]
 
     # ── 2. Detalle por página (dimension1=URL) ────────────────────
@@ -525,36 +528,60 @@ def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[
         per_url = _clarity_get(token, {"numOfDays": str(num_days), "dimension1": "URL"})
         _clarity_log_schema(per_url, "por URL")
 
-        # Indexar cada métrica por su valor de URL para cruzar campos.
-        def index_by_url(rows: list[dict]) -> dict:
-            out: dict[str, dict] = {}
-            for row in rows:
-                url = ""
-                for k, v in row.items():
-                    if _clarity_norm(k) in ("url", "pageurl", "page"):
-                        url = str(v)
-                        break
-                if url:
-                    out[url] = row
-            return out
+        def url_path(row: dict) -> str:
+            """URL de la fila, sin query string (colapsa variantes UTM/fbclid)."""
+            for k, v in row.items():
+                if _clarity_norm(k) in ("url", "pageurl", "page") and v:
+                    return str(v).split("?", 1)[0]
+            return ""
 
-        traffic_by_url = index_by_url(_clarity_metric(per_url, "traffic"))
-        scroll_by_url  = index_by_url(_clarity_metric(per_url, "scroll"))
-        dead_by_url    = index_by_url(_clarity_metric(per_url, "dead", "click"))
-        rage_by_url    = index_by_url(_clarity_metric(per_url, "rage", "click"))
+        # Acumular por ruta normalizada. Cada métrica trae su propio sessionsCount
+        # y subTotal (eventos) por URL-variante; sumamos al colapsar variantes.
+        buckets: dict[str, dict] = {}
 
-        for url, trow in traffic_by_url.items():
-            s = int(_clarity_pick([trow], "totalsessioncount", "sessioncount") or 0)
-            sc_val = _clarity_pick([scroll_by_url.get(url, {})], "scroll", "depth")
+        def bucket(u: str) -> dict:
+            return buckets.setdefault(
+                u, {"sessions": 0, "dead": 0, "rage": 0, "scroll_sum": 0.0, "scroll_n": 0}
+            )
+
+        for row in _clarity_metric(per_url, "deadclick"):
+            u = url_path(row)
+            if not u:
+                continue
+            b = bucket(u)
+            b["sessions"] += int(_clarity_pick([row], "sessionscount") or 0)
+            b["dead"]     += int(_clarity_pick([row], "subtotal") or 0)
+
+        for row in _clarity_metric(per_url, "rageclick"):
+            u = url_path(row)
+            if u:
+                bucket(u)["rage"] += int(_clarity_pick([row], "subtotal") or 0)
+
+        for row in _clarity_metric(per_url, "scrolldepth"):
+            u = url_path(row)
+            if not u:
+                continue
+            s = _clarity_pick([row], "averagescrolldepth")
+            if s is not None:
+                b = bucket(u)
+                b["scroll_sum"] += s
+                b["scroll_n"]   += 1
+
+        for u, b in buckets.items():
+            scroll = (b["scroll_sum"] / b["scroll_n"] / 100) if b["scroll_n"] else 0
             pages_rows.append({
                 "date":         d,
-                "page_url":     url,
-                "sessions":     s,
-                "scroll_depth": round((sc_val or 0) / 100, 4),
-                "dead_clicks":  int(_clarity_pick([dead_by_url.get(url, {})], "deadclick") or 0),
-                "rage_clicks":  int(_clarity_pick([rage_by_url.get(url, {})], "rageclick") or 0),
+                "page_url":     u,
+                "sessions":     b["sessions"],
+                "scroll_depth": round(scroll, 4),
+                "dead_clicks":  b["dead"],
+                "rage_clicks":  b["rage"],
                 "exit_rate":    0,  # Clarity no expone exit rate en este endpoint
             })
+
+        # Solo las páginas con más tráfico, para no inflar la tabla.
+        pages_rows.sort(key=lambda r: r["sessions"], reverse=True)
+        pages_rows = pages_rows[:200]
     except Exception as e:
         log.warning(f"   Clarity API · detalle por URL falló: {e}")
 

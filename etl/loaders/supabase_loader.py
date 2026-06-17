@@ -75,6 +75,22 @@ class SupabaseLoader:
 
         log.info(f"   ✓ {table}: {inserted}/{total} filas (errores: {errors})")
 
+    def delete_for_date(self, table: str, client_id: str, day: str):
+        """Borra todas las filas de (client_id, date=day) en una tabla.
+
+        Útil para tablas donde el conjunto de claves cambia entre corridas
+        (p.ej. clarity_pages: las URLs varían), de modo que el upsert por sí
+        solo dejaría filas huérfanas. Requiere service key (ignora RLS)."""
+        try:
+            self.client.table(table)\
+                .delete()\
+                .eq("client_id", client_id)\
+                .eq("date", day)\
+                .execute()
+            log.info(f"   ✓ {table}: filas de {day} limpiadas antes de reinsertar")
+        except Exception as e:
+            log.warning(f"   {table}: no se pudo limpiar la fecha {day}: {e}")
+
     def _conflict_columns(self, table: str) -> str:
         conflict_map = {
             "meta_campaigns":           "client_id,date,ad_id",

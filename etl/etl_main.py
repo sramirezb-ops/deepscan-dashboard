@@ -208,6 +208,9 @@ def run_etl(client_id: str, days_back: int = 30):
                 num_days=1,
             )
             loader.upsert("clarity_metrics", clarity_metrics, client_id)
+            # Las URLs cambian entre corridas → limpiar la fecha antes de reinsertar
+            # para no acumular filas huérfanas (incl. las viejas con query strings).
+            loader.delete_for_date("clarity_pages", client_id, date_to.isoformat())
             loader.upsert("clarity_pages",   clarity_pages,   client_id)
             log.info(f"   ✓ Clarity (API): {len(clarity_metrics)} día(s), {len(clarity_pages)} páginas")
         except Exception as e:

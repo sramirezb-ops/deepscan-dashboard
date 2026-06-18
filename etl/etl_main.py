@@ -16,7 +16,8 @@ from extractors.google_sheets   import (
     extract_pmax_search_terms,
     extract_flowboost,
 )
-from extractors.meta_ads        import extract_meta_ads, extract_meta_platform, extract_meta_messaging
+from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
+from extractors.instagram_organic import extract_instagram_organic
 from extractors.ga4             import extract_ga4
 from extractors.shopify         import extract_shopify
 from extractors.clarity         import extract_clarity
@@ -135,6 +136,30 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Meta Messaging: {len(messaging_rows)} filas")
     except Exception as e:
         log.error(f"   ✗ Meta Messaging error: {e}")
+
+    # ── 5d. INSTAGRAM ORGÁNICO (Instagram Graph API) ────────────
+    # Reutiliza META_ACCESS_TOKEN (necesita permisos instagram_basic +
+    # instagram_manage_insights). Descubre la cuenta IG detrás de las Páginas
+    # conectadas; se puede forzar con META_IG_ACCOUNT_ID / META_PAGE_IDS.
+    log.info("── Instagram orgánico (cuenta + publicaciones)")
+    try:
+        page_ids_env = os.environ.get("META_PAGE_IDS", "1449409705114971,304959279376335")
+        page_ids = [p.strip() for p in page_ids_env.split(",") if p.strip()]
+        ig_data = extract_instagram_organic(
+            access_token=os.environ["META_ACCESS_TOKEN"],
+            date_from=date_from,
+            date_to=date_to,
+            page_ids=page_ids,
+            ig_account_id=os.environ.get("META_IG_ACCOUNT_ID") or None,
+        )
+        loader.upsert("ig_account_daily", ig_data["account_daily"], client_id)
+        loader.upsert("ig_media",         ig_data["media"],         client_id)
+        log.info(
+            f"   ✓ Instagram @{ig_data['ig_username']}: "
+            f"{len(ig_data['account_daily'])} días, {len(ig_data['media'])} posts"
+        )
+    except Exception as e:
+        log.error(f"   ✗ Instagram orgánico error: {e}")
 
     # ── 6. GOOGLE ANALYTICS 4 ───────────────────────────────────
     log.info("── Google Analytics 4 (2 propiedades)")

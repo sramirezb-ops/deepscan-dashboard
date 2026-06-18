@@ -1,2 +1,2 @@
-import { Instagram } from '@/components/views/Instagram';
-export default function Page() { return <Instagram />; }
+import { InstagramOrganic } from '@/components/views/InstagramOrganic';
+export default function Page() { return <InstagramOrganic />; }

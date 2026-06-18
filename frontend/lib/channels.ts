@@ -175,7 +175,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { id: 'meta', label: 'Compras', icon: '🛒', href: '/meta', crumb1: 'Meta Ads', crumb2: 'Compras', dotColor: 'warn' },
       { id: 'mili', label: 'Análisis milimétrico', icon: '📊', href: '/meta/milimetric', crumb1: 'Meta Ads', crumb2: 'Milimétrico', isSubItem: true },
       { id: 'wa', label: 'WhatsApp', icon: '💬', href: '/meta/whatsapp', crumb1: 'Meta Ads', crumb2: 'WhatsApp', isSubItem: true },
-      { id: 'ig', label: 'Instagram', icon: '📱', href: '/meta/instagram', crumb1: 'Meta Ads', crumb2: 'Instagram', isSubItem: true },
+      { id: 'ig', label: 'Instagram orgánico', icon: '📸', href: '/meta/instagram', crumb1: 'Instagram', crumb2: 'Orgánico', isSubItem: true },
     ],
   },
   {

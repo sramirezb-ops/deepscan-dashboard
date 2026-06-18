@@ -145,7 +145,18 @@ export function InstagramOrganic() {
 
   const t = data.totals;
   const dl = data.daily;
-  const dayLabels = dl.map((d) => fmtDayShort(d.date));
+
+  // Instagram reporta los insights de cuenta con 1–2 días de retraso, y cada
+  // métrica con su propio lag. Si dibujamos esos días el último punto cae a 0 y
+  // parece un desplome real. Recortamos los ceros finales de cada serie por
+  // separado para que la línea termine en su último dato real.
+  const trimTrailing = <R,>(rows: R[], val: (r: R) => number): R[] => {
+    let n = rows.length;
+    while (n > 1 && val(rows[n - 1]) === 0) n--;
+    return rows.slice(0, n);
+  };
+  const reachRows = trimTrailing(dl, (d) => d.reach);
+  const followerRows = trimTrailing(dl, (d) => d.newFollowers);
 
   return (
     <div className="view on">
@@ -205,12 +216,14 @@ export function InstagramOrganic() {
         </div>
       </div>
 
-      {/* Tendencias diarias — dato real */}
+      {/* Tendencias diarias — solo series con dato real por día.
+          Las visitas al perfil NO se grafican por día porque Instagram solo
+          entrega el total del período; viven como KPI arriba. */}
       <div
         style={{
           marginTop: 20,
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
           gap: 16,
         }}
       >
@@ -218,26 +231,17 @@ export function InstagramOrganic() {
           title="Alcance / día"
           headline={formatInt(t.reach)}
           sub="cuentas alcanzadas"
-          points={dl.map((d) => d.reach)}
-          labels={dayLabels}
+          points={reachRows.map((d) => d.reach)}
+          labels={reachRows.map((d) => fmtDayShort(d.date))}
           color="#E1306C"
-          format={(v) => formatInt(v)}
-        />
-        <TrendChart
-          title="Visitas al perfil / día"
-          headline={formatInt(t.profileViews)}
-          sub="quién entró al perfil"
-          points={dl.map((d) => d.profileViews)}
-          labels={dayLabels}
-          color="#833AB4"
           format={(v) => formatInt(v)}
         />
         <TrendChart
           title="Seguidores nuevos / día"
           headline={(t.newFollowers >= 0 ? '+' : '−') + formatInt(Math.abs(t.newFollowers))}
           sub="crecimiento neto"
-          points={dl.map((d) => d.newFollowers)}
-          labels={dayLabels}
+          points={followerRows.map((d) => d.newFollowers)}
+          labels={followerRows.map((d) => fmtDayShort(d.date))}
           color="#F77737"
           format={(v) => formatInt(v)}
         />

@@ -30,8 +30,11 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://graph.facebook.com/v19.0"
 
-# Métricas de cuenta a nivel día. Son las clásicas y estables en v19.
-ACCOUNT_DAY_METRICS = ["reach", "profile_views", "follower_count"]
+# Métricas de cuenta que SÍ vienen como serie diaria (period=day, time_series).
+ACCOUNT_TIMESERIES_METRICS = ["reach", "follower_count"]
+# Métricas que la API movió a "total_value" (requieren metric_type=total_value y
+# devuelven UN total del período, no día por día). profile_views es una de ellas.
+ACCOUNT_TOTALVALUE_METRICS = ["profile_views"]
 
 # Campos de cada publicación (lo que NO necesita el endpoint /insights).
 MEDIA_FIELDS = (
@@ -133,36 +136,63 @@ def _account_daily(
 ) -> dict[str, dict]:
     """
     Mapa fecha(YYYY-MM-DD) → {reach, profile_views, new_followers}.
-    Cada métrica viene como serie diaria; se cruzan por end_time.
+
+    Instagram divide estas métricas en dos familias y NO se pueden pedir juntas:
+      • Serie diaria  (reach, follower_count) → period=day, una fila por día.
+      • Total del período (profile_views, …)  → metric_type=total_value, un único
+        número agregado. Se asienta en el último día del rango para no perderlo.
+    Se hacen dos llamadas independientes para que un fallo no tumbe a la otra.
     """
     by_date: dict[str, dict] = {}
+
+    def _row(day: str) -> dict:
+        return by_date.setdefault(
+            day, {"reach": 0, "profile_views": 0, "new_followers": 0}
+        )
+
+    # ── 1) Serie diaria: reach + follower_count ─────────────────
+    field_map = {"reach": "reach", "follower_count": "new_followers"}
     try:
         data = _graph_get(f"{ig_id}/insights", {
-            "metric":       ",".join(ACCOUNT_DAY_METRICS),
+            "metric":       ",".join(ACCOUNT_TIMESERIES_METRICS),
             "period":       "day",
             "since":        str(date_from),
             "until":        str(date_to),
             "access_token": access_token,
         })
-    except Exception as e:
-        log.warning(f"   Instagram: insights de cuenta no disponibles ({e})")
-        return by_date
-
-    field_map = {
-        "reach":          "reach",
-        "profile_views":  "profile_views",
-        "follower_count": "new_followers",
-    }
-    for metric in data.get("data", []):
-        col = field_map.get(metric.get("name", ""))
-        if not col:
-            continue
-        for v in metric.get("values", []):
-            end = (v.get("end_time", "") or "")[:10]
-            if not end:
+        for metric in data.get("data", []):
+            col = field_map.get(metric.get("name", ""))
+            if not col:
                 continue
-            row = by_date.setdefault(end, {"reach": 0, "profile_views": 0, "new_followers": 0})
-            row[col] = int(v.get("value", 0) or 0)
+            for v in metric.get("values", []):
+                end = (v.get("end_time", "") or "")[:10]
+                if not end:
+                    continue
+                _row(end)[col] = int(v.get("value", 0) or 0)
+    except Exception as e:
+        log.warning(f"   Instagram: serie diaria (reach/seguidores) no disponible ({e})")
+
+    # ── 2) Total del período: profile_views (metric_type=total_value) ──
+    try:
+        data = _graph_get(f"{ig_id}/insights", {
+            "metric":       ",".join(ACCOUNT_TOTALVALUE_METRICS),
+            "period":       "day",
+            "metric_type":  "total_value",
+            "since":        str(date_from),
+            "until":        str(date_to),
+            "access_token": access_token,
+        })
+        last = str(date_to)
+        for metric in data.get("data", []):
+            if metric.get("name") not in ACCOUNT_TOTALVALUE_METRICS:
+                continue
+            tv = metric.get("total_value") or {}
+            val = int(tv.get("value", 0) or 0)
+            if val:
+                _row(last)["profile_views"] = val
+    except Exception as e:
+        log.warning(f"   Instagram: profile_views (total) no disponible ({e})")
+
     return by_date
 
 

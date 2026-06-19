@@ -94,6 +94,7 @@ class SupabaseLoader:
     def _conflict_columns(self, table: str) -> str:
         conflict_map = {
             "meta_campaigns":           "client_id,date,ad_id",
+            "tiktok_campaigns":         "client_id,date,ad_id",
             "meta_platform":            "client_id,date,publisher_platform,campaign_name",
             "meta_messaging":           "client_id,date,campaign_name,adset_name",
             "ig_account_daily":         "client_id,date",

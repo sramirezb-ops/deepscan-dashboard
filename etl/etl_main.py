@@ -17,6 +17,7 @@ from extractors.google_sheets   import (
     extract_flowboost,
 )
 from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
+from extractors.tiktok_ads        import extract_tiktok_ads
 from extractors.instagram_organic import extract_instagram_organic
 from extractors.ga4             import extract_ga4
 from extractors.shopify         import extract_shopify
@@ -136,6 +137,27 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Meta Messaging: {len(messaging_rows)} filas")
     except Exception as e:
         log.error(f"   ✗ Meta Messaging error: {e}")
+
+    # ── 5d. TIKTOK ADS API ──────────────────────────────────────
+    # Solo corre si el cliente tiene credenciales de TikTok configuradas.
+    # Así los clientes sin TikTok (p.ej. los que solo usan Meta) no fallan.
+    tiktok_token       = os.environ.get("TIKTOK_ACCESS_TOKEN")
+    tiktok_advertiser  = os.environ.get("TIKTOK_ADVERTISER_ID")
+    if tiktok_token and tiktok_advertiser:
+        log.info("── TikTok Ads API")
+        try:
+            tiktok_rows = extract_tiktok_ads(
+                access_token=tiktok_token,
+                advertiser_id=tiktok_advertiser,
+                date_from=date_from,
+                date_to=date_to
+            )
+            loader.upsert("tiktok_campaigns", tiktok_rows, client_id)
+            log.info(f"   ✓ TikTok Ads: {len(tiktok_rows)} filas")
+        except Exception as e:
+            log.error(f"   ✗ TikTok Ads error: {e}")
+    else:
+        log.info("── TikTok Ads API · sin credenciales (TIKTOK_ACCESS_TOKEN / TIKTOK_ADVERTISER_ID) → omitido")
 
     # ── 5d. INSTAGRAM ORGÁNICO (Instagram Graph API) ────────────
     # Reutiliza META_ACCESS_TOKEN (necesita permisos instagram_basic +

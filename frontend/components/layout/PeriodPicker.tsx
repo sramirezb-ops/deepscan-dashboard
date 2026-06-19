@@ -5,10 +5,13 @@ import { usePeriod } from '@/lib/usePeriod';
 import { PRESETS, formatRangeLabel, type PresetId } from '@/lib/period';
 
 export function PeriodPicker() {
-  const { preset, range, setPreset, setCustomRange } = usePeriod();
+  const { preset, range, previous, compareMode, setPreset, setCustomRange, setCompareAuto, setCompareCustom } =
+    usePeriod();
   const [open, setOpen] = useState(false);
   const [draftFrom, setDraftFrom] = useState(range.from);
   const [draftTo, setDraftTo] = useState(range.to);
+  const [draftPrevFrom, setDraftPrevFrom] = useState(previous.from);
+  const [draftPrevTo, setDraftPrevTo] = useState(previous.to);
   const ref = useRef<HTMLDivElement>(null);
 
   // Cierra al hacer clic afuera
@@ -27,6 +30,12 @@ export function PeriodPicker() {
     setDraftTo(range.to);
   }, [range.from, range.to]);
 
+  // Sincroniza los inputs de comparación cuando cambia el período efectivo
+  useEffect(() => {
+    setDraftPrevFrom(previous.from);
+    setDraftPrevTo(previous.to);
+  }, [previous.from, previous.to]);
+
   function choosePreset(id: PresetId) {
     if (id === 'custom') return; // el custom se aplica con el botón
     setPreset(id);
@@ -36,6 +45,13 @@ export function PeriodPicker() {
   function applyCustom() {
     if (draftFrom && draftTo && draftFrom <= draftTo) {
       setCustomRange({ from: draftFrom, to: draftTo });
+      setOpen(false);
+    }
+  }
+
+  function applyCompare() {
+    if (draftPrevFrom && draftPrevTo && draftPrevFrom <= draftPrevTo) {
+      setCompareCustom({ from: draftPrevFrom, to: draftPrevTo });
       setOpen(false);
     }
   }
@@ -138,6 +154,101 @@ export function PeriodPicker() {
             >
               Aplicar rango
             </button>
+          </div>
+
+          {/* Separador */}
+          <div style={{ height: 1, background: 'var(--b1)', margin: '8px 4px' }} />
+
+          {/* Comparar con */}
+          <div style={{ padding: '2px 6px' }}>
+            <div style={{ fontSize: 11, color: 'var(--t3, rgba(243,244,248,0.4))', marginBottom: 6 }}>
+              Comparar con
+            </div>
+
+            {/* Toggle auto / personalizado */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+              <button
+                onClick={() => {
+                  setCompareAuto();
+                  setOpen(false);
+                }}
+                style={{
+                  flex: 1,
+                  padding: '6px 8px',
+                  borderRadius: 'var(--r-sm, 6px)',
+                  border: '1px solid var(--b1)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: compareMode === 'auto' ? 600 : 400,
+                  background:
+                    compareMode === 'auto' ? 'var(--acc-dim, rgba(139,92,246,0.12))' : 'transparent',
+                  color: compareMode === 'auto' ? 'var(--acc-hover, #a78bfa)' : 'var(--t1, #f3f4f8)',
+                }}
+              >
+                Período anterior
+              </button>
+              <button
+                onClick={() => setCompareCustom({ from: draftPrevFrom, to: draftPrevTo })}
+                style={{
+                  flex: 1,
+                  padding: '6px 8px',
+                  borderRadius: 'var(--r-sm, 6px)',
+                  border: '1px solid var(--b1)',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: compareMode === 'custom' ? 600 : 400,
+                  background:
+                    compareMode === 'custom' ? 'var(--acc-dim, rgba(139,92,246,0.12))' : 'transparent',
+                  color: compareMode === 'custom' ? 'var(--acc-hover, #a78bfa)' : 'var(--t1, #f3f4f8)',
+                }}
+              >
+                Personalizado
+              </button>
+            </div>
+
+            {compareMode === 'auto' ? (
+              <div style={{ fontSize: 11, color: 'var(--t3, rgba(243,244,248,0.4))', lineHeight: 1.5 }}>
+                Se compara automáticamente con los {formatRangeLabel(previous)} (mismo nº de días justo antes).
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <input
+                    type="date"
+                    value={draftPrevFrom}
+                    max={draftPrevTo || undefined}
+                    onChange={(e) => setDraftPrevFrom(e.target.value)}
+                    style={inputStyle}
+                  />
+                  <span style={{ color: 'var(--t3)', fontSize: 12 }}>→</span>
+                  <input
+                    type="date"
+                    value={draftPrevTo}
+                    min={draftPrevFrom || undefined}
+                    onChange={(e) => setDraftPrevTo(e.target.value)}
+                    style={inputStyle}
+                  />
+                </div>
+                <button
+                  onClick={applyCompare}
+                  disabled={!draftPrevFrom || !draftPrevTo || draftPrevFrom > draftPrevTo}
+                  style={{
+                    width: '100%',
+                    padding: '7px 10px',
+                    borderRadius: 'var(--r-sm, 6px)',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: 'var(--acc, #8b5cf6)',
+                    color: '#fff',
+                    opacity: !draftPrevFrom || !draftPrevTo || draftPrevFrom > draftPrevTo ? 0.4 : 1,
+                  }}
+                >
+                  Aplicar comparación
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

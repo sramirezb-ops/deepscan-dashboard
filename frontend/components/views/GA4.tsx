@@ -286,7 +286,13 @@ export function GA4() {
       </div>
 
       {/* Funnel de leads — eventos clave reales (ga4_events) */}
-      <GA4Funnel clientId={client.id} range={range} previous={previous} sessions={t.sessions} />
+      <GA4Funnel
+        clientId={client.id}
+        range={range}
+        previous={previous}
+        totals={t}
+        totalsPrev={data.totalsPrev}
+      />
 
       {/* Ciudades — datos reales (ga4_cities) */}
       <GA4Cities clientId={client.id} range={range} previous={previous} />

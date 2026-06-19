@@ -135,7 +135,7 @@ export function GoogleAdsSegmentView({
       </div>
 
       {/* KPIs reales del segmento */}
-      <div className="kpis">
+      <div className="kpis kpis-5">
         <div className="kpi k-google">
           <div className="kpi-lbl">Inversión</div>
           <div className="kpi-val">{formatCurrency(t.cost, cur)}</div>
@@ -172,6 +172,15 @@ export function GoogleAdsSegmentView({
           <div className="kpi-bot">
             <span className="dcmp">
               CPA <b>{t.conversions > 0 ? formatCurrency(t.cpa, cur) : '—'}</b>
+            </span>
+          </div>
+        </div>
+        <div className="kpi k-google">
+          <div className="kpi-lbl">Impresiones</div>
+          <div className="kpi-val">{formatNumber(t.impressions)}</div>
+          <div className="kpi-bot">
+            <span className="dcmp">
+              CTR <b>{formatPercent(t.ctr, 1)}</b> · {formatInt(t.clicks)} clics
             </span>
           </div>
         </div>

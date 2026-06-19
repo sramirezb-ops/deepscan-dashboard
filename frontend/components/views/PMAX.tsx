@@ -1,6 +1,7 @@
 'use client';
 
 import { GoogleAdsSegmentView } from './GoogleAdsSegmentView';
+import { GadsAssetGroups } from './GadsAssetGroups';
 import { GadsProducts } from './GadsProducts';
 
 export function PMAX() {
@@ -10,8 +11,13 @@ export function PMAX() {
       title="Performance Max"
       channelLabel="Performance Max"
       icon="🅿"
-      extraSection={<GadsProducts />}
-      pendingNote="El desglose por asset group, los search terms y los placements, junto con el Agente PMAX IA, necesitan fuentes que aún no están en la base (gads_campaigns llega a nivel campaña, no de asset group). El detalle producto a producto y los zombies que ves arriba sí salen de datos reales (gads_products / gads_zombies)."
+      extraSection={
+        <>
+          <GadsAssetGroups />
+          <GadsProducts />
+        </>
+      }
+      pendingNote="Los resultados por asset (con imágenes y performance label) necesitan que el script de Google Ads exporte esas columnas al feed —hoy llegan vacías—. Las recomendaciones de optimización y escalado con IA llegan en la siguiente fase. Todo lo que ves arriba (campañas, asset groups, productos y zombies) sale de datos 100% reales: gads_campaigns, gads_asset_groups, gads_products y gads_zombies."
     />
   );
 }

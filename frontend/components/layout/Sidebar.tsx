@@ -41,33 +41,40 @@ export function Sidebar() {
       </div>
 
       <div className="sb-scroll">
-        {NAV_SECTIONS.map((section) => (
-          <div key={section.label} className="sbs">
-            <div className="sbl">{section.label}</div>
-            {section.items.map((item) => {
-              const isChannel = CHANNEL_META[item.id] !== undefined;
-              const isActive = client.activeChannels.includes(item.id);
-              const isLocked = isChannel && !isActive;
-              const isCurrent = pathname === item.href;
-              const itemClass = item.isSubItem ? 'ns' : 'ni';
+        {NAV_SECTIONS.map((section) => {
+          // Solo mostramos las visuales que el cliente tiene habilitadas
+          // (clients.enabled_channels en Supabase). Si una sección entera
+          // se queda sin items visibles, no la dibujamos.
+          const visibleItems = section.items.filter((item) =>
+            client.activeChannels.includes(item.id)
+          );
+          if (visibleItems.length === 0) return null;
 
-              return (
-                <Link
-                  key={item.id}
-                  href={item.href}
-                  onClick={(e) => handleNavClick(e, item)}
-                  className={`${itemClass} ${isCurrent ? 'on' : ''} ${isLocked ? 'locked' : ''}`}
-                  style={{ textDecoration: 'none' }}
-                >
-                  {item.icon && <span className="ni-ic">{item.icon}</span>}
-                  <span className="ni-label">{item.label}</span>
-                  {item.badge !== undefined && <span className="ni-badge">{item.badge}</span>}
-                  {item.dotColor && <span className={`ni-dot ${item.dotColor}`} />}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+          return (
+            <div key={section.label} className="sbs">
+              <div className="sbl">{section.label}</div>
+              {visibleItems.map((item) => {
+                const isCurrent = pathname === item.href;
+                const itemClass = item.isSubItem ? 'ns' : 'ni';
+
+                return (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    onClick={(e) => handleNavClick(e, item)}
+                    className={`${itemClass} ${isCurrent ? 'on' : ''}`}
+                    style={{ textDecoration: 'none' }}
+                  >
+                    {item.icon && <span className="ni-ic">{item.icon}</span>}
+                    <span className="ni-label">{item.label}</span>
+                    {item.badge !== undefined && <span className="ni-badge">{item.badge}</span>}
+                    {item.dotColor && <span className={`ni-dot ${item.dotColor}`} />}
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })}
 
         <div className="sb-foot">
           <span className="sb-foot-dot" />

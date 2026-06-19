@@ -19,7 +19,7 @@ from extractors.google_sheets   import (
 from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
 from extractors.tiktok_ads        import extract_tiktok_ads
 from extractors.instagram_organic import extract_instagram_organic
-from extractors.ga4             import extract_ga4
+from extractors.ga4             import extract_ga4, extract_ga4_cities
 from extractors.shopify         import extract_shopify
 from extractors.clarity         import extract_clarity
 from extractors.gmc             import extract_gmc
@@ -234,6 +234,33 @@ def run_etl(client_id: str, days_back: int = 30):
             log.error(f"   ✗ GA4 {property_id}: {e}")
     loader.upsert("ga4_metrics", all_ga4_rows,   client_id)
     loader.upsert("ga4_funnel",  all_ga4_funnel, client_id)
+
+    # Detalle por ciudad (fecha×país×ciudad). Se agrega entre propiedades
+    # sumando por la clave de conflicto, para no perder filas si un cliente
+    # tiene varias propiedades GA4 (p.ej. Sneakers usa 2).
+    ga4_cities_merge: dict[tuple, dict] = {}
+    for property_id in GA4_PROPERTIES:
+        try:
+            city_rows = extract_ga4_cities(
+                property_id=property_id,
+                credentials_path=os.environ["GOOGLE_CREDENTIALS_PATH"],
+                date_from=date_from,
+                date_to=date_to
+            )
+            for r in city_rows:
+                key = (r["date"], r["country"], r["city"])
+                acc = ga4_cities_merge.get(key)
+                if acc is None:
+                    ga4_cities_merge[key] = dict(r)
+                else:
+                    acc["sessions"]    += r["sessions"]
+                    acc["users"]       += r["users"]
+                    acc["new_users"]   += r["new_users"]
+                    acc["conversions"] += r["conversions"]
+            log.info(f"   ✓ GA4 ciudades {property_id}: {len(city_rows)} filas")
+        except Exception as e:
+            log.error(f"   ✗ GA4 ciudades {property_id}: {e}")
+    loader.upsert("ga4_cities", list(ga4_cities_merge.values()), client_id)
 
     # ── 7. GOOGLE MERCHANT CENTER ───────────────────────────────
     log.info("── Google Merchant Center")

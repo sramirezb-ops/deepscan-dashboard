@@ -154,6 +154,66 @@ def extract_ga4(
     return metrics_rows, funnel_rows
 
 
+def extract_ga4_cities(
+    property_id: str,
+    credentials_path: str,
+    date_from: date,
+    date_to: date
+) -> list[dict]:
+    """
+    Extrae el detalle diario por ciudad (país + ciudad) desde GA4.
+    Una fila = (fecha × país × ciudad). Permite replicar el panel de Looker
+    "¿Desde qué ciudades visitan la Web?" y su mapa. 100% dato real de GA4.
+
+    Devuelve filas con: date, country, city, sessions, users, new_users, conversions.
+    """
+    import os
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric, OrderBy
+    )
+
+    client = BetaAnalyticsDataClient()
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[
+            Dimension(name="date"),
+            Dimension(name="country"),
+            Dimension(name="city"),
+        ],
+        metrics=[
+            Metric(name="sessions"),
+            Metric(name="activeUsers"),
+            Metric(name="newUsers"),
+            Metric(name="conversions"),
+        ],
+        date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
+        order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
+        limit=100000,
+    )
+
+    resp = client.run_report(request)
+    rows = []
+    for row in resp.rows:
+        dims = [d.value for d in row.dimension_values]
+        mets = [m.value for m in row.metric_values]
+        rows.append({
+            "date":        dims[0],
+            "country":     dims[1] or "(unknown)",
+            "city":        dims[2] or "(unknown)",
+            "sessions":    int(mets[0] or 0),
+            "users":       int(mets[1] or 0),
+            "new_users":   int(mets[2] or 0),
+            "conversions": int(float(mets[3] or 0)),
+        })
+
+    log.info(f"   GA4 ciudades: {len(rows)} filas (fecha×país×ciudad)")
+    return rows
+
+
 # ════════════════════════════════════════════════════════════════
 # GOOGLE MERCHANT CENTER
 # ════════════════════════════════════════════════════════════════

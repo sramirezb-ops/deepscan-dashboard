@@ -1,1 +1,1 @@
-from .ga4_shopify_gmc_clarity import extract_ga4
+from .ga4_shopify_gmc_clarity import extract_ga4, extract_ga4_cities

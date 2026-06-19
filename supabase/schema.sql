@@ -213,6 +213,21 @@ create table if not exists ga4_funnel (
   unique (client_id, date)
 );
 
+-- Detalle diario por ciudad (fecha × país × ciudad).
+create table if not exists ga4_cities (
+  id                uuid primary key default uuid_generate_v4(),
+  client_id         uuid references clients(id) on delete cascade,
+  date              date not null,
+  country           text,
+  city              text,
+  sessions          bigint default 0,
+  users             bigint default 0,
+  new_users         bigint default 0,
+  conversions       bigint default 0,
+  inserted_at       timestamptz default now(),
+  unique (client_id, date, country, city)
+);
+
 -- ── GOOGLE MERCHANT CENTER ───────────────────────────────────
 create table if not exists gmc_products (
   id              uuid primary key default uuid_generate_v4(),
@@ -386,6 +401,8 @@ create policy "service_role_all" on ga4_metrics
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on ga4_funnel
   for all using (auth.role() = 'service_role');
+create policy "service_role_all" on ga4_cities
+  for all using (auth.role() = 'service_role');
 create policy "service_role_all" on gmc_products
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on shopify_orders
@@ -418,6 +435,8 @@ create policy "anon_read_own" on ga4_metrics
   for select using (true);
 create policy "anon_read_own" on ga4_funnel
   for select using (true);
+create policy "anon_read_own" on ga4_cities
+  for select using (true);
 create policy "anon_read_own" on gmc_products
   for select using (true);
 create policy "anon_read_own" on shopify_orders
@@ -438,6 +457,7 @@ create index if not exists idx_gads_ag_client_date     on gads_asset_groups(clie
 create index if not exists idx_gads_prod_client        on gads_products(client_id, product_item_id);
 create index if not exists idx_ga4_client_date         on ga4_metrics(client_id, date desc);
 create index if not exists idx_ga4_funnel_client_date  on ga4_funnel(client_id, date desc);
+create index if not exists idx_ga4_cities_client_date  on ga4_cities(client_id, date desc);
 create index if not exists idx_shopify_orders_date     on shopify_orders(client_id, date desc);
 create index if not exists idx_shopify_funnel_date     on shopify_funnel(client_id, date desc);
 create index if not exists idx_clarity_client_date     on clarity_metrics(client_id, date desc);

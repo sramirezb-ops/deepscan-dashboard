@@ -33,10 +33,22 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-GA4_PROPERTIES = [
-    os.environ.get("GA4_PROPERTY_ID_CLIENTE1", "508597206"),
-    os.environ.get("GA4_PROPERTY_ID_CLIENTE2", "523524806"),
-]
+# Propiedades GA4 a extraer en esta corrida. Todas se cargan bajo el mismo
+# client_id, así que cada cliente corre con SUS propiedades.
+#   · Preferido: GA4_PROPERTY_IDS = "485875757" (o varias separadas por coma).
+#   · Compatibilidad: GA4_PROPERTY_ID_CLIENTE1/2 (cliente original de zapatos).
+# Se filtran vacíos para que un cliente con una sola propiedad no arrastre la
+# propiedad por defecto de otro.
+_ga4_ids_env = os.environ.get("GA4_PROPERTY_IDS", "").strip()
+if _ga4_ids_env:
+    GA4_PROPERTIES = [p.strip() for p in _ga4_ids_env.split(",") if p.strip()]
+else:
+    GA4_PROPERTIES = [
+        p for p in [
+            os.environ.get("GA4_PROPERTY_ID_CLIENTE1", "508597206"),
+            os.environ.get("GA4_PROPERTY_ID_CLIENTE2", "523524806"),
+        ] if p and p.strip()
+    ]
 
 
 def run_etl(client_id: str, days_back: int = 30):
@@ -51,28 +63,44 @@ def run_etl(client_id: str, days_back: int = 30):
     date_to   = date.today() - timedelta(days=1)
 
     # ── 1. PMAX INSIGHTS · Mike Rhodes v30 ─────────────────────
+    # Fuente del script de Google Ads (Mike Rhodes) por Google Sheet. Es
+    # OPCIONAL: los clientes de leads (p.ej. Ofero) no tienen este sheet, así
+    # que si no hay MIKE_RHODES_SHEET_ID se salta en vez de tumbar el ETL.
     log.info("── PMAX Insights (Mike Rhodes v30)")
-    mike_sheet_id = os.environ["MIKE_RHODES_SHEET_ID"]
-    mike_data = extract_mike_rhodes(mike_sheet_id)
-
-    loader.upsert("gads_campaigns",    mike_data["campaigns"],         client_id)
-    loader.upsert("gads_asset_groups", mike_data["asset_groups"],      client_id)
-    loader.upsert("gads_products",     mike_data["products_30d"],      client_id)
-    loader.upsert("gads_products",     mike_data["products_180d"],     client_id)
-    loader.upsert("gads_zombies",      mike_data["zombies"],           client_id)
-    loader.upsert("gads_assets",       mike_data["assets"],            client_id)
-    loader.upsert("gads_placements",   mike_data["placements_pmax"] + mike_data["placements_detail"], client_id)
-    log.info(f"   ✓ Campañas: {len(mike_data['campaigns'])} filas")
-    log.info(f"   ✓ Asset Groups: {len(mike_data['asset_groups'])} filas")
-    log.info(f"   ✓ Productos 30d: {len(mike_data['products_30d'])} filas")
-    log.info(f"   ✓ Placements: {len(mike_data['placements_pmax']) + len(mike_data['placements_detail'])} filas")
+    mike_sheet_id = os.environ.get("MIKE_RHODES_SHEET_ID", "")
+    if mike_sheet_id:
+        try:
+            mike_data = extract_mike_rhodes(mike_sheet_id)
+            loader.upsert("gads_campaigns",    mike_data["campaigns"],         client_id)
+            loader.upsert("gads_asset_groups", mike_data["asset_groups"],      client_id)
+            loader.upsert("gads_products",     mike_data["products_30d"],      client_id)
+            loader.upsert("gads_products",     mike_data["products_180d"],     client_id)
+            loader.upsert("gads_zombies",      mike_data["zombies"],           client_id)
+            loader.upsert("gads_assets",       mike_data["assets"],            client_id)
+            loader.upsert("gads_placements",   mike_data["placements_pmax"] + mike_data["placements_detail"], client_id)
+            log.info(f"   ✓ Campañas: {len(mike_data['campaigns'])} filas")
+            log.info(f"   ✓ Asset Groups: {len(mike_data['asset_groups'])} filas")
+            log.info(f"   ✓ Productos 30d: {len(mike_data['products_30d'])} filas")
+            log.info(f"   ✓ Placements: {len(mike_data['placements_pmax']) + len(mike_data['placements_detail'])} filas")
+        except Exception as e:
+            log.error(f"   ✗ Mike Rhodes error: {e}")
+    else:
+        log.warning("   ⚠ Mike Rhodes sin MIKE_RHODES_SHEET_ID — saltando")
 
     # ── 2. BRAND ANALYZER · smec ────────────────────────────────
+    # También opcional (Google Sheet de términos branded). Sin SMEC_SHEET_ID
+    # se salta, para no romper a clientes que no usan este script.
     log.info("── Brand Analyzer (smec)")
-    smec_sheet_id = os.environ["SMEC_SHEET_ID"]
-    search_terms = extract_smec_search_terms(smec_sheet_id)
-    loader.upsert("gads_search_terms", search_terms, client_id)
-    log.info(f"   ✓ Períodos branded: {len(search_terms)} filas")
+    smec_sheet_id = os.environ.get("SMEC_SHEET_ID", "")
+    if smec_sheet_id:
+        try:
+            search_terms = extract_smec_search_terms(smec_sheet_id)
+            loader.upsert("gads_search_terms", search_terms, client_id)
+            log.info(f"   ✓ Períodos branded: {len(search_terms)} filas")
+        except Exception as e:
+            log.error(f"   ✗ Brand Analyzer (smec) error: {e}")
+    else:
+        log.warning("   ⚠ Brand Analyzer sin SMEC_SHEET_ID — saltando")
 
     # ── 3. PMAX SEARCH TERMS ────────────────────────────────────
     log.info("── PMAX Search Terms")
@@ -275,12 +303,20 @@ def run_etl(client_id: str, days_back: int = 30):
         log.warning("   ⚠ Clarity sin CLARITY_API_TOKEN ni CSV — saltando")
 
     # ── 10. GOOGLE ADS API DIRECTA ──────────────────────────────
-    log.info("── Google Ads API (datos completos)")
-    try:
-        run_google_ads_api()
-        log.info("   ✓ Google Ads API completado")
-    except Exception as e:
-        log.error(f"   ✗ Google Ads API error: {e}")
+    # El extractor de Google Ads es MULTI-cliente: se auto-itera sobre todos
+    # los clientes con google_ads_customer_id usando las credenciales de la
+    # agencia (MCC). Por eso basta con que UN solo workflow lo dispare.
+    # Los workflows secundarios (p.ej. Ofero) lo desactivan con
+    # RUN_GOOGLE_ADS_API=0 para no jalar dos veces lo mismo.
+    if os.environ.get("RUN_GOOGLE_ADS_API", "1") not in ("0", "false", "False", ""):
+        log.info("── Google Ads API (datos completos)")
+        try:
+            run_google_ads_api()
+            log.info("   ✓ Google Ads API completado")
+        except Exception as e:
+            log.error(f"   ✗ Google Ads API error: {e}")
+    else:
+        log.info("── Google Ads API · desactivado (RUN_GOOGLE_ADS_API=0) — lo cubre el workflow principal")
 
     log.info(f"✅ ETL completado para client_id={client_id}")
 

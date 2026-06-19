@@ -23,11 +23,22 @@ export interface GA4Totals {
   revenue: number;
 }
 
+// Un punto por día (sumado sobre todas las fuentes/canales de ese día).
+export interface GA4DailyPoint {
+  date: string; // YYYY-MM-DD
+  sessions: number;
+  users: number;
+  newUsers: number;
+  conversions: number;
+}
+
 export interface GA4Data {
   totals: GA4Totals;
   sources: SourceRow[]; // ordenadas por sesiones desc
+  series: GA4DailyPoint[]; // serie diaria del rango actual, cronológica
   // Deltas vs período anterior
   usersDelta: number;
+  newUsersDelta: number;
   sessionsDelta: number;
   conversionsDelta: number;
   bounceRateDelta: number; // en puntos porcentuales
@@ -44,6 +55,7 @@ export interface UseGA4Result {
 }
 
 interface RawRow {
+  date: string | null;
   sessions: number | null;
   new_users: number | null;
   active_users: number | null;
@@ -55,17 +67,31 @@ interface RawRow {
 }
 
 const SELECT =
-  'sessions, new_users, active_users, bounce_rate, avg_session_duration, conversions, revenue, source_medium';
+  'date, sessions, new_users, active_users, bounce_rate, avg_session_duration, conversions, revenue, source_medium';
 
+const PAGE = 1000;
+
+/** Trae TODAS las filas del rango paginando (Supabase corta en 1000 por request). */
 async function fetchRows(clientId: string, from: string, to: string): Promise<RawRow[]> {
-  const { data, error } = await supabase
-    .from('ga4_metrics')
-    .select(SELECT)
-    .eq('client_id', clientId)
-    .gte('date', from)
-    .lte('date', to);
-  if (error) throw error;
-  return (data || []) as RawRow[];
+  const all: RawRow[] = [];
+  let offset = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await supabase
+      .from('ga4_metrics')
+      .select(SELECT)
+      .eq('client_id', clientId)
+      .gte('date', from)
+      .lte('date', to)
+      .order('date', { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    const batch = (data || []) as RawRow[];
+    all.push(...batch);
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
 }
 
 // "508597206 / Organic Search" → "Organic Search"
@@ -132,6 +158,26 @@ function groupBySource(rows: RawRow[]): SourceRow[] {
     .sort((a, b) => b.sessions - a.sessions);
 }
 
+// Agrupa filas (fecha × fuente) en un punto por día, sumando todas las
+// fuentes/canales de ese día. Ordena cronológicamente para las gráficas.
+function buildSeries(rows: RawRow[]): GA4DailyPoint[] {
+  const map = new Map<string, GA4DailyPoint>();
+  for (const r of rows) {
+    const date = r.date;
+    if (!date) continue;
+    let p = map.get(date);
+    if (!p) {
+      p = { date, sessions: 0, users: 0, newUsers: 0, conversions: 0 };
+      map.set(date, p);
+    }
+    p.sessions += Number(r.sessions) || 0;
+    p.users += Number(r.active_users) || 0;
+    p.newUsers += Number(r.new_users) || 0;
+    p.conversions += Number(r.conversions) || 0;
+  }
+  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function useGA4(clientId: string, range: DateRange, previous: DateRange): UseGA4Result {
   const [data, setData] = useState<GA4Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -158,7 +204,9 @@ export function useGA4(clientId: string, range: DateRange, previous: DateRange):
         setData({
           totals: t,
           sources: groupBySource(nowRows),
+          series: buildSeries(nowRows),
           usersDelta: calcDelta(t.users, p.users),
+          newUsersDelta: calcDelta(t.newUsers, p.newUsers),
           sessionsDelta: calcDelta(t.sessions, p.sessions),
           conversionsDelta: calcDelta(t.conversions, p.conversions),
           bounceRateDelta: (t.bounceRate - p.bounceRate) * 100,

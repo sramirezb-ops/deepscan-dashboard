@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGA4Cities, type CityRow } from '@/lib/hooks/useGA4Cities';
 import type { DateRange } from '@/lib/period';
 import { formatInt, formatNumber } from '@/lib/utils';
@@ -35,7 +35,7 @@ function BarCell({ value, max, color }: { value: number; max: number; color: str
   );
 }
 
-const TOP_N = 15;
+const PAGE_SIZE = 50;
 
 export function GA4Cities({
   clientId,
@@ -47,7 +47,12 @@ export function GA4Cities({
   previous: DateRange;
 }) {
   const { data, loading, error } = useGA4Cities(clientId, range, previous);
-  const [showAll, setShowAll] = useState(false);
+  const [page, setPage] = useState(0);
+
+  // Vuelve a la hoja 1 cuando cambia el cliente o el rango de fechas.
+  useEffect(() => {
+    setPage(0);
+  }, [clientId, range.from, range.to]);
 
   if (loading && !data) {
     return (
@@ -74,7 +79,10 @@ export function GA4Cities({
     );
   }
 
-  const rows: CityRow[] = showAll ? data.cities : data.cities.slice(0, TOP_N);
+  const totalPages = Math.max(1, Math.ceil(data.cities.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const startIdx = safePage * PAGE_SIZE;
+  const rows: CityRow[] = data.cities.slice(startIdx, startIdx + PAGE_SIZE);
   const maxSessions = Math.max(...data.cities.map((c) => c.sessions), 1);
   const maxUsers = Math.max(...data.cities.map((c) => c.users), 1);
   const maxConv = Math.max(...data.cities.map((c) => c.conversions), 1);
@@ -118,7 +126,7 @@ export function GA4Cities({
           <tbody>
             {rows.map((c, i) => (
               <tr key={`${c.country}|${c.city}`}>
-                <td style={{ color: 'var(--mu)' }}>{i + 1}</td>
+                <td style={{ color: 'var(--mu)' }}>{startIdx + i + 1}</td>
                 <td>
                   <b>{c.city}</b>
                   {c.country !== 'Colombia' && (
@@ -159,23 +167,57 @@ export function GA4Cities({
         </table>
       </div>
 
-      {data.cities.length > TOP_N && (
-        <button
-          onClick={() => setShowAll((v) => !v)}
+      {totalPages > 1 && (
+        <div
           style={{
-            marginTop: 12,
-            background: 'transparent',
-            border: '1px solid var(--b2)',
-            borderRadius: 8,
-            color: 'var(--mu)',
-            fontSize: 12,
-            padding: '6px 12px',
-            cursor: 'pointer',
+            marginTop: 14,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 8,
           }}
         >
-          {showAll ? 'Mostrar top 15' : `Ver las ${data.cities.length} ciudades`}
-        </button>
+          <div style={{ fontSize: 12, color: 'var(--mu)' }}>
+            Mostrando <b style={{ color: 'var(--tx)' }}>{startIdx + 1}</b>–
+            <b style={{ color: 'var(--tx)' }}>{startIdx + rows.length}</b> de {data.cities.length} ciudades
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={safePage === 0}
+              style={pagerBtn(safePage === 0)}
+            >
+              ‹ Anterior
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--mu)', whiteSpace: 'nowrap' }}>
+              Hoja <b style={{ color: 'var(--tx)' }}>{safePage + 1}</b> de {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={safePage >= totalPages - 1}
+              style={pagerBtn(safePage >= totalPages - 1)}
+            >
+              Siguiente ›
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
+}
+
+// Estilo de los botones de paginación (atenuados cuando están deshabilitados).
+function pagerBtn(disabled: boolean): React.CSSProperties {
+  return {
+    background: 'transparent',
+    border: '1px solid var(--b2)',
+    borderRadius: 8,
+    color: disabled ? 'var(--b2)' : 'var(--tx)',
+    fontSize: 12,
+    padding: '6px 12px',
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+    whiteSpace: 'nowrap',
+  };
 }

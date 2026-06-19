@@ -37,12 +37,19 @@ export interface TypeCount {
   count: number;
 }
 
+export interface ImageAsset {
+  url: string;
+  fieldType: string;
+  groups: string[]; // asset groups que la usan
+}
+
 export interface GadsAssetsData {
   videos: VideoAsset[]; // distintos por videoId
   headlines: TextAsset[];
   longHeadlines: TextAsset[];
   descriptions: TextAsset[];
   otherTexts: TextAsset[];
+  images: ImageAsset[]; // imágenes distintas por URL (solo las que ya traen URL real)
   imageCount: number;
   imageTypes: TypeCount[];
   videoCount: number; // videos distintos
@@ -171,12 +178,30 @@ export function useGadsAssets(clientId: string): UseGadsAssetsResult {
           .map(([fieldType, count]) => ({ fieldType, count }))
           .sort((a, b) => b.count - a.count);
 
+        // Imágenes distintas por URL real (solo las que el script ya exporta).
+        const imgMap = new Map<string, ImageAsset>();
+        for (const r of imageRows) {
+          const url = (r.image_url || '').trim();
+          if (!url) continue; // honestidad: si no hay URL, no se pinta
+          let im = imgMap.get(url);
+          if (!im) {
+            im = { url, fieldType: r.field_type || 'IMAGE', groups: [] };
+            imgMap.set(url, im);
+          }
+          const g = r.asset_group_name || '';
+          if (g && !im.groups.includes(g)) im.groups.push(g);
+        }
+        const images = Array.from(imgMap.values()).sort(
+          (a, b) => b.groups.length - a.groups.length
+        );
+
         setData({
           videos,
           headlines,
           longHeadlines,
           descriptions,
           otherTexts,
+          images,
           imageCount: imageRows.length,
           imageTypes,
           videoCount: videos.length,

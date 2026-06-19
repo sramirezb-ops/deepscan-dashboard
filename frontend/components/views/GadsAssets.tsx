@@ -19,6 +19,7 @@ import { formatInt } from '@/lib/utils';
 
 const VIDEO_LIMIT = 12;
 const TEXT_LIMIT = 18;
+const IMAGE_LIMIT = 24;
 
 function TextBlock({ title, items }: { title: string; items: TextAsset[] }) {
   if (items.length === 0) return null;
@@ -79,6 +80,7 @@ export function GadsAssets() {
   if (error || !data || data.assetCount === 0) return null;
 
   const videos = data.videos.slice(0, VIDEO_LIMIT);
+  const images = data.images.slice(0, IMAGE_LIMIT);
 
   return (
     <div className="card" style={{ marginTop: '20px' }}>
@@ -198,13 +200,13 @@ export function GadsAssets() {
       <TextBlock title="Descripciones" items={data.descriptions} />
       <TextBlock title="Otros textos" items={data.otherTexts} />
 
-      {/* Imágenes — conteo por tipo (sin preview todavía) */}
+      {/* Imágenes — conteo por tipo + miniaturas reales cuando existen */}
       {data.imageTypes.length > 0 && (
         <div style={{ marginTop: '4px' }}>
           <div style={{ fontSize: 12, fontWeight: 600, marginBottom: '8px' }}>
             Imágenes ({formatInt(data.imageCount)})
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '8px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: '12px' }}>
             {data.imageTypes.map((it) => (
               <span
                 key={it.fieldType}
@@ -215,6 +217,68 @@ export function GadsAssets() {
               </span>
             ))}
           </div>
+
+          {/* Miniaturas reales: el script ya exporta la URL de preview */}
+          {images.length > 0 && (
+            <>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {images.map((im) => (
+                  <a
+                    key={im.url}
+                    href={im.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={
+                      im.groups.length ? `Usada en: ${im.groups.join(', ')}` : undefined
+                    }
+                    style={{ textDecoration: 'none', color: 'inherit' }}
+                  >
+                    <div
+                      style={{
+                        position: 'relative',
+                        borderRadius: 10,
+                        overflow: 'hidden',
+                        border: '1px solid var(--b2)',
+                        aspectRatio: '1 / 1',
+                        background: 'var(--bg3)',
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={im.url}
+                        alt={im.fieldType.replace(/_/g, ' ').toLowerCase()}
+                        loading="lazy"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          display: 'block',
+                        }}
+                      />
+                    </div>
+                    {im.groups.length > 0 && (
+                      <div style={{ fontSize: 9, color: 'var(--mu)', marginTop: 4 }}>
+                        {im.groups.length} {im.groups.length === 1 ? 'grupo' : 'grupos'}
+                      </div>
+                    )}
+                  </a>
+                ))}
+              </div>
+              {data.images.length > images.length && (
+                <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 8 }}>
+                  Mostrando {formatInt(images.length)} de {formatInt(data.images.length)} imágenes
+                  con preview.
+                </div>
+              )}
+            </>
+          )}
+
           {!data.hasAnyImageUrl && (
             <div style={{ fontSize: 11, color: 'var(--mu)', lineHeight: 1.5 }}>
               Las miniaturas de las imágenes aún no se pueden mostrar: el script de Google Ads no

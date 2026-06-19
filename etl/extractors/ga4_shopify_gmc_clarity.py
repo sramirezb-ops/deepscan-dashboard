@@ -278,6 +278,154 @@ def extract_ga4_events(
     return rows
 
 
+def extract_ga4_pages(
+    property_id: str,
+    credentials_path: str,
+    date_from: date,
+    date_to: date
+) -> tuple[list[dict], list[dict]]:
+    """
+    Extrae, desde GA4, dos reportes para entender la navegación web:
+
+      1) top_pages   — páginas con más tráfico (fecha × ruta). Métricas:
+         vistas, sesiones, usuarios, segundos de interacción, rebote y
+         conversiones. Se agrega por ruta (colapsando títulos) guardando
+         el título más visto y ponderando el rebote por sesiones.
+
+      2) landing     — páginas de entrada (fecha × landing page): por dónde
+         empiezan las sesiones, con rebote y conversiones (leads).
+
+    100% dato real de GA4. NOTA: la exploración de ruta paso-a-paso (Sankey
+    página→página) NO la expone la API estándar; requiere BigQuery a nivel
+    evento, por eso no se incluye aquí.
+
+    Devuelve (top_pages_rows, landing_rows).
+    """
+    import os
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric, OrderBy
+    )
+
+    client = BetaAnalyticsDataClient()
+
+    # ── 1) Páginas con más tráfico (fecha × ruta × título) ────────
+    top_pages_rows: list[dict] = []
+    try:
+        req = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[
+                Dimension(name="date"),
+                Dimension(name="pagePath"),
+                Dimension(name="pageTitle"),
+            ],
+            metrics=[
+                Metric(name="screenPageViews"),
+                Metric(name="sessions"),
+                Metric(name="activeUsers"),
+                Metric(name="userEngagementDuration"),
+                Metric(name="bounceRate"),
+                Metric(name="conversions"),
+            ],
+            date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
+            order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
+            limit=100000,
+        )
+        resp = client.run_report(req)
+
+        # Agrega por (fecha, ruta): suma métricas, rebote ponderado por
+        # sesiones y conserva el título con más vistas.
+        agg: dict[tuple, dict] = {}
+        for row in resp.rows:
+            d = row.dimension_values[0].value
+            path = row.dimension_values[1].value or "(not set)"
+            title = row.dimension_values[2].value or ""
+            m = [mv.value for mv in row.metric_values]
+            views = int(m[0] or 0)
+            sess = int(m[1] or 0)
+            usrs = int(m[2] or 0)
+            eng = float(m[3] or 0)
+            bounce = float(m[4] or 0)
+            conv = int(float(m[5] or 0))
+
+            key = (d, path)
+            g = agg.get(key)
+            if g is None:
+                g = {
+                    "date": d, "page_path": path, "page_title": title,
+                    "views": 0, "sessions": 0, "users": 0,
+                    "engagement_seconds": 0.0, "_bounce_w": 0.0, "conversions": 0,
+                    "_title_views": -1,
+                }
+                agg[key] = g
+            g["views"] += views
+            g["sessions"] += sess
+            g["users"] += usrs
+            g["engagement_seconds"] += eng
+            g["_bounce_w"] += bounce * sess
+            g["conversions"] += conv
+            if views > g["_title_views"]:
+                g["page_title"] = title
+                g["_title_views"] = views
+
+        for g in agg.values():
+            sess = g["sessions"]
+            top_pages_rows.append({
+                "date": g["date"],
+                "page_path": g["page_path"],
+                "page_title": g["page_title"],
+                "views": g["views"],
+                "sessions": sess,
+                "users": g["users"],
+                "engagement_seconds": round(g["engagement_seconds"], 2),
+                "bounce_rate": round(g["_bounce_w"] / sess, 4) if sess > 0 else 0,
+                "conversions": g["conversions"],
+            })
+        log.info(f"   GA4 páginas top: {len(top_pages_rows)} filas (fecha×ruta)")
+    except Exception as e:
+        log.warning(f"   GA4 páginas top falló: {e}")
+
+    # ── 2) Páginas de entrada (fecha × landing page) ──────────────
+    landing_rows: list[dict] = []
+    try:
+        req = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[
+                Dimension(name="date"),
+                Dimension(name="landingPage"),
+            ],
+            metrics=[
+                Metric(name="sessions"),
+                Metric(name="activeUsers"),
+                Metric(name="bounceRate"),
+                Metric(name="conversions"),
+            ],
+            date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
+            order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
+            limit=100000,
+        )
+        resp = client.run_report(req)
+        for row in resp.rows:
+            d = row.dimension_values[0].value
+            lp = row.dimension_values[1].value or "(not set)"
+            m = [mv.value for mv in row.metric_values]
+            landing_rows.append({
+                "date": d,
+                "landing_page": lp,
+                "sessions": int(m[0] or 0),
+                "users": int(m[1] or 0),
+                "bounce_rate": round(float(m[2] or 0), 4),
+                "conversions": int(float(m[3] or 0)),
+            })
+        log.info(f"   GA4 landing: {len(landing_rows)} filas (fecha×landing)")
+    except Exception as e:
+        log.warning(f"   GA4 landing falló: {e}")
+
+    return top_pages_rows, landing_rows
+
+
 # ════════════════════════════════════════════════════════════════
 # GOOGLE MERCHANT CENTER
 # ════════════════════════════════════════════════════════════════

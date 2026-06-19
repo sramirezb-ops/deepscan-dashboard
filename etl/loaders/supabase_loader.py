@@ -109,6 +109,8 @@ class SupabaseLoader:
             "ga4_funnel":               "client_id,date",
             "ga4_cities":               "client_id,date,country,city",
             "ga4_events":               "client_id,date,event_name",
+            "ga4_pages":                "client_id,date,page_path",
+            "ga4_landing":              "client_id,date,landing_page",
             "gmc_products":             "client_id,product_id",
             "shopify_orders":           "client_id,date",
             "shopify_products":         "client_id,period_start,product_id",

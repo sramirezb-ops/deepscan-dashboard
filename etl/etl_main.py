@@ -19,7 +19,12 @@ from extractors.google_sheets   import (
 from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
 from extractors.tiktok_ads        import extract_tiktok_ads
 from extractors.instagram_organic import extract_instagram_organic
-from extractors.ga4             import extract_ga4, extract_ga4_cities, extract_ga4_events
+from extractors.ga4             import (
+    extract_ga4,
+    extract_ga4_cities,
+    extract_ga4_events,
+    extract_ga4_pages,
+)
 from extractors.shopify         import extract_shopify
 from extractors.clarity         import extract_clarity
 from extractors.gmc             import extract_gmc
@@ -287,6 +292,50 @@ def run_etl(client_id: str, days_back: int = 30):
         except Exception as e:
             log.error(f"   ✗ GA4 eventos {property_id}: {e}")
     loader.upsert("ga4_events", list(ga4_events_merge.values()), client_id)
+
+    # Páginas con más tráfico (fecha×ruta) y páginas de entrada (fecha×landing).
+    # Se agregan entre propiedades sumando por la clave de conflicto.
+    ga4_pages_merge: dict[tuple, dict] = {}
+    ga4_landing_merge: dict[tuple, dict] = {}
+    for property_id in GA4_PROPERTIES:
+        try:
+            top_rows, land_rows = extract_ga4_pages(
+                property_id=property_id,
+                credentials_path=os.environ["GOOGLE_CREDENTIALS_PATH"],
+                date_from=date_from,
+                date_to=date_to
+            )
+            for r in top_rows:
+                key = (r["date"], r["page_path"])
+                acc = ga4_pages_merge.get(key)
+                if acc is None:
+                    ga4_pages_merge[key] = dict(r)
+                else:
+                    acc["views"]              += r["views"]
+                    acc["sessions"]           += r["sessions"]
+                    acc["users"]              += r["users"]
+                    acc["engagement_seconds"] += r["engagement_seconds"]
+                    acc["conversions"]        += r["conversions"]
+                    # Rebote: promedio ponderado por sesiones entre propiedades.
+                    s1, s2 = acc["sessions"], r["sessions"]
+                    if s1 + s2 > 0:
+                        acc["bounce_rate"] = round(
+                            (acc["bounce_rate"] * (s1 - s2) + r["bounce_rate"] * s2) / s1, 4
+                        ) if s1 > 0 else r["bounce_rate"]
+            for r in land_rows:
+                key = (r["date"], r["landing_page"])
+                acc = ga4_landing_merge.get(key)
+                if acc is None:
+                    ga4_landing_merge[key] = dict(r)
+                else:
+                    acc["sessions"]    += r["sessions"]
+                    acc["users"]       += r["users"]
+                    acc["conversions"] += r["conversions"]
+            log.info(f"   ✓ GA4 páginas {property_id}: {len(top_rows)} top, {len(land_rows)} landing")
+        except Exception as e:
+            log.error(f"   ✗ GA4 páginas {property_id}: {e}")
+    loader.upsert("ga4_pages",   list(ga4_pages_merge.values()),   client_id)
+    loader.upsert("ga4_landing", list(ga4_landing_merge.values()), client_id)
 
     # ── 7. GOOGLE MERCHANT CENTER ───────────────────────────────
     log.info("── Google Merchant Center")

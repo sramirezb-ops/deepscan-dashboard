@@ -241,6 +241,37 @@ create table if not exists ga4_events (
   unique (client_id, date, event_name)
 );
 
+-- Páginas con más tráfico (fecha × ruta)
+create table if not exists ga4_pages (
+  id                  uuid primary key default uuid_generate_v4(),
+  client_id           uuid references clients(id) on delete cascade,
+  date                date not null,
+  page_path           text not null,
+  page_title          text,
+  views               bigint default 0,
+  sessions            bigint default 0,
+  users               bigint default 0,
+  engagement_seconds  numeric(16,2) default 0,
+  bounce_rate         numeric(8,4) default 0,
+  conversions         bigint default 0,
+  inserted_at         timestamptz default now(),
+  unique (client_id, date, page_path)
+);
+
+-- Páginas de entrada / landing (fecha × landing page)
+create table if not exists ga4_landing (
+  id                uuid primary key default uuid_generate_v4(),
+  client_id         uuid references clients(id) on delete cascade,
+  date              date not null,
+  landing_page      text not null,
+  sessions          bigint default 0,
+  users             bigint default 0,
+  bounce_rate       numeric(8,4) default 0,
+  conversions       bigint default 0,
+  inserted_at       timestamptz default now(),
+  unique (client_id, date, landing_page)
+);
+
 -- ── GOOGLE MERCHANT CENTER ───────────────────────────────────
 create table if not exists gmc_products (
   id              uuid primary key default uuid_generate_v4(),
@@ -388,6 +419,8 @@ alter table ga4_metrics        enable row level security;
 alter table ga4_funnel         enable row level security;
 alter table ga4_cities         enable row level security;
 alter table ga4_events         enable row level security;
+alter table ga4_pages          enable row level security;
+alter table ga4_landing        enable row level security;
 alter table gmc_products       enable row level security;
 alter table shopify_orders     enable row level security;
 alter table shopify_products   enable row level security;
@@ -419,6 +452,10 @@ create policy "service_role_all" on ga4_funnel
 create policy "service_role_all" on ga4_cities
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on ga4_events
+  for all using (auth.role() = 'service_role');
+create policy "service_role_all" on ga4_pages
+  for all using (auth.role() = 'service_role');
+create policy "service_role_all" on ga4_landing
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on gmc_products
   for all using (auth.role() = 'service_role');
@@ -456,6 +493,10 @@ create policy "anon_read_own" on ga4_cities
   for select using (true);
 create policy "anon_read_own" on ga4_events
   for select using (true);
+create policy "anon_read_own" on ga4_pages
+  for select using (true);
+create policy "anon_read_own" on ga4_landing
+  for select using (true);
 create policy "anon_read_own" on gmc_products
   for select using (true);
 create policy "anon_read_own" on shopify_orders
@@ -478,6 +519,8 @@ create index if not exists idx_ga4_client_date         on ga4_metrics(client_id,
 create index if not exists idx_ga4_funnel_client_date  on ga4_funnel(client_id, date desc);
 create index if not exists idx_ga4_cities_client_date  on ga4_cities(client_id, date desc);
 create index if not exists idx_ga4_events_client_date  on ga4_events(client_id, date desc);
+create index if not exists idx_ga4_pages_client_date   on ga4_pages(client_id, date desc);
+create index if not exists idx_ga4_landing_client_date on ga4_landing(client_id, date desc);
 create index if not exists idx_shopify_orders_date     on shopify_orders(client_id, date desc);
 create index if not exists idx_shopify_funnel_date     on shopify_funnel(client_id, date desc);
 create index if not exists idx_clarity_client_date     on clarity_metrics(client_id, date desc);

@@ -35,7 +35,7 @@ function BarCell({ value, max, color }: { value: number; max: number; color: str
   );
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 export function GA4Cities({
   clientId,

@@ -54,7 +54,7 @@ function shortPath(path: string): string {
   return path.slice(0, 45) + '…';
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 export function GA4Pages({
   clientId,
@@ -67,10 +67,12 @@ export function GA4Pages({
 }) {
   const { data, loading, error } = useGA4Pages(clientId, range, previous);
   const [page, setPage] = useState(0);
+  const [landPage, setLandPage] = useState(0);
 
   // Vuelve a la hoja 1 cuando cambia el cliente o el rango de fechas.
   useEffect(() => {
     setPage(0);
+    setLandPage(0);
   }, [clientId, range.from, range.to]);
 
   if (loading && !data) {
@@ -102,8 +104,11 @@ export function GA4Pages({
   const maxViews = Math.max(...data.pages.map((p) => p.views), 1);
   const maxUsers = Math.max(...data.pages.map((p) => p.users), 1);
 
-  // Landings: top 15 (la entrada relevante suele concentrarse en pocas URLs).
-  const landings: LandingRow[] = data.landings.slice(0, 15);
+  // Landings: paginadas a 20 por hoja, igual que las páginas y ciudades.
+  const landTotalPages = Math.max(1, Math.ceil(data.landings.length / PAGE_SIZE));
+  const landSafePage = Math.min(landPage, landTotalPages - 1);
+  const landStartIdx = landSafePage * PAGE_SIZE;
+  const landings: LandingRow[] = data.landings.slice(landStartIdx, landStartIdx + PAGE_SIZE);
   const maxLandSess = Math.max(...data.landings.map((l) => l.sessions), 1);
 
   return (
@@ -239,7 +244,7 @@ export function GA4Pages({
               <tbody>
                 {landings.map((l, i) => (
                   <tr key={l.landing}>
-                    <td style={{ color: 'var(--mu)' }}>{i + 1}</td>
+                    <td style={{ color: 'var(--mu)' }}>{landStartIdx + i + 1}</td>
                     <td>
                       <b>{shortPath(l.landing)}</b>
                     </td>
@@ -256,6 +261,44 @@ export function GA4Pages({
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {landTotalPages > 1 && (
+          <div
+            style={{
+              marginTop: 14,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 8,
+            }}
+          >
+            <div style={{ fontSize: 12, color: 'var(--mu)' }}>
+              Mostrando <b style={{ color: 'var(--tx)' }}>{landStartIdx + 1}</b>–
+              <b style={{ color: 'var(--tx)' }}>{landStartIdx + landings.length}</b> de {data.landings.length} páginas
+              de entrada
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={() => setLandPage((p) => Math.max(0, p - 1))}
+                disabled={landSafePage === 0}
+                style={pagerBtn(landSafePage === 0)}
+              >
+                ‹ Anterior
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--mu)', whiteSpace: 'nowrap' }}>
+                Hoja <b style={{ color: 'var(--tx)' }}>{landSafePage + 1}</b> de {landTotalPages}
+              </span>
+              <button
+                onClick={() => setLandPage((p) => Math.min(landTotalPages - 1, p + 1))}
+                disabled={landSafePage >= landTotalPages - 1}
+                style={pagerBtn(landSafePage >= landTotalPages - 1)}
+              >
+                Siguiente ›
+              </button>
+            </div>
           </div>
         )}
 

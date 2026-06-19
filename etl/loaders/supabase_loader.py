@@ -108,6 +108,7 @@ class SupabaseLoader:
             "ga4_metrics":              "client_id,date,source_medium",
             "ga4_funnel":               "client_id,date",
             "ga4_cities":               "client_id,date,country,city",
+            "ga4_events":               "client_id,date,event_name",
             "gmc_products":             "client_id,product_id",
             "shopify_orders":           "client_id,date",
             "shopify_products":         "client_id,period_start,product_id",

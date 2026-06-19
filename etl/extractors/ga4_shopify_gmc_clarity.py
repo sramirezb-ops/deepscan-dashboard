@@ -214,6 +214,70 @@ def extract_ga4_cities(
     return rows
 
 
+def extract_ga4_events(
+    property_id: str,
+    credentials_path: str,
+    date_from: date,
+    date_to: date
+) -> list[dict]:
+    """
+    Extrae el conteo diario de eventos por nombre desde GA4.
+    Una fila = (fecha × nombre de evento). Permite construir el funnel de
+    leads de Looker (Escribir Correo = escribir_correo, Descargar Catálogo =
+    descargar_catálogo, Clics a WhatsApp = clic_whatsapp + whatsapp_flotante)
+    y listar cualquier evento clave nombrado. 100% dato real de GA4.
+
+    No filtramos por nombre: traemos TODOS los eventos y el dashboard decide
+    qué nombres agrupar en cada paso. Así no hay que tocar el ETL si cambian
+    los eventos clave del cliente.
+
+    Devuelve filas con: date, event_name, event_count, total_users,
+    is_key_event (1 si GA4 lo marca como conversión/evento clave).
+    """
+    import os
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric, OrderBy
+    )
+
+    client = BetaAnalyticsDataClient()
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[
+            Dimension(name="date"),
+            Dimension(name="eventName"),
+        ],
+        metrics=[
+            Metric(name="eventCount"),
+            Metric(name="totalUsers"),
+            Metric(name="conversions"),  # eventos clave (conversiones) del evento
+        ],
+        date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
+        order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
+        limit=100000,
+    )
+
+    resp = client.run_report(request)
+    rows = []
+    for row in resp.rows:
+        dims = [d.value for d in row.dimension_values]
+        mets = [m.value for m in row.metric_values]
+        key_events = float(mets[2] or 0)
+        rows.append({
+            "date":         dims[0],
+            "event_name":   dims[1] or "(unknown)",
+            "event_count":  int(mets[0] or 0),
+            "total_users":  int(mets[1] or 0),
+            "is_key_event": 1 if key_events > 0 else 0,
+        })
+
+    log.info(f"   GA4 eventos: {len(rows)} filas (fecha×evento)")
+    return rows
+
+
 # ════════════════════════════════════════════════════════════════
 # GOOGLE MERCHANT CENTER
 # ════════════════════════════════════════════════════════════════

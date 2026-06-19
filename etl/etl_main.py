@@ -19,7 +19,7 @@ from extractors.google_sheets   import (
 from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
 from extractors.tiktok_ads        import extract_tiktok_ads
 from extractors.instagram_organic import extract_instagram_organic
-from extractors.ga4             import extract_ga4, extract_ga4_cities
+from extractors.ga4             import extract_ga4, extract_ga4_cities, extract_ga4_events
 from extractors.shopify         import extract_shopify
 from extractors.clarity         import extract_clarity
 from extractors.gmc             import extract_gmc
@@ -261,6 +261,32 @@ def run_etl(client_id: str, days_back: int = 30):
         except Exception as e:
             log.error(f"   ✗ GA4 ciudades {property_id}: {e}")
     loader.upsert("ga4_cities", list(ga4_cities_merge.values()), client_id)
+
+    # Conteo diario de eventos por nombre (fecha×evento). Alimenta el funnel
+    # de leads del dashboard (Escribir Correo / Descargar Catálogo / Clics a
+    # WhatsApp). Se agrega entre propiedades sumando por la clave de conflicto.
+    ga4_events_merge: dict[tuple, dict] = {}
+    for property_id in GA4_PROPERTIES:
+        try:
+            event_rows = extract_ga4_events(
+                property_id=property_id,
+                credentials_path=os.environ["GOOGLE_CREDENTIALS_PATH"],
+                date_from=date_from,
+                date_to=date_to
+            )
+            for r in event_rows:
+                key = (r["date"], r["event_name"])
+                acc = ga4_events_merge.get(key)
+                if acc is None:
+                    ga4_events_merge[key] = dict(r)
+                else:
+                    acc["event_count"] += r["event_count"]
+                    acc["total_users"] += r["total_users"]
+                    acc["is_key_event"] = max(acc["is_key_event"], r["is_key_event"])
+            log.info(f"   ✓ GA4 eventos {property_id}: {len(event_rows)} filas")
+        except Exception as e:
+            log.error(f"   ✗ GA4 eventos {property_id}: {e}")
+    loader.upsert("ga4_events", list(ga4_events_merge.values()), client_id)
 
     # ── 7. GOOGLE MERCHANT CENTER ───────────────────────────────
     log.info("── Google Merchant Center")

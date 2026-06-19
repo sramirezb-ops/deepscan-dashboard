@@ -5,7 +5,7 @@ import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useGA4 } from '@/lib/hooks/useGA4';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { TrendChart } from '@/components/ui/TrendChart';
+import { ComparisonAreaChart } from '@/components/ui/ComparisonAreaChart';
 import { formatInt, formatNumber, formatPercentRaw } from '@/lib/utils';
 
 // 90.5 segundos → "1m 31s"
@@ -93,8 +93,11 @@ export function GA4() {
 
   const t = data.totals;
   const labels = data.series.map((p) => shortDate(p.date));
+  const labelsPrev = data.seriesPrev.map((p) => shortDate(p.date));
   // Tasa de evento clave = eventos clave / sesiones (proxy de conversión web).
   const keyEventRate = t.sessions > 0 ? (t.conversions / t.sessions) * 100 : 0;
+  const sessionsPerUser = t.users > 0 ? t.sessions / t.users : 0;
+  const maxSourceSessions = Math.max(...data.sources.map((s) => s.sessions), 1);
 
   return (
     <div className="view on">
@@ -145,7 +148,7 @@ export function GA4() {
         </div>
       </div>
 
-      {/* Tendencias diarias — área estilo Looker */}
+      {/* Crecimiento acumulado: período actual vs anterior (estilo Looker) */}
       <div
         style={{
           display: 'grid',
@@ -154,21 +157,25 @@ export function GA4() {
           marginTop: 20,
         }}
       >
-        <TrendChart
-          title="Sesiones por día"
+        <ComparisonAreaChart
+          title="Crecimiento del tráfico (acumulado)"
           headline={formatNumber(t.sessions)}
-          sub={`${rangeLabel}`}
-          points={data.series.map((p) => p.sessions)}
-          labels={labels}
+          sub={`Sesiones · ${rangeLabel} vs anterior`}
+          current={data.series.map((p) => p.sessions)}
+          previous={data.seriesPrev.map((p) => p.sessions)}
+          labelsCurrent={labels}
+          labelsPrevious={labelsPrev}
           color="#38bdf8"
           format={formatNumber}
         />
-        <TrendChart
-          title="Eventos clave por día"
+        <ComparisonAreaChart
+          title="Eventos clave (acumulado)"
           headline={formatInt(t.conversions)}
-          sub={`${rangeLabel}`}
-          points={data.series.map((p) => p.conversions)}
-          labels={labels}
+          sub={`Eventos clave · ${rangeLabel} vs anterior`}
+          current={data.series.map((p) => p.conversions)}
+          previous={data.seriesPrev.map((p) => p.conversions)}
+          labelsCurrent={labels}
+          labelsPrevious={labelsPrev}
           color="#34d399"
           format={formatInt}
         />
@@ -200,6 +207,13 @@ export function GA4() {
           </div>
         </div>
         <div className="kpi k-ga4">
+          <div className="kpi-lbl">Sesiones por usuario</div>
+          <div className="kpi-val">{sessionsPerUser.toFixed(2)}</div>
+          <div className="kpi-bot">
+            <span className="dcmp">sesiones ÷ usuarios</span>
+          </div>
+        </div>
+        <div className="kpi k-ga4">
           <div className="kpi-lbl">Tasa de evento clave</div>
           <div className="kpi-val">{formatPercentRaw(keyEventRate, 2)}</div>
           <div className="kpi-bot">
@@ -208,58 +222,65 @@ export function GA4() {
         </div>
       </div>
 
-      {/* Canales de adquisición de tráfico — datos reales */}
+      {/* Canales de adquisición de tráfico — barras horizontales estilo Looker */}
       <div className="card" style={{ marginTop: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h3 style={{ margin: '0', fontSize: '15px' }}>Canales de adquisición de tráfico</h3>
           <span className="period-pill">
-            {data.sources.length} canales · <b>ordenados por sesiones</b>
+            {data.sources.length} canales · <b>por sesiones</b>
           </span>
         </div>
-        <table className="t">
-          <thead>
-            <tr>
-              <th>Canal</th>
-              <th>Sesiones</th>
-              <th>Usuarios</th>
-              <th>Eventos clave</th>
-              <th>Rebote</th>
-              <th>Share</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.sources.map((s) => {
-              const share = t.sessions > 0 ? s.sessions / t.sessions : 0;
-              return (
-                <tr key={s.sourceMedium}>
-                  <td>
-                    <b>{s.sourceMedium}</b>
-                  </td>
-                  <td>{formatNumber(s.sessions)}</td>
-                  <td>{formatNumber(s.users)}</td>
-                  <td>{formatInt(s.conversions)}</td>
-                  <td>{formatPercentRaw(s.bounceRate * 100, 1)}</td>
-                  <td>
-                    <span className="hb">
-                      <span
-                        className="hb-fill"
-                        style={{ width: `${Math.max(2, Math.round(share * 100))}%`, background: '#38bdf8' }}
-                      />
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-            <tr className="t-avg">
-              <td>Total</td>
-              <td>{formatNumber(t.sessions)}</td>
-              <td>{formatNumber(t.users)}</td>
-              <td>{formatInt(t.conversions)}</td>
-              <td>{formatPercentRaw(t.bounceRate * 100, 1)}</td>
-              <td>—</td>
-            </tr>
-          </tbody>
-        </table>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {data.sources.map((s) => {
+            const w = Math.max(2, Math.round((s.sessions / maxSourceSessions) * 100));
+            return (
+              <div
+                key={s.sourceMedium}
+                style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 12, alignItems: 'center' }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--tx)',
+                    textAlign: 'right',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={s.sourceMedium}
+                >
+                  {s.sourceMedium}
+                </div>
+                <div style={{ position: 'relative', height: 22 }}>
+                  <div
+                    style={{
+                      width: `${w}%`,
+                      height: '100%',
+                      background: '#34d399',
+                      borderRadius: 4,
+                      minWidth: 2,
+                      transition: 'width .3s',
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: `calc(${w}% + 8px)`,
+                      transform: 'translateY(-50%)',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--mu)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatNumber(s.sessions)}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Bloques sin fuente real — aviso honesto */}

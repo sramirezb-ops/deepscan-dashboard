@@ -34,8 +34,10 @@ export interface GA4DailyPoint {
 
 export interface GA4Data {
   totals: GA4Totals;
+  totalsPrev: GA4Totals; // totales del período anterior (para el funnel comparativo)
   sources: SourceRow[]; // ordenadas por sesiones desc
   series: GA4DailyPoint[]; // serie diaria del rango actual, cronológica
+  seriesPrev: GA4DailyPoint[]; // serie diaria del período anterior, cronológica
   // Deltas vs período anterior
   usersDelta: number;
   newUsersDelta: number;
@@ -203,8 +205,10 @@ export function useGA4(clientId: string, range: DateRange, previous: DateRange):
 
         setData({
           totals: t,
+          totalsPrev: p,
           sources: groupBySource(nowRows),
           series: buildSeries(nowRows),
+          seriesPrev: buildSeries(prevRows),
           usersDelta: calcDelta(t.users, p.users),
           newUsersDelta: calcDelta(t.newUsers, p.newUsers),
           sessionsDelta: calcDelta(t.sessions, p.sessions),

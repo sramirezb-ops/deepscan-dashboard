@@ -287,6 +287,35 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
     return list(seen.values())
 
 
+def _resolve_geo_names(client, customer_id, resource_names):
+    """Mapea recursos 'geoTargetConstants/{id}' → nombre legible de ciudad.
+
+    geographic_view solo devuelve el CÓDIGO de la ciudad (geo target constant),
+    no su nombre. Aquí resolvemos esos códigos a nombres reales (Bogota, Cali,
+    Medellín…) con una consulta extra a geo_target_constant."""
+    ids = sorted({rn.split("/")[-1] for rn in resource_names if rn})
+    names: dict[str, str] = {}
+    if not ids:
+        return names
+    service = client.get_service("GoogleAdsService")
+    BATCH = 500
+    for i in range(0, len(ids), BATCH):
+        chunk = ids[i:i + BATCH]
+        id_list = ",".join(chunk)
+        query = f"""
+            SELECT geo_target_constant.id, geo_target_constant.name
+            FROM geo_target_constant
+            WHERE geo_target_constant.id IN ({id_list})
+        """
+        try:
+            response = service.search(customer_id=customer_id, query=query)
+            for row in response:
+                names[str(row.geo_target_constant.id)] = row.geo_target_constant.name
+        except GoogleAdsException as e:
+            log.error(f"Geo names error {customer_id}: {e}")
+    return names
+
+
 def extract_geo(client, customer_id, client_id, date_start, date_end):
     query = f"""
         SELECT
@@ -304,20 +333,22 @@ def extract_geo(client, customer_id, client_id, date_start, date_end):
         ORDER BY segments.date DESC, metrics.cost_micros DESC
         LIMIT 3000
     """
-    rows = []
+    raw = []
+    geo_resources: set[str] = set()
     try:
         response = client.get_service("GoogleAdsService").search(
             customer_id=customer_id, query=query
         )
         for row in response:
             cost = row.metrics.cost_micros / 1_000_000
-            city = row.segments.geo_target_city or ""
-            rows.append({
+            city_res = row.segments.geo_target_city or ""
+            geo_resources.add(city_res)
+            raw.append({
                 "client_id": client_id,
                 "date_start": row.segments.date,
                 "campaign_id": str(row.campaign.id),
                 "campaign_name": row.campaign.name,
-                "city": city,
+                "city_res": city_res,
                 "cost": round(cost, 2),
                 "impressions": row.metrics.impressions,
                 "clicks": row.metrics.clicks,
@@ -326,11 +357,31 @@ def extract_geo(client, customer_id, client_id, date_start, date_end):
             })
     except GoogleAdsException as e:
         log.error(f"Geo error {customer_id}: {e}")
-    seen = {}
-    for r in rows:
-        key = (r["client_id"], r["date_start"], r["campaign_id"], r["city"])
+        return []
+
+    # Resolver los códigos a nombres legibles de ciudad.
+    name_map = _resolve_geo_names(client, customer_id, geo_resources)
+
+    # Reemplazar el código por el nombre y deduplicar por (cliente, fecha,
+    # campaña, ciudad). Varios códigos que mapeen al mismo nombre se suman.
+    seen: dict[tuple, dict] = {}
+    for r in raw:
+        rid = r["city_res"].split("/")[-1] if r["city_res"] else ""
+        city = name_map.get(rid) or "(sin ciudad)"
+        key = (r["client_id"], r["date_start"], r["campaign_id"], city)
         if key not in seen:
-            seen[key] = r
+            seen[key] = {
+                "client_id": r["client_id"],
+                "date_start": r["date_start"],
+                "campaign_id": r["campaign_id"],
+                "campaign_name": r["campaign_name"],
+                "city": city,
+                "cost": r["cost"],
+                "impressions": r["impressions"],
+                "clicks": r["clicks"],
+                "conversions": r["conversions"],
+                "conv_value": r["conv_value"],
+            }
         else:
             seen[key]["cost"] = round(seen[key]["cost"] + r["cost"], 2)
             seen[key]["impressions"] += r["impressions"]

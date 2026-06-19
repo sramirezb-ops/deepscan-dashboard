@@ -4,6 +4,7 @@ import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useGadsLeads, type BusinessModel, type CampaignLeadRow } from '@/lib/hooks/useGadsLeads';
+import { GadsGeoCharts } from '@/components/views/GadsGeoCharts';
 import { EmptyState } from '@/components/ui/EmptyState';
 
 // ── Formateadores locales en estilo Colombia (COP, coma decimal) ──
@@ -278,6 +279,9 @@ export function GoogleAdsOverview() {
       {/* Cada modelo, con sus resultados generales y su tabla de campañas */}
       <ModelSection model={data.venta} previousLabel={previousLabel} />
       <ModelSection model={data.propietarios} previousLabel={previousLabel} />
+
+      {/* Localizaciones: tortas por ciudad (conversiones, inversión, impresiones, coste/lead) */}
+      <GadsGeoCharts clientId={client.id} range={range} />
 
       {/* Nota honesta: leads, no ecommerce */}
       <div

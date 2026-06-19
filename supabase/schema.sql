@@ -180,6 +180,24 @@ create table if not exists gads_search_terms (
   unique (client_id, period_start, period_end)
 );
 
+-- Google Ads geográfico (fecha × campaña × ciudad). Alimenta las gráficas
+-- de torta por ciudad (conversiones/inversión/impresiones/coste por lead).
+create table if not exists gads_geo (
+  id            uuid primary key default uuid_generate_v4(),
+  client_id     uuid references clients(id) on delete cascade,
+  date_start    date not null,
+  campaign_id   text not null,
+  campaign_name text,
+  city          text not null,
+  cost          numeric(16,2) default 0,
+  impressions   bigint default 0,
+  clicks        bigint default 0,
+  conversions   numeric(14,2) default 0,
+  conv_value    numeric(16,2) default 0,
+  inserted_at   timestamptz default now(),
+  unique (client_id, date_start, campaign_id, city)
+);
+
 -- ── GOOGLE ANALYTICS 4 ───────────────────────────────────────
 create table if not exists ga4_metrics (
   id                uuid primary key default uuid_generate_v4(),
@@ -415,6 +433,7 @@ alter table gads_products      enable row level security;
 alter table gads_zombies       enable row level security;
 alter table gads_assets        enable row level security;
 alter table gads_search_terms  enable row level security;
+alter table gads_geo           enable row level security;
 alter table ga4_metrics        enable row level security;
 alter table ga4_funnel         enable row level security;
 alter table ga4_cities         enable row level security;
@@ -444,6 +463,8 @@ create policy "service_role_all" on gads_zombies
 create policy "service_role_all" on gads_assets
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on gads_search_terms
+  for all using (auth.role() = 'service_role');
+create policy "service_role_all" on gads_geo
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on ga4_metrics
   for all using (auth.role() = 'service_role');
@@ -485,6 +506,8 @@ create policy "anon_read_own" on gads_assets
   for select using (true);
 create policy "anon_read_own" on gads_search_terms
   for select using (true);
+create policy "anon_read_own" on gads_geo
+  for select using (true);
 create policy "anon_read_own" on ga4_metrics
   for select using (true);
 create policy "anon_read_own" on ga4_funnel
@@ -515,6 +538,7 @@ create index if not exists idx_meta_client_date        on meta_campaigns(client_
 create index if not exists idx_gads_camp_client_date   on gads_campaigns(client_id, date desc);
 create index if not exists idx_gads_ag_client_date     on gads_asset_groups(client_id, date desc);
 create index if not exists idx_gads_prod_client        on gads_products(client_id, product_item_id);
+create index if not exists idx_gads_geo_client_date    on gads_geo(client_id, date_start desc);
 create index if not exists idx_ga4_client_date         on ga4_metrics(client_id, date desc);
 create index if not exists idx_ga4_funnel_client_date  on ga4_funnel(client_id, date desc);
 create index if not exists idx_ga4_cities_client_date  on ga4_cities(client_id, date desc);

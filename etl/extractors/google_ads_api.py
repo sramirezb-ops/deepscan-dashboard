@@ -64,51 +64,76 @@ def upsert(table: str, rows: list, conflict: str):
 # ── QUERIES GAQL ─────────────────────────────────────────────────────────────
 
 def extract_campaigns(client, customer_id, client_id, date_start, date_end):
-    query = f"""
-        SELECT
-            campaign.id,
-            campaign.name,
-            campaign.advertising_channel_type,
-            campaign.status,
-            segments.date,
+    # Campos base (los que alimentan el Overview — NUNCA deben romperse).
+    base_metrics = """
             metrics.cost_micros,
             metrics.impressions,
             metrics.clicks,
             metrics.conversions,
             metrics.conversions_value,
             metrics.ctr,
-            metrics.average_cpc
+            metrics.average_cpc"""
+    # Campos extra para la pestaña Search (cuota de impresiones de búsqueda).
+    # Si la API los rechaza, reintentamos sin ellos para no perder el Overview.
+    extra_metrics = """,
+            metrics.search_impression_share,
+            metrics.search_absolute_top_impression_share"""
+
+    def build_query(with_extra: bool) -> str:
+        return f"""
+        SELECT
+            campaign.id,
+            campaign.name,
+            campaign.advertising_channel_type,
+            campaign.status,
+            segments.date,
+            {base_metrics}{extra_metrics if with_extra else ""}
         FROM campaign
         WHERE segments.date BETWEEN '{date_start}' AND '{date_end}'
             AND campaign.status != 'REMOVED'
         ORDER BY segments.date DESC, metrics.cost_micros DESC
     """
+
     rows = []
-    try:
-        response = client.get_service("GoogleAdsService").search(
-            customer_id=customer_id, query=query
-        )
-        for row in response:
-            cost = row.metrics.cost_micros / 1_000_000
-            conv_value = row.metrics.conversions_value
-            rows.append({
-                "client_id": client_id,
-                "date": row.segments.date,
-                "campaign_id": str(row.campaign.id),
-                "campaign_name": row.campaign.name,
-                "campaign_type": row.campaign.advertising_channel_type.name,
-                "status": row.campaign.status.name,
-                "cost": round(cost, 2),
-                "impressions": row.metrics.impressions,
-                "clicks": row.metrics.clicks,
-                "conversions": round(row.metrics.conversions, 2),
-                "conv_value": round(conv_value, 2),
-                "ctr": round(row.metrics.ctr, 4),
-                "cpc": round(row.metrics.average_cpc / 1_000_000, 2) if row.metrics.average_cpc else 0,
-                "roas": round(conv_value / cost, 4) if cost > 0 else 0,
-            })
-    except GoogleAdsException as e:
-        log.error(f"Campaigns error {customer_id}: {e}")
+    # Intento 1: con los campos de cuota de impresiones. Si falla, intento 2 sin ellos.
+    for with_extra in (True, False):
+        rows = []
+        try:
+            response = client.get_service("GoogleAdsService").search(
+                customer_id=customer_id, query=build_query(with_extra)
+            )
+            for row in response:
+                cost = row.metrics.cost_micros / 1_000_000
+                conv_value = row.metrics.conversions_value
+                rows.append({
+                    "client_id": client_id,
+                    "date": row.segments.date,
+                    "campaign_id": str(row.campaign.id),
+                    "campaign_name": row.campaign.name,
+                    "campaign_type": row.campaign.advertising_channel_type.name,
+                    "status": row.campaign.status.name,
+                    "cost": round(cost, 2),
+                    "impressions": row.metrics.impressions,
+                    "clicks": row.metrics.clicks,
+                    "conversions": round(row.metrics.conversions, 2),
+                    "conv_value": round(conv_value, 2),
+                    "ctr": round(row.metrics.ctr, 4),
+                    "cpc": round(row.metrics.average_cpc / 1_000_000, 2) if row.metrics.average_cpc else 0,
+                    "roas": round(conv_value / cost, 4) if cost > 0 else 0,
+                    # Campos no seleccionados quedan en su default protobuf (0.0) sin error.
+                    "search_impression_share": round(row.metrics.search_impression_share, 4),
+                    "search_abs_top_impression_share": round(row.metrics.search_absolute_top_impression_share, 4),
+                })
+            # Éxito: salimos del bucle de reintento.
+            break
+        except GoogleAdsException as e:
+            if with_extra:
+                log.warning(
+                    f"Campaigns: campos de cuota de impresión rechazados para {customer_id}, "
+                    f"reintentando sin ellos. {e}"
+                )
+                continue
+            log.error(f"Campaigns error {customer_id}: {e}")
     return rows
 
 
@@ -235,6 +260,7 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
             ad_group.id,
             ad_group.name,
             search_term_view.search_term,
+            segments.keyword.info.text,
             segments.date,
             metrics.cost_micros,
             metrics.impressions,
@@ -263,7 +289,9 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
                 "ad_group_id": str(row.ad_group.id),
                 "ad_group_name": row.ad_group.name,
                 "search_term": row.search_term_view.search_term,
-                "cost": round(cost, 2),                "impressions": row.metrics.impressions,
+                "keyword_text": row.segments.keyword.info.text or "",
+                "cost": round(cost, 2),
+                "impressions": row.metrics.impressions,
                 "clicks": row.metrics.clicks,
                 "conversions": round(row.metrics.conversions, 2),
                 "conv_value": round(row.metrics.conversions_value, 2),

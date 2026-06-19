@@ -656,3 +656,17 @@ create policy "anon_read_own" on gads_ads for select using (true);
 create index if not exists idx_gads_ag_detail_client_date on gads_ad_groups(client_id, date_start desc);
 create index if not exists idx_gads_kw_client_date        on gads_keywords(client_id, date_start desc);
 create index if not exists idx_gads_ads_client_date       on gads_ads(client_id, date_start desc);
+
+-- ============================================================
+-- Pestaña Search · columnas adicionales (réplica de la hoja de Looker)
+-- · gads_campaigns: cuota de impresiones de búsqueda (KPIs de Search).
+-- · gads_search_term_details: palabra clave que disparó el término de búsqueda.
+-- Son ADD COLUMN IF NOT EXISTS — 100% seguros, no tocan datos existentes.
+-- (Las tablas reales se crearon vía ETL; aquí solo añadimos columnas.)
+-- ============================================================
+alter table gads_campaigns
+  add column if not exists search_impression_share         numeric(8,4) default 0,
+  add column if not exists search_abs_top_impression_share numeric(8,4) default 0;
+
+alter table gads_search_term_details
+  add column if not exists keyword_text text;

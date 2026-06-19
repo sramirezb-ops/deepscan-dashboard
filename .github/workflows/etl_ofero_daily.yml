@@ -1,0 +1,50 @@
+name: DeepScan ETL · Ofero · Daily
+# ETL dedicado al cliente Ofero (negocio de LEADS, Colombia/COP).
+# Fuentes: GA4 (propiedad 485875757), Microsoft Clarity y TikTok Ads.
+# NO corre Mike Rhodes / SMEC / Shopify / Meta (Ofero no los usa: se saltan
+# solos por ser opcionales). Google Ads NO se repite aquí: el workflow
+# principal ya lo jala para todos los clientes (RUN_GOOGLE_ADS_API=0).
+on:
+  schedule:
+    - cron: "30 11 * * *"   # 30 min después del workflow principal
+  workflow_dispatch:
+jobs:
+  etl-ofero:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Instalar dependencias
+        run: |
+          pip install -r etl/requirements.txt
+          pip install google-ads==30.0.0
+      - name: Escribir credenciales Google
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/google_credentials.json
+      - name: Correr ETL de Ofero
+        env:
+          SUPABASE_URL:            ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:    ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GOOGLE_CREDENTIALS_PATH: /tmp/google_credentials.json
+          DEFAULT_CLIENT_ID:       ${{ secrets.OFERO_CLIENT_ID }}
+          GA4_PROPERTY_IDS:        "485875757"
+          CLARITY_API_TOKEN:       ${{ secrets.OFERO_CLARITY_API_TOKEN }}
+          TIKTOK_ACCESS_TOKEN:     ${{ secrets.OFERO_TIKTOK_ACCESS_TOKEN }}
+          TIKTOK_ADVERTISER_ID:    ${{ secrets.OFERO_TIKTOK_ADVERTISER_ID }}
+          RUN_GOOGLE_ADS_API:      "0"
+          GADS_DAYS:               "30"
+        run: |
+          cd etl
+          python etl_main.py
+      - name: Notificar error en Slack (opcional)
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"❌ DeepScan ETL Ofero falló — revisar logs en GitHub Actions"}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }} || true

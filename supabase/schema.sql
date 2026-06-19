@@ -550,3 +550,109 @@ create index if not exists idx_shopify_funnel_date     on shopify_funnel(client_
 create index if not exists idx_clarity_client_date     on clarity_metrics(client_id, date desc);
 create index if not exists idx_clarity_pages_date      on clarity_pages(client_id, date desc);
 create index if not exists idx_gmc_client_status       on gmc_products(client_id, status);
+
+-- ════════════════════════════════════════════════════════════════
+-- GOOGLE ADS · TABLAS DE DETALLE (ad_groups, keywords, ads)
+-- ----------------------------------------------------------------
+-- Estas tres tablas se habían creado a mano fuera de este schema, así
+-- que la ETL las llenaba (con la service_role) pero el dashboard —que lee
+-- con la llave anon— las veía vacías por faltarles la política de lectura.
+-- Este bloque las deja documentadas y con RLS + políticas como el resto.
+-- Las columnas salen del propio extractor (etl/extractors/google_ads_api.py).
+-- ════════════════════════════════════════════════════════════════
+
+create table if not exists gads_ad_groups (
+  id             uuid primary key default uuid_generate_v4(),
+  client_id      uuid references clients(id) on delete cascade,
+  date_start     date not null,
+  campaign_id    text not null,
+  campaign_name  text,
+  campaign_type  text,
+  ad_group_id    text not null,
+  ad_group_name  text,
+  status         text,
+  cost           numeric(16,2) default 0,
+  impressions    bigint default 0,
+  clicks         bigint default 0,
+  conversions    numeric(14,2) default 0,
+  conv_value     numeric(16,2) default 0,
+  ctr            numeric(8,4) default 0,
+  cpc            numeric(16,2) default 0,
+  roas           numeric(12,4) default 0,
+  inserted_at    timestamptz default now(),
+  unique (client_id, date_start, ad_group_id)
+);
+
+create table if not exists gads_keywords (
+  id                              uuid primary key default uuid_generate_v4(),
+  client_id                       uuid references clients(id) on delete cascade,
+  date_start                      date not null,
+  campaign_id                     text not null,
+  campaign_name                   text,
+  ad_group_id                     text,
+  ad_group_name                   text,
+  keyword_id                      text not null,
+  keyword_text                    text,
+  match_type                      text,
+  status                          text,
+  cost                            numeric(16,2) default 0,
+  impressions                     bigint default 0,
+  clicks                          bigint default 0,
+  conversions                     numeric(14,2) default 0,
+  conv_value                      numeric(16,2) default 0,
+  ctr                             numeric(8,4) default 0,
+  cpc                             numeric(16,2) default 0,
+  search_impression_share         numeric(8,4) default 0,
+  search_top_impression_share     numeric(8,4) default 0,
+  search_abs_top_impression_share numeric(8,4) default 0,
+  inserted_at                     timestamptz default now(),
+  unique (client_id, date_start, keyword_id)
+);
+
+create table if not exists gads_ads (
+  id             uuid primary key default uuid_generate_v4(),
+  client_id      uuid references clients(id) on delete cascade,
+  date_start     date not null,
+  campaign_id    text not null,
+  campaign_name  text,
+  campaign_type  text,
+  ad_group_id    text,
+  ad_group_name  text,
+  ad_id          text not null,
+  ad_name        text,
+  ad_type        text,
+  status         text,
+  cost           numeric(16,2) default 0,
+  impressions    bigint default 0,
+  clicks         bigint default 0,
+  conversions    numeric(14,2) default 0,
+  conv_value     numeric(16,2) default 0,
+  ctr            numeric(8,4) default 0,
+  cpc            numeric(16,2) default 0,
+  roas           numeric(12,4) default 0,
+  inserted_at    timestamptz default now(),
+  unique (client_id, date_start, ad_id)
+);
+
+alter table gads_ad_groups enable row level security;
+alter table gads_keywords  enable row level security;
+alter table gads_ads       enable row level security;
+
+drop policy if exists "service_role_all" on gads_ad_groups;
+create policy "service_role_all" on gads_ad_groups for all using (true) with check (true);
+drop policy if exists "anon_read_own" on gads_ad_groups;
+create policy "anon_read_own" on gads_ad_groups for select using (true);
+
+drop policy if exists "service_role_all" on gads_keywords;
+create policy "service_role_all" on gads_keywords for all using (true) with check (true);
+drop policy if exists "anon_read_own" on gads_keywords;
+create policy "anon_read_own" on gads_keywords for select using (true);
+
+drop policy if exists "service_role_all" on gads_ads;
+create policy "service_role_all" on gads_ads for all using (true) with check (true);
+drop policy if exists "anon_read_own" on gads_ads;
+create policy "anon_read_own" on gads_ads for select using (true);
+
+create index if not exists idx_gads_ag_detail_client_date on gads_ad_groups(client_id, date_start desc);
+create index if not exists idx_gads_kw_client_date        on gads_keywords(client_id, date_start desc);
+create index if not exists idx_gads_ads_client_date       on gads_ads(client_id, date_start desc);

@@ -23,7 +23,10 @@ from extractors.ga4             import extract_ga4
 from extractors.shopify         import extract_shopify
 from extractors.clarity         import extract_clarity
 from extractors.gmc             import extract_gmc
-from extractors.google_ads_api  import run as run_google_ads_api
+# OJO: extractors.google_ads_api lee credenciales de la agencia (MCC) a nivel
+# de módulo, así que su import se hace PEREZOSO dentro del bloque 10, solo
+# cuando RUN_GOOGLE_ADS_API está activo. Importarlo aquí arriba haría fallar a
+# los clientes de leads (p.ej. Ofero) que no tienen esas credenciales.
 from loaders.supabase_loader    import SupabaseLoader
 
 load_dotenv()
@@ -311,6 +314,8 @@ def run_etl(client_id: str, days_back: int = 30):
     if os.environ.get("RUN_GOOGLE_ADS_API", "1") not in ("0", "false", "False", ""):
         log.info("── Google Ads API (datos completos)")
         try:
+            # Import perezoso: solo aquí se cargan las credenciales MCC de la agencia.
+            from extractors.google_ads_api import run as run_google_ads_api
             run_google_ads_api()
             log.info("   ✓ Google Ads API completado")
         except Exception as e:

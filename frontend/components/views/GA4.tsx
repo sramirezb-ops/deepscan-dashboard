@@ -6,6 +6,7 @@ import { formatRangeLabel } from '@/lib/period';
 import { useGA4 } from '@/lib/hooks/useGA4';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ComparisonAreaChart } from '@/components/ui/ComparisonAreaChart';
+import { GA4Cities } from '@/components/views/GA4Cities';
 import { formatInt, formatNumber, formatPercentRaw } from '@/lib/utils';
 
 // 90.5 segundos → "1m 31s"
@@ -283,6 +284,9 @@ export function GA4() {
         </div>
       </div>
 
+      {/* Ciudades — datos reales (ga4_cities) */}
+      <GA4Cities clientId={client.id} range={range} previous={previous} />
+
       {/* Bloques sin fuente real — aviso honesto */}
       <div
         className="card"
@@ -290,11 +294,11 @@ export function GA4() {
       >
         <h3 style={{ margin: '0 0 8px 0', fontSize: '15px' }}>Próximamente en esta vista</h3>
         <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.6 }}>
-          El desglose por <b>ciudad</b>, el detalle de <b>eventos clave nombrados</b> (Escribir
-          correo, Descargar catálogo, Clics a WhatsApp…), las <b>páginas top</b> y el{' '}
-          <b>Agente Web Analytics IA</b> requieren tablas de GA4 a nivel evento/página que aún no
-          están conectadas en el ETL. Por ahora esta vista muestra solo datos reales y verificables:
-          usuarios, sesiones, eventos clave, rebote, duración y canales de adquisición.
+          El detalle de <b>eventos clave nombrados</b> (Escribir correo, Descargar catálogo, Clics a
+          WhatsApp…), las <b>páginas top</b> y el <b>Agente Web Analytics IA</b> requieren tablas de
+          GA4 a nivel evento/página que aún no están conectadas en el ETL. Por ahora esta vista
+          muestra solo datos reales y verificables: usuarios, sesiones, eventos clave, rebote,
+          duración, canales de adquisición y ciudades.
         </div>
       </div>
     </div>

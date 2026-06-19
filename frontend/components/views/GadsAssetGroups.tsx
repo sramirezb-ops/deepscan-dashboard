@@ -31,7 +31,7 @@ function roasTone(roas: number): 'tgu' | 'tgm' | 'tgd' {
 }
 
 // Ad strength de Google → semáforo + etiqueta legible.
-function strengthTone(s: string): 'tgu' | 'tgm' | 'tgd' | 'mute' {
+function strengthTone(s: string): 'tgu' | 'tgm' | 'tgd' | 'tgn' {
   switch (s.toUpperCase()) {
     case 'EXCELLENT':
       return 'tgu';
@@ -42,7 +42,7 @@ function strengthTone(s: string): 'tgu' | 'tgm' | 'tgd' | 'mute' {
     case 'POOR':
       return 'tgd';
     default:
-      return 'mute';
+      return 'tgn';
   }
 }
 

@@ -272,8 +272,10 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
         FROM search_term_view
         WHERE segments.date BETWEEN '{date_start}' AND '{date_end}'
         ORDER BY segments.date DESC, metrics.cost_micros DESC
-        LIMIT 5000
     """
+    # Sin LIMIT: con 30 días y varias campañas hay más de 5000 términos. Un
+    # tope dejaba fuera los días viejos (nunca se refrescaban → sin keyword).
+    # La API pagina sola, así que recorremos todo el período honestamente.
     rows = []
     try:
         response = client.get_service("GoogleAdsService").search(

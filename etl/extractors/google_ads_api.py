@@ -312,6 +312,10 @@ def extract_search_terms(client, customer_id, client_id, date_start, date_end):
             seen[key]["clicks"] += r["clicks"]
             seen[key]["conversions"] = round(seen[key]["conversions"] + r["conversions"], 2)
             seen[key]["conv_value"] = round(seen[key]["conv_value"] + r["conv_value"], 2)
+            # Si la fila acumulada no tiene palabra clave pero esta sí, la tomamos.
+            # Así mostramos la palabra clave siempre que algún grupo la reporte.
+            if not seen[key].get("keyword_text") and r.get("keyword_text"):
+                seen[key]["keyword_text"] = r["keyword_text"]
     return list(seen.values())
 
 

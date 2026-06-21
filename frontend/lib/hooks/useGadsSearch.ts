@@ -93,6 +93,11 @@ export interface SearchCampaign {
   daily: SearchDailyPoint[]; // orden cronológico ascendente
   terms: SearchTermRow[]; // orden por gasto desc
   cities: SearchCityRow[]; // orden por conversiones desc
+  // ¿El período anterior tiene cobertura comparable de cuota de impresión?
+  // Las columnas de cuota son nuevas: hasta que la historia se llene, el delta
+  // de "% impresiones de búsqueda" y "Absolute Top %" no es comparable y se
+  // muestra como "nuevo" en vez de un número engañoso.
+  shareDeltaReliable: boolean;
 }
 
 export interface GadsSearchData {
@@ -189,16 +194,21 @@ async function fetchSearchExistsEver(clientId: string): Promise<boolean> {
 const isSearch = (r: RawCampRow) => (r.campaign_type || '').toUpperCase() === 'SEARCH';
 
 // Acumulador para reconstruir KPIs (incluye "elegibles" para las cuotas).
+// Importante: para las cuotas de impresión SOLO contamos los días que tienen
+// el dato disponible (share>0). Si mezcláramos impresiones de días sin el dato
+// en el numerador, el ratio se dispararía por encima del 100% (dato falso).
 interface Acc {
   cost: number;
   impressions: number;
   clicks: number;
   conversions: number;
-  eligible: number; // Σ impresiones/share  (solo días con share>0)
-  absTopImpr: number; // Σ absTopShare*elegibles
+  shareImpr: number; // Σ impresiones (solo días con share>0) → numerador de la cuota
+  eligible: number; // Σ impresiones/share (solo días con share>0) → denominador
+  absTopImpr: number; // Σ absTopShare*elegibles (solo días con share>0)
+  shareDays: number; // nº de días con dato de cuota disponible
 }
 function emptyAcc(): Acc {
-  return { cost: 0, impressions: 0, clicks: 0, conversions: 0, eligible: 0, absTopImpr: 0 };
+  return { cost: 0, impressions: 0, clicks: 0, conversions: 0, shareImpr: 0, eligible: 0, absTopImpr: 0, shareDays: 0 };
 }
 function addCamp(acc: Acc, r: RawCampRow) {
   const impr = Number(r.impressions) || 0;
@@ -210,8 +220,10 @@ function addCamp(acc: Acc, r: RawCampRow) {
   acc.conversions += Number(r.conversions) || 0;
   if (share > 0 && impr > 0) {
     const eligible = impr / share;
+    acc.shareImpr += impr;
     acc.eligible += eligible;
     acc.absTopImpr += absTop * eligible;
+    acc.shareDays += 1;
   }
 }
 function kpisFromAcc(a: Acc): SearchKpis {
@@ -220,7 +232,7 @@ function kpisFromAcc(a: Acc): SearchKpis {
     impressions: a.impressions,
     clicks: a.clicks,
     conversions: a.conversions,
-    impressionShare: a.eligible > 0 ? a.impressions / a.eligible : 0,
+    impressionShare: a.eligible > 0 ? a.shareImpr / a.eligible : 0,
     absTopImpressionShare: a.eligible > 0 ? a.absTopImpr / a.eligible : 0,
     cpm: a.impressions > 0 ? (a.cost / a.impressions) * 1000 : 0,
     cpc: a.clicks > 0 ? a.cost / a.clicks : 0,
@@ -427,8 +439,13 @@ export function useGadsSearch(
 
         const campaigns: SearchCampaign[] = [];
         for (const [id, acc] of accNow.entries()) {
+          const prevAcc = accPrev.get(id) || emptyAcc();
           const kpis = kpisFromAcc(acc);
-          const prevKpis = kpisFromAcc(accPrev.get(id) || emptyAcc());
+          const prevKpis = kpisFromAcc(prevAcc);
+          // Comparable solo si el período anterior cubre al menos la mitad de
+          // los días con dato que tiene el período actual (y al menos 1).
+          const shareDeltaReliable =
+            prevAcc.shareDays >= 1 && prevAcc.shareDays >= Math.ceil(acc.shareDays * 0.5);
           const dm = dailyByCamp.get(id);
           const daily = dm
             ? Array.from(dm.entries())
@@ -444,6 +461,7 @@ export function useGadsSearch(
             daily,
             terms: buildTerms(termsByCamp.get(id) || []),
             cities: buildCities(geoByCamp.get(id) || []),
+            shareDeltaReliable,
           });
         }
         campaigns.sort((a, b) => b.kpis.cost - a.kpis.cost);

@@ -74,16 +74,20 @@ function Spark({ points, color }: { points: number[]; color: string }) {
 }
 
 // Tarjeta KPI compacta: etiqueta · valor · delta · sparkline.
+// Si deltaUnavailable, en lugar del delta muestra un sello "nuevo" (sin
+// histórico comparable todavía) — honesto, sin números engañosos.
 function SparkKpi({
   label,
   value,
   delta,
+  deltaUnavailable,
   points,
   color,
 }: {
   label: string;
   value: string;
   delta: number;
+  deltaUnavailable?: boolean;
   points: number[];
   color: string;
 }) {
@@ -96,7 +100,16 @@ function SparkKpi({
         {value}
       </div>
       <div style={{ marginTop: 2, marginBottom: 6 }}>
-        <Delta value={delta} />
+        {deltaUnavailable ? (
+          <span
+            title="Métrica nueva: aún no hay período anterior comparable. El delta aparecerá cuando se acumule historial."
+            style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--mu)', whiteSpace: 'nowrap' }}
+          >
+            nuevo · sin histórico
+          </span>
+        ) : (
+          <Delta value={delta} />
+        )}
       </div>
       <Spark points={points} color={color} />
     </div>
@@ -111,11 +124,21 @@ function series(daily: SearchDailyPoint[], pick: (p: SearchDailyPoint) => number
 }
 
 // Bloque ① — 10 KPIs por campaña.
-function KpiGrid({ kpis, deltas, daily }: { kpis: SearchKpis; deltas: SearchDeltas; daily: SearchDailyPoint[] }) {
-  const cards: { label: string; value: string; delta: number; points: number[] }[] = [
+function KpiGrid({
+  kpis,
+  deltas,
+  daily,
+  shareDeltaReliable,
+}: {
+  kpis: SearchKpis;
+  deltas: SearchDeltas;
+  daily: SearchDailyPoint[];
+  shareDeltaReliable: boolean;
+}) {
+  const cards: { label: string; value: string; delta: number; points: number[]; deltaUnavailable?: boolean }[] = [
     { label: 'Coste', value: fmtCOP(kpis.cost), delta: deltas.cost, points: series(daily, (p) => p.cost) },
-    { label: '% impresiones de búsqueda', value: fmtPct(kpis.impressionShare), delta: deltas.impressionShare, points: series(daily, (p) => p.impressionShare) },
-    { label: 'Impression Absolute Top %', value: fmtPct(kpis.absTopImpressionShare), delta: deltas.absTopImpressionShare, points: series(daily, (p) => p.absTopImpressionShare) },
+    { label: '% impresiones de búsqueda', value: fmtPct(kpis.impressionShare), delta: deltas.impressionShare, points: series(daily, (p) => p.impressionShare), deltaUnavailable: !shareDeltaReliable },
+    { label: 'Impression Absolute Top %', value: fmtPct(kpis.absTopImpressionShare), delta: deltas.absTopImpressionShare, points: series(daily, (p) => p.absTopImpressionShare), deltaUnavailable: !shareDeltaReliable },
     { label: 'Avg. CPM', value: fmtCOP(kpis.cpm), delta: deltas.cpm, points: series(daily, (p) => p.cpm) },
     { label: 'Clics', value: fmtInt(kpis.clicks), delta: deltas.clicks, points: series(daily, (p) => p.clicks) },
     { label: 'CPC medio', value: fmtCOP(kpis.cpc), delta: deltas.cpc, points: series(daily, (p) => p.cpc) },
@@ -134,7 +157,15 @@ function KpiGrid({ kpis, deltas, daily }: { kpis: SearchKpis; deltas: SearchDelt
       }}
     >
       {cards.map((c) => (
-        <SparkKpi key={c.label} label={c.label} value={c.value} delta={c.delta} points={c.points} color={KPI_COLOR} />
+        <SparkKpi
+          key={c.label}
+          label={c.label}
+          value={c.value}
+          delta={c.delta}
+          deltaUnavailable={c.deltaUnavailable}
+          points={c.points}
+          color={KPI_COLOR}
+        />
       ))}
     </div>
   );
@@ -265,7 +296,12 @@ function CampaignSection({ campaign, previousLabel }: { campaign: SearchCampaign
         </span>
       </div>
 
-      <KpiGrid kpis={campaign.kpis} deltas={campaign.deltas} daily={campaign.daily} />
+      <KpiGrid
+        kpis={campaign.kpis}
+        deltas={campaign.deltas}
+        daily={campaign.daily}
+        shareDeltaReliable={campaign.shareDeltaReliable}
+      />
       <TermsTable campaign={campaign} />
       <CityPies campaign={campaign} />
     </div>

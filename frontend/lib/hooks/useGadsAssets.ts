@@ -20,13 +20,30 @@ import { supabase } from '@/lib/supabase';
 
 const PAGE = 1000;
 
-export interface VideoAsset {
+// Métricas reales por pieza (agregadas a 30 días, vienen de la API de PMax).
+export interface AssetMetrics {
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  convValue: number;
+  cost: number;
+}
+
+const ZERO_METRICS: AssetMetrics = {
+  impressions: 0,
+  clicks: 0,
+  conversions: 0,
+  convValue: 0,
+  cost: 0,
+};
+
+export interface VideoAsset extends AssetMetrics {
   videoId: string;
   title: string;
   groups: string[]; // asset groups que lo usan
 }
 
-export interface TextAsset {
+export interface TextAsset extends AssetMetrics {
   text: string;
   fieldType: string;
   groups: string[];
@@ -37,7 +54,7 @@ export interface TypeCount {
   count: number;
 }
 
-export interface ImageAsset {
+export interface ImageAsset extends AssetMetrics {
   url: string;
   fieldType: string;
   groups: string[]; // asset groups que la usan
@@ -58,6 +75,7 @@ export interface GadsAssetsData {
   // Banderas de honestidad para el aviso de la UI.
   hasAnyImageUrl: boolean;
   hasAnyPerfLabel: boolean;
+  hasAnyMetric: boolean; // ¿la fuente trae métricas reales por pieza?
 }
 
 export interface UseGadsAssetsResult {
@@ -76,10 +94,33 @@ interface RawAsset {
   youtube_video_id: string | null;
   youtube_title: string | null;
   asset_group_name: string | null;
+  impressions: number | null;
+  clicks: number | null;
+  conversions: number | null;
+  conv_value: number | null;
+  cost: number | null;
 }
 
 const SELECT =
-  'asset_type, field_type, performance_label, asset_text, image_url, youtube_video_id, youtube_title, asset_group_name';
+  'asset_type, field_type, performance_label, asset_text, image_url, youtube_video_id, youtube_title, asset_group_name, impressions, clicks, conversions, conv_value, cost';
+
+/** Suma las métricas de una fila cruda sobre un acumulador. */
+function addMetrics(acc: AssetMetrics, r: RawAsset) {
+  acc.impressions += r.impressions || 0;
+  acc.clicks += r.clicks || 0;
+  acc.conversions += r.conversions || 0;
+  acc.convValue += r.conv_value || 0;
+  acc.cost += r.cost || 0;
+}
+
+/** Ordena por leads, luego impresiones, luego nº de grupos (desempate estable). */
+function byPerformance(a: AssetMetrics & { groups: string[] }, b: AssetMetrics & { groups: string[] }) {
+  return (
+    b.conversions - a.conversions ||
+    b.impressions - a.impressions ||
+    b.groups.length - a.groups.length
+  );
+}
 
 async function fetchRows(clientId: string): Promise<RawAsset[]> {
   const all: RawAsset[] = [];
@@ -100,7 +141,7 @@ async function fetchRows(clientId: string): Promise<RawAsset[]> {
   return all;
 }
 
-/** Acumula assets de texto distintos por su contenido, juntando los grupos que los usan. */
+/** Acumula assets de texto distintos por su contenido, sumando métricas y grupos. */
 function dedupeText(rows: RawAsset[]): TextAsset[] {
   const map = new Map<string, TextAsset>();
   for (const r of rows) {
@@ -110,15 +151,16 @@ function dedupeText(rows: RawAsset[]): TextAsset[] {
     const key = `${ft}␟${text}`;
     let a = map.get(key);
     if (!a) {
-      a = { text, fieldType: ft, groups: [] };
+      a = { text, fieldType: ft, groups: [], ...ZERO_METRICS };
       map.set(key, a);
     }
     const g = r.asset_group_name || '';
     if (g && !a.groups.includes(g)) a.groups.push(g);
+    addMetrics(a, r);
   }
-  // Más usados (en más grupos) primero, luego alfabético.
+  // Por rendimiento (leads), luego impresiones; alfabético solo si todo es 0.
   return Array.from(map.values()).sort(
-    (a, b) => b.groups.length - a.groups.length || a.text.localeCompare(b.text)
+    (a, b) => byPerformance(a, b) || a.text.localeCompare(b.text)
   );
 }
 
@@ -143,22 +185,26 @@ export function useGadsAssets(clientId: string): UseGadsAssetsResult {
         const videoRows = rows.filter((r) => (r.asset_type || '') === 'YOUTUBE_VIDEO');
         const imageRows = rows.filter((r) => (r.asset_type || '') === 'IMAGE');
 
-        // Videos distintos por youtube_video_id, juntando los grupos.
+        // Videos distintos por youtube_video_id, sumando métricas y grupos.
         const vmap = new Map<string, VideoAsset>();
         for (const r of videoRows) {
           const id = (r.youtube_video_id || '').trim();
           if (!id) continue;
           let v = vmap.get(id);
           if (!v) {
-            v = { videoId: id, title: (r.youtube_title || '').trim() || 'Video sin título', groups: [] };
+            v = {
+              videoId: id,
+              title: (r.youtube_title || '').trim() || 'Video sin título',
+              groups: [],
+              ...ZERO_METRICS,
+            };
             vmap.set(id, v);
           }
           const g = r.asset_group_name || '';
           if (g && !v.groups.includes(g)) v.groups.push(g);
+          addMetrics(v, r);
         }
-        const videos = Array.from(vmap.values()).sort(
-          (a, b) => b.groups.length - a.groups.length
-        );
+        const videos = Array.from(vmap.values()).sort(byPerformance);
 
         // Textos por field_type.
         const allText = dedupeText(textRows);
@@ -185,15 +231,14 @@ export function useGadsAssets(clientId: string): UseGadsAssetsResult {
           if (!url) continue; // honestidad: si no hay URL, no se pinta
           let im = imgMap.get(url);
           if (!im) {
-            im = { url, fieldType: r.field_type || 'IMAGE', groups: [] };
+            im = { url, fieldType: r.field_type || 'IMAGE', groups: [], ...ZERO_METRICS };
             imgMap.set(url, im);
           }
           const g = r.asset_group_name || '';
           if (g && !im.groups.includes(g)) im.groups.push(g);
+          addMetrics(im, r);
         }
-        const images = Array.from(imgMap.values()).sort(
-          (a, b) => b.groups.length - a.groups.length
-        );
+        const images = Array.from(imgMap.values()).sort(byPerformance);
 
         setData({
           videos,
@@ -209,6 +254,9 @@ export function useGadsAssets(clientId: string): UseGadsAssetsResult {
           assetCount: rows.length,
           hasAnyImageUrl: rows.some((r) => (r.image_url || '').trim() !== ''),
           hasAnyPerfLabel: rows.some((r) => (r.performance_label || '').trim() !== ''),
+          hasAnyMetric: rows.some(
+            (r) => (r.impressions || 0) > 0 || (r.clicks || 0) > 0 || (r.conversions || 0) > 0
+          ),
         });
       } catch (e: any) {
         if (cancelled) return;

@@ -1,8 +1,25 @@
 'use client';
 
 import { useClient } from '@/lib/useClient';
-import { useGadsAssets, type TextAsset } from '@/lib/hooks/useGadsAssets';
+import { useGadsAssets, type AssetMetrics, type TextAsset } from '@/lib/hooks/useGadsAssets';
 import { formatInt } from '@/lib/utils';
+
+// Línea compacta de métricas reales por pieza (impresiones · clics · leads).
+// Solo se pinta si la pieza tuvo actividad: nunca mostramos "0 leads" inventado.
+function MetricLine({ m, style }: { m: AssetMetrics; style?: React.CSSProperties }) {
+  if (m.impressions <= 0 && m.clicks <= 0 && m.conversions <= 0) return null;
+  return (
+    <div style={{ fontSize: 9, color: 'var(--mu)', display: 'flex', gap: 8, flexWrap: 'wrap', ...style }}>
+      <span>{formatInt(m.impressions)} impr.</span>
+      <span>{formatInt(m.clicks)} clics</span>
+      {m.conversions > 0 && (
+        <span style={{ color: 'var(--ok, #22d97a)', fontWeight: 600 }}>
+          {formatInt(m.conversions)} leads
+        </span>
+      )}
+    </div>
+  );
+}
 
 // ============================================================
 // GadsAssets — biblioteca creativa de Performance Max
@@ -55,9 +72,13 @@ function TextBlock({ title, items }: { title: string; items: TextAsset[] }) {
               borderRadius: 8,
               padding: '6px 10px',
               maxWidth: '100%',
+              display: 'inline-flex',
+              flexDirection: 'column',
+              gap: 4,
             }}
           >
             {t.text}
+            <MetricLine m={t} />
           </span>
         ))}
         {items.length > TEXT_LIMIT && (
@@ -103,11 +124,18 @@ export function GadsAssets() {
       <div style={{ fontSize: 11, color: 'var(--mu)', marginBottom: '16px', lineHeight: 1.5 }}>
         Inventario real de los assets que alimentan tus asset groups de Performance Max. Foto del
         estado actual (no depende del filtro de fechas).
+        {data.hasAnyMetric && (
+          <>
+            {' '}
+            Cada pieza muestra sus <b>métricas reales</b> de los últimos 30 días (impresiones, clics y
+            leads) directo de la API de Google Ads, y se ordenan por las que más leads traen.
+          </>
+        )}
         {!data.hasAnyPerfLabel && (
           <>
             {' '}
-            El <b>performance label</b> de Google (Mejor / Buena / Baja) aún no lo exporta el script
-            de Google Ads, por eso no se muestra todavía.
+            El <b>performance label</b> (Mejor / Buena / Baja) ya no está disponible: Google lo retiró
+            de su API, por eso usamos las métricas reales en su lugar.
           </>
         )}
       </div>
@@ -178,6 +206,7 @@ export function GadsAssets() {
                 >
                   {v.title}
                 </div>
+                <MetricLine m={v} style={{ marginTop: 3 }} />
                 {v.groups.length > 0 && (
                   <div style={{ fontSize: 9, color: 'var(--mu)', marginTop: 2 }}>
                     {v.groups.length} {v.groups.length === 1 ? 'grupo' : 'grupos'}
@@ -262,8 +291,9 @@ export function GadsAssets() {
                         }}
                       />
                     </div>
+                    <MetricLine m={im} style={{ marginTop: 4 }} />
                     {im.groups.length > 0 && (
-                      <div style={{ fontSize: 9, color: 'var(--mu)', marginTop: 4 }}>
+                      <div style={{ fontSize: 9, color: 'var(--mu)', marginTop: 2 }}>
                         {im.groups.length} {im.groups.length === 1 ? 'grupo' : 'grupos'}
                       </div>
                     )}

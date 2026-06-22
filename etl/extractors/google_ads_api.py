@@ -611,17 +611,23 @@ def extract_pmax_assets(client, customer_id, client_id, date_start, date_end):
 
     Por qué un extractor aparte de `extract_ad_assets`: PMax NO tiene ad_groups
     ni anuncios adaptables clásicos, organiza sus piezas en ASSET GROUPS. Por eso
-    `ad_group_ad_asset_view` no las ve. El recurso correcto es `asset_group_asset`,
-    que además SÍ expone `performance_label` (el entorno de Scripts / la hoja de
-    Mike Rhodes ya NO lo entrega — Mike lo quitó en v30). Esta es la única fuente
-    real de esa calificación por pieza.
+    `ad_group_ad_asset_view` no las ve. El recurso correcto es `asset_group_asset`.
 
-    Es un SNAPSHOT del estado actual (asset_group_asset no lleva métricas ni fecha),
-    igual que el resto de gads_assets. No inventamos métricas: solo el contenido y
-    la calificación, que es lo valioso y 100% real.
+    HONESTIDAD — performance_label NO se incluye a propósito: Google lo ELIMINÓ
+    de la API (v23 responde "Unrecognized field"). No es solo que Mike Rhodes lo
+    quitara en v30: la calificación BEST/GOOD/LOW por pieza ya no existe en NINGUNA
+    fuente. A cambio, la API SÍ da algo más valioso: MÉTRICAS REALES por pieza
+    (impresiones, clics, conversiones, valor, costo) en PMax. Eso responde "¿qué
+    imagen / video / titular trae más leads?" con dato 100% real.
+
+    Dos niveles (como extract_ad_assets):
+      · Nivel 1: piezas que sirvieron, con métricas reales agregadas al rango.
+      · Nivel 2: inventario de las que NO sirvieron (métricas en 0, no inventadas).
+    Snapshot del estado actual (sin columna de fecha), igual que el resto de
+    gads_assets.
     """
-    query = """
-        SELECT
+    # Identidad + contenido de la pieza. Compartido por ambos niveles.
+    asset_fields = """
             campaign.id,
             campaign.name,
             asset_group.id,
@@ -629,48 +635,93 @@ def extract_pmax_assets(client, customer_id, client_id, date_start, date_end):
             asset_group.ad_strength,
             asset_group.status,
             asset_group_asset.field_type,
-            asset_group_asset.performance_label,
             asset_group_asset.status,
-            asset_group_asset.source,
             asset.id,
             asset.type,
             asset.name,
             asset.text_asset.text,
             asset.image_asset.full_size.url,
             asset.youtube_video_asset.youtube_video_id,
-            asset.youtube_video_asset.youtube_video_title,
-            asset.final_urls
+            asset.youtube_video_asset.youtube_video_title"""
+
+    # Nivel 1 — con métricas reales. Sin segments.date en el SELECT pero con el
+    # rango en el WHERE → la API agrega las métricas por pieza al período.
+    q_full = f"""
+        SELECT {asset_fields},
+            metrics.impressions,
+            metrics.clicks,
+            metrics.ctr,
+            metrics.conversions,
+            metrics.conversions_value,
+            metrics.cost_micros
+        FROM asset_group_asset
+        WHERE campaign.advertising_channel_type = 'PERFORMANCE_MAX'
+            AND segments.date BETWEEN '{date_start}' AND '{date_end}'
+            AND asset_group_asset.status != 'REMOVED'
+    """
+
+    # Nivel 2 — inventario sin métricas ni fecha. Cubre piezas que no sirvieron
+    # en el rango (no aparecen en el Nivel 1 por el filtro de fecha). No se
+    # inventan métricas: quedan en 0, pero conservamos el contenido real.
+    q_inv = f"""
+        SELECT {asset_fields}
         FROM asset_group_asset
         WHERE campaign.advertising_channel_type = 'PERFORMANCE_MAX'
             AND asset_group_asset.status != 'REMOVED'
     """
+
+    def parse(row, with_metrics):
+        return {
+            "client_id": client_id,
+            "campaign_name": row.campaign.name,
+            "asset_group_name": row.asset_group.name,
+            "asset_group_id": str(row.asset_group.id),
+            "asset_id": str(row.asset.id),
+            "asset_type": row.asset.type_.name,
+            "field_type": row.asset_group_asset.field_type.name,
+            "performance_label": "",  # Google retiró el label de la API (v23)
+            "ad_strength": row.asset_group.ad_strength.name,
+            "status": row.asset_group_asset.status.name,
+            "source": "",
+            "asset_text": row.asset.text_asset.text or "",
+            "image_url": row.asset.image_asset.full_size.url or "",
+            "youtube_video_id": row.asset.youtube_video_asset.youtube_video_id or "",
+            "youtube_title": row.asset.youtube_video_asset.youtube_video_title or "",
+            "final_url": "",
+            "impressions": row.metrics.impressions if with_metrics else 0,
+            "clicks": row.metrics.clicks if with_metrics else 0,
+            "conversions": round(row.metrics.conversions, 2) if with_metrics else 0,
+            "conv_value": round(row.metrics.conversions_value, 2) if with_metrics else 0,
+            "cost": round(row.metrics.cost_micros / 1_000_000, 2) if with_metrics else 0,
+            "ctr": round(row.metrics.ctr, 4) if with_metrics else 0,
+        }
+
+    svc = client.get_service("GoogleAdsService")
     rows = []
+    seen = set()  # (asset_group_id, asset_id, field_type) ya cubierto por Nivel 1
+
+    # Nivel 1: piezas con métricas reales.
     try:
-        response = client.get_service("GoogleAdsService").search(
-            customer_id=customer_id, query=query
-        )
-        for row in response:
-            final_urls = list(row.asset.final_urls)
-            rows.append({
-                "client_id": client_id,
-                "campaign_name": row.campaign.name,
-                "asset_group_name": row.asset_group.name,
-                "asset_group_id": str(row.asset_group.id),
-                "asset_id": str(row.asset.id),
-                "asset_type": row.asset.type_.name,
-                "field_type": row.asset_group_asset.field_type.name,
-                "performance_label": row.asset_group_asset.performance_label.name,
-                "ad_strength": row.asset_group.ad_strength.name,
-                "status": row.asset_group_asset.status.name,
-                "source": row.asset_group_asset.source.name,
-                "asset_text": row.asset.text_asset.text or "",
-                "image_url": row.asset.image_asset.full_size.url or "",
-                "youtube_video_id": row.asset.youtube_video_asset.youtube_video_id or "",
-                "youtube_title": row.asset.youtube_video_asset.youtube_video_title or "",
-                "final_url": final_urls[0] if final_urls else "",
-            })
+        for row in svc.search(customer_id=customer_id, query=q_full):
+            d = parse(row, True)
+            rows.append(d)
+            seen.add((d["asset_group_id"], d["asset_id"], d["field_type"]))
     except GoogleAdsException as e:
-        log.error(f"PMax assets error {customer_id}: {e}")
+        log.warning(f"PMax assets con métricas no disponible {customer_id} (se completa con inventario): {e}")
+
+    # Nivel 2: inventario de las piezas restantes (sin métricas).
+    try:
+        added = 0
+        for row in svc.search(customer_id=customer_id, query=q_inv):
+            d = parse(row, False)
+            if (d["asset_group_id"], d["asset_id"], d["field_type"]) in seen:
+                continue
+            rows.append(d)
+            added += 1
+        if added:
+            log.info(f"   ↪ PMax assets sin métricas en el rango: {added} piezas (inventario)")
+    except GoogleAdsException as e:
+        log.error(f"PMax assets inventario error {customer_id}: {e}")
     return rows
 
 

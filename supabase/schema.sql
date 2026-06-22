@@ -141,6 +141,14 @@ create table if not exists gads_assets (
   youtube_video_id text,                       -- para VIDEO assets
   youtube_title   text,
   final_url       text,
+  -- Métricas reales por pieza (PMax, vía asset_group_asset · API). Agregadas a
+  -- 30 días. Para piezas sin actividad quedan en 0 (no se inventan).
+  impressions     bigint        default 0,
+  clicks          bigint        default 0,
+  conversions     numeric(10,2) default 0,
+  conv_value      numeric(14,2) default 0,
+  cost            numeric(14,2) default 0,
+  ctr             numeric(8,4)  default 0,
   inserted_at     timestamptz default now(),
   unique (client_id, asset_group_id, asset_id, field_type)
 );

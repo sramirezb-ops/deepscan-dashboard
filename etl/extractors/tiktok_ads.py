@@ -394,42 +394,46 @@ def extract_tiktok_creatives(
     # en GitHub Actions y nos dicen qué identity_id/type hace que la portada
     # cargue (code=0). BORRAR este bloque cuando el fix esté confirmado.
     if spark_ads and len(spark_map) < len(spark_ads):
-        log.warning("   [DIAG] === Spark Ads sin resolver: iniciando diagnóstico ===")
+        log.warning("   [DIAG] === Spark Ads sin resolver: iniciando diagnóstico v2 ===")
         a0_id, a0 = spark_ads[0]
         log.warning(
             f"   [DIAG] ejemplo ad_id={a0_id} item_id={a0.get('item_id')} "
             f"identity_id={a0.get('identity_id')} identity_type={a0.get('identity_type')}"
         )
-        # 1) Identidades válidas del anunciante.
-        id_data = _api_get(f"{BASE_URL}/identity/get/", headers, {
-            "advertiser_id": advertiser_id, "page": 1, "page_size": 50,
-        })
-        ids = []
-        if id_data:
-            ids = id_data.get("identity_list") or id_data.get("list") or []
-        log.warning(f"   [DIAG] /identity/get/ devolvió {len(ids)} identidades")
-        for it in ids[:20]:
-            log.warning(
-                f"   [DIAG]   id={it.get('identity_id')} "
-                f"type={it.get('identity_type')} name={it.get('display_name')}"
-            )
-        # 2) Probar la portada del item con cada identidad válida.
+        # 1) Business Centers accesibles por el token (necesitamos bc_id para
+        #    las identidades BC_AUTH_TT).
+        bc_data = _api_get(f"{BASE_URL}/bc/get/", headers, {"page": 1, "page_size": 50})
+        bcs = []
+        if bc_data:
+            bcs = bc_data.get("list") or bc_data.get("bc_list") or []
+        log.warning(f"   [DIAG] /bc/get/ devolvió {len(bcs)} business centers")
+        bc_ids = []
+        for b in bcs[:20]:
+            inner = b.get("bc_info") or b
+            bid = inner.get("bc_id") or b.get("bc_id")
+            log.warning(f"   [DIAG]   bc_id={bid} name={inner.get('name')}")
+            if bid:
+                bc_ids.append(str(bid))
+        # 2) Probar la portada con la identidad PROPIA del anuncio (BC_AUTH_TT)
+        #    + identity_authorized_bc_id = cada bc_id.
         item0 = a0.get("item_id")
-        for cand in ids:
+        for bid in bc_ids:
             r = _api_get(f"{BASE_URL}/identity/video/info/", headers, {
-                "advertiser_id": advertiser_id,
-                "identity_id":   cand.get("identity_id"),
-                "identity_type": cand.get("identity_type"),
-                "item_id":       item0,
+                "advertiser_id":            advertiser_id,
+                "identity_id":              a0.get("identity_id"),
+                "identity_type":            a0.get("identity_type") or "BC_AUTH_TT",
+                "identity_authorized_bc_id": bid,
+                "item_id":                  item0,
             })
             if r is not None:
                 info = _identity_info(r)
                 log.warning(
-                    f"   [DIAG] OK item={item0} con identity_id={cand.get('identity_id')} "
-                    f"type={cand.get('identity_type')} -> claves={list(info.keys())[:12]}"
+                    f"   [DIAG] OK!! item={item0} identity={a0.get('identity_id')} "
+                    f"bc_id={bid} -> claves={list(info.keys())[:14]} "
+                    f"| dump={json.dumps(info, ensure_ascii=False)[:500]}"
                 )
             time.sleep(0.1)
-        log.warning("   [DIAG] === fin diagnóstico ===")
+        log.warning("   [DIAG] === fin diagnóstico v2 ===")
 
     # ── 4) Ensamblar filas (solo las que tienen al menos una portada) ───────
     out: list[dict] = []

@@ -43,6 +43,7 @@ const CHANNEL_BRAND: Record<ChannelId, Brand> = {
   ttok: 'tiktok',
   ttkc: 'tiktok',
   ttkr: 'tiktok',
+  ttkm: 'tiktok',
   ga4: 'google-analytics',
   cro: 'clarity',
   gsc: 'search-console',

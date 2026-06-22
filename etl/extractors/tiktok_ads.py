@@ -207,11 +207,16 @@ IMAGE_IDS_PER_CALL = 100   # límite de /file/image/ad/info/
 
 
 def _identity_info(data: dict) -> dict:
-    """Normaliza la respuesta de /identity/video/info/: el bloque del video puede
-    venir como objeto directo, anidado en `video`/`video_info`, o como primer
-    elemento de `list`. Devolvemos el dict que contenga la portada."""
+    """Normaliza la respuesta de /identity/video/info/. La portada de un post
+    orgánico (Spark Ad) viene en data.video_detail.video_info.poster_url; otras
+    variantes la traen en `video`/`video_info` o como primer elemento de `list`.
+    Devolvemos un dict combinado (detalle + video_info) que contenga la portada."""
     if isinstance(data.get("list"), list) and data["list"]:
-        return data["list"][0] or {}
+        data = data["list"][0] or {}
+    # Spark/post orgánico: el detalle envuelve el bloque de video.
+    detail = data.get("video_detail") or data.get("video_details") or {}
+    if isinstance(detail, dict) and isinstance(detail.get("video_info"), dict):
+        return {**detail, **detail["video_info"]}
     for key in ("video", "video_info"):
         if isinstance(data.get(key), dict):
             return data[key]
@@ -352,9 +357,12 @@ def extract_tiktok_creatives(
     # ── 3.5) Spark Ads (posts orgánicos): portada vía identidad + item_id ───
     # Un Spark Ad no tiene video subido a la biblioteca del anunciante (sin
     # video_id resoluble); apunta al post orgánico con identity_id + item_id.
-    # Lo resolvemos con /identity/video/info/. Best-effort: si la API no lo
-    # soporta o falla, esos anuncios quedan con el marcador honesto (sin romper
-    # nada de lo ya resuelto). Cacheamos por item_id para no repetir llamadas.
+    # Lo resolvemos con /identity/video/info/. Las identidades de Ofero son del
+    # tipo BC_AUTH_TT (creadores autorizados vía Business Center): para esas la
+    # API EXIGE el parámetro identity_authorized_bc_id (el bc_id del Business
+    # Center). Como el token puede ver varios BC, probamos cada bc_id hasta que
+    # uno responda. Best-effort: si nada resuelve, esos anuncios quedan con el
+    # marcador honesto. Cacheamos por item_id para no repetir llamadas.
     spark_map: dict[str, dict] = {}   # ad_id → {cover, preview}
     spark_cache: dict[str, dict] = {} # item_id → {cover, preview}
     url_identity = f"{BASE_URL}/identity/video/info/"
@@ -364,20 +372,48 @@ def extract_tiktok_creatives(
         and not (m["video_id"] and m["video_id"] in video_map)
         and not m["image_ids"]
     ]
+
+    # Business Centers visibles por el token (solo si hay identidades BC_AUTH_TT).
+    bc_ids: list[str] = []
+    if any((m.get("identity_type") == "BC_AUTH_TT") for _, m in spark_ads):
+        bc_data = _api_get(f"{BASE_URL}/bc/get/", headers, {"page": 1, "page_size": 50})
+        if bc_data:
+            for b in (bc_data.get("list") or bc_data.get("bc_list") or []):
+                inner = b.get("bc_info") or b
+                bid = inner.get("bc_id") or b.get("bc_id")
+                if bid:
+                    bc_ids.append(str(bid))
+    working_bc: str | None = None  # primer bc_id que funcionó (atajo de caché)
+
+    def _resolve_spark(m: dict) -> dict | None:
+        """Llama /identity/video/info/ resolviendo el bc_id correcto si aplica."""
+        nonlocal working_bc
+        base = {
+            "advertiser_id": advertiser_id,
+            "identity_id":   m["identity_id"],
+            "identity_type": m["identity_type"] or "TT_USER",
+            "item_id":       m["item_id"],
+        }
+        if m["identity_type"] == "BC_AUTH_TT" and bc_ids:
+            # Prueba primero el bc_id que ya funcionó; luego el resto.
+            order = ([working_bc] if working_bc else []) + [b for b in bc_ids if b != working_bc]
+            for bid in order:
+                d = _api_get(url_identity, headers, {**base, "identity_authorized_bc_id": bid})
+                if d:
+                    working_bc = bid
+                    return d
+            return None
+        return _api_get(url_identity, headers, base)
+
     for aid, m in spark_ads:
         key = m["item_id"]
         if key not in spark_cache:
-            data = _api_get(url_identity, headers, {
-                "advertiser_id": advertiser_id,
-                "identity_id":   m["identity_id"],
-                "identity_type": m["identity_type"] or "TT_USER",
-                "item_id":       key,
-            })
+            data = _resolve_spark(m)
             if data:
                 info = _identity_info(data)
                 spark_cache[key] = {
                     "cover":   _first(info, "poster_url", "video_cover_url", "cover_url", "cover"),
-                    "preview": _first(info, "preview_url", "embed_url", "share_url"),
+                    "preview": _first(info, "preview_url", "embed_url", "share_url", "play_url"),
                 }
             else:
                 spark_cache[key] = {"cover": "", "preview": ""}
@@ -388,52 +424,6 @@ def extract_tiktok_creatives(
 
     if spark_map:
         log.info(f"   TikTok creativos: {len(spark_map)} Spark Ads (post orgánico) resueltos")
-
-    # ── DIAG TEMPORAL: si hay Spark Ads sin resolver, averiguar la identidad ─
-    # correcta probando cada identidad válida del anunciante. Estos logs salen
-    # en GitHub Actions y nos dicen qué identity_id/type hace que la portada
-    # cargue (code=0). BORRAR este bloque cuando el fix esté confirmado.
-    if spark_ads and len(spark_map) < len(spark_ads):
-        log.warning("   [DIAG] === Spark Ads sin resolver: iniciando diagnóstico v2 ===")
-        a0_id, a0 = spark_ads[0]
-        log.warning(
-            f"   [DIAG] ejemplo ad_id={a0_id} item_id={a0.get('item_id')} "
-            f"identity_id={a0.get('identity_id')} identity_type={a0.get('identity_type')}"
-        )
-        # 1) Business Centers accesibles por el token (necesitamos bc_id para
-        #    las identidades BC_AUTH_TT).
-        bc_data = _api_get(f"{BASE_URL}/bc/get/", headers, {"page": 1, "page_size": 50})
-        bcs = []
-        if bc_data:
-            bcs = bc_data.get("list") or bc_data.get("bc_list") or []
-        log.warning(f"   [DIAG] /bc/get/ devolvió {len(bcs)} business centers")
-        bc_ids = []
-        for b in bcs[:20]:
-            inner = b.get("bc_info") or b
-            bid = inner.get("bc_id") or b.get("bc_id")
-            log.warning(f"   [DIAG]   bc_id={bid} name={inner.get('name')}")
-            if bid:
-                bc_ids.append(str(bid))
-        # 2) Probar la portada con la identidad PROPIA del anuncio (BC_AUTH_TT)
-        #    + identity_authorized_bc_id = cada bc_id.
-        item0 = a0.get("item_id")
-        for bid in bc_ids:
-            r = _api_get(f"{BASE_URL}/identity/video/info/", headers, {
-                "advertiser_id":            advertiser_id,
-                "identity_id":              a0.get("identity_id"),
-                "identity_type":            a0.get("identity_type") or "BC_AUTH_TT",
-                "identity_authorized_bc_id": bid,
-                "item_id":                  item0,
-            })
-            if r is not None:
-                info = _identity_info(r)
-                log.warning(
-                    f"   [DIAG] OK!! item={item0} identity={a0.get('identity_id')} "
-                    f"bc_id={bid} -> claves={list(info.keys())[:14]} "
-                    f"| dump={json.dumps(info, ensure_ascii=False)[:500]}"
-                )
-            time.sleep(0.1)
-        log.warning("   [DIAG] === fin diagnóstico v2 ===")
 
     # ── 4) Ensamblar filas (solo las que tienen al menos una portada) ───────
     out: list[dict] = []

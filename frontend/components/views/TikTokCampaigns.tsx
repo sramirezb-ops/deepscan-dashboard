@@ -20,6 +20,19 @@ import {
   TikTokEmpty,
   TikTokHero,
   CreativeThumb,
+  SectionLabel,
+  SummaryStat,
+  deltaParts,
+  BackToTop,
+  chipStyle,
+  pagerBtnStyle,
+  summaryGridStyle,
+  toolbarStyle,
+  searchInputStyle,
+  searchIconStyle,
+  searchClearStyle,
+  selectStyle,
+  toolBtnStyle,
   TT_PINK,
   TT_CYAN,
 } from './tiktokShared';
@@ -494,116 +507,6 @@ function AdsTable({ ads, cur }: { ads: TikTokAdRow[]; cur: string }) {
   );
 }
 
-// Etiqueta de variación vs. período anterior, honesta y legible.
-// `fmtDelta` presente = el delta es ABSOLUTO (moneda, p.p.) → se muestra tal cual.
-// `fmtDelta` ausente = el delta es una FRACCIÓN (cambio %); si la base anterior
-// fue casi nula el % se dispara, así que lo acotamos a ">+1000%" en vez de
-// mostrar cifras absurdas (255000%) que parecen un error.
-function deltaParts(
-  delta: number | null,
-  good: 'up' | 'down' | 'neutral',
-  fmtDelta?: (v: number) => string,
-): { text: string; color: string } {
-  if (delta == null) return { text: 'sin período anterior', color: 'var(--mu)' };
-  if (Math.abs(delta) < 5e-4) return { text: '■ sin cambio vs. anterior', color: 'var(--mu)' };
-  const dir: 'up' | 'down' = delta > 0 ? 'up' : 'down';
-  const tone = good === 'neutral' ? 'neutral' : dir === good ? 'good' : 'bad';
-  const color = tone === 'good' ? '#4ade80' : tone === 'bad' ? '#f87171' : 'var(--mu)';
-  const arrow = dir === 'up' ? '▲' : '▼';
-  const isFraction = !fmtDelta;
-  if (isFraction && Math.abs(delta) >= 10) return { text: `${arrow} +1000% vs. anterior`, color };
-  const fmt = fmtDelta ?? ((v: number) => formatPercent(v, 1));
-  return { text: `${arrow} ${fmt(Math.abs(delta))} vs. anterior`, color };
-}
-
-// ── Tarjeta de resumen del período (overview-first) ──
-function SummaryStat({
-  label,
-  value,
-  delta,
-  good,
-  fmtDelta,
-}: {
-  label: string;
-  value: string;
-  delta: number | null;
-  good: 'up' | 'down' | 'neutral';
-  fmtDelta?: (v: number) => string;
-}) {
-  const { text, color } = deltaParts(delta, good, fmtDelta);
-  return (
-    <div
-      style={{
-        background: 'var(--bg3)',
-        border: '1px solid var(--b2)',
-        borderRadius: 10,
-        padding: '11px 13px 9px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 3,
-      }}
-    >
-      <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 10, color, fontVariantNumeric: 'tabular-nums' }}>{text}</div>
-    </div>
-  );
-}
-
-// ── Botón flotante "volver arriba" para la página larga ──
-function BackToTop() {
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    const el = document.getElementById('ctContent');
-    if (!el) return;
-    const onScroll = () => setShow(el.scrollTop > 600);
-    el.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
-  if (!show) return null;
-  return (
-    <button
-      onClick={() => document.getElementById('ctContent')?.scrollTo({ top: 0, behavior: 'smooth' })}
-      style={backToTopStyle}
-      title="Volver arriba"
-      aria-label="Volver arriba"
-    >
-      ↑
-    </button>
-  );
-}
-
-function chipStyle(active: boolean): React.CSSProperties {
-  return {
-    fontSize: 11,
-    padding: '4px 10px',
-    borderRadius: 999,
-    cursor: 'pointer',
-    border: `1px solid ${active ? TT_PINK : 'var(--b2)'}`,
-    background: active ? 'rgba(238,29,82,0.14)' : 'transparent',
-    color: active ? '#fff' : 'var(--mu)',
-    whiteSpace: 'nowrap',
-    transition: 'all .12s',
-  };
-}
-
-function pagerBtnStyle(disabled: boolean): React.CSSProperties {
-  return {
-    fontSize: 11,
-    padding: '5px 11px',
-    borderRadius: 7,
-    border: '1px solid var(--b2)',
-    background: 'transparent',
-    color: disabled ? 'var(--b2)' : 'var(--t2)',
-    cursor: disabled ? 'default' : 'pointer',
-  };
-}
-
 // ── KPI con tendencia: número grande + delta vs período anterior + sparkline ──
 function TrendKpi({ cfg, c, cur }: { cfg: MetricCfg; c: TikTokCampaignRow; cur: string }) {
   const series = c.daily.map(cfg.pick);
@@ -707,24 +610,6 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SectionLabel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <div
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: 'var(--t1)',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        margin: '0 0 10px',
-        ...style,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 const kpiGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
@@ -754,96 +639,4 @@ const ellipsis: React.CSSProperties = {
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
-};
-
-const summaryGridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-  gap: 10,
-};
-
-const toolbarStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  flexWrap: 'wrap',
-  gap: 10,
-  margin: '0 0 8px',
-};
-
-const searchInputStyle: React.CSSProperties = {
-  width: '100%',
-  fontSize: 12,
-  color: 'var(--t1)',
-  background: 'var(--bg3)',
-  border: '1px solid var(--b2)',
-  borderRadius: 8,
-  padding: '7px 28px 7px 28px',
-  outline: 'none',
-};
-
-const searchIconStyle: React.CSSProperties = {
-  position: 'absolute',
-  left: 9,
-  top: '50%',
-  transform: 'translateY(-50%)',
-  fontSize: 13,
-  color: 'var(--mu)',
-  pointerEvents: 'none',
-};
-
-const searchClearStyle: React.CSSProperties = {
-  position: 'absolute',
-  right: 6,
-  top: '50%',
-  transform: 'translateY(-50%)',
-  width: 18,
-  height: 18,
-  lineHeight: '16px',
-  textAlign: 'center',
-  fontSize: 14,
-  color: 'var(--mu)',
-  background: 'transparent',
-  border: 'none',
-  cursor: 'pointer',
-  borderRadius: 4,
-};
-
-const selectStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--t1)',
-  background: 'var(--bg3)',
-  border: '1px solid var(--b2)',
-  borderRadius: 7,
-  padding: '5px 7px',
-  cursor: 'pointer',
-};
-
-const toolBtnStyle: React.CSSProperties = {
-  fontSize: 11,
-  padding: '6px 11px',
-  borderRadius: 7,
-  border: '1px solid var(--b2)',
-  background: 'transparent',
-  color: 'var(--t2)',
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-};
-
-const backToTopStyle: React.CSSProperties = {
-  position: 'fixed',
-  bottom: 24,
-  right: 28,
-  zIndex: 50,
-  width: 40,
-  height: 40,
-  borderRadius: '50%',
-  border: `1px solid ${TT_PINK}`,
-  background: 'rgba(238,29,82,0.16)',
-  color: '#fff',
-  fontSize: 18,
-  lineHeight: '1',
-  cursor: 'pointer',
-  boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
-  backdropFilter: 'blur(4px)',
 };

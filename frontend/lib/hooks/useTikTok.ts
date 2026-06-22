@@ -157,6 +157,7 @@ export interface TikTokData {
   ads: TikTokAdRow[]; // anuncios (creativos), ordenados por inversión desc
   totals: TikTokTotals;
   video: TikTokVideo;
+  videoPrev: TikTokVideo | null; // retención del período anterior (para deltas)
   campaignCount: number;
   adgroupCount: number;
   adCount: number;
@@ -623,6 +624,14 @@ export function useTikTok(
         }, emptyVid());
         const video: TikTokVideo = finalizeVid(vidTotal);
 
+        // Curva de retención del período ANTERIOR (para comparar deltas). Si no
+        // hubo reproducciones antes, queda null → la UI dice "sin período anterior".
+        const vidTotalPrev = prevRows.reduce((acc, r) => {
+          addVid(acc, r);
+          return acc;
+        }, emptyVid());
+        const videoPrev: TikTokVideo | null = vidTotalPrev.views > 0 ? finalizeVid(vidTotalPrev) : null;
+
         const cplPrev = p.conversions > 0 ? p.spend / p.conversions : 0;
         const ctrPrev = p.impressions > 0 ? p.clicks / p.impressions : 0;
 
@@ -632,6 +641,7 @@ export function useTikTok(
           ads,
           totals,
           video,
+          videoPrev,
           campaignCount: campaigns.length,
           adgroupCount: adgroups.length,
           adCount: ads.length,

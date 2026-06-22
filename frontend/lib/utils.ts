@@ -2,13 +2,8 @@
 
 export function formatCurrency(value: number, currency = 'MXN'): string {
   if (value == null || isNaN(value)) return '—';
-  // Abreviar si es grande: $1.15M, $237K
-  if (Math.abs(value) >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(2)}M`;
-  }
-  if (Math.abs(value) >= 1_000) {
-    return `$${Math.round(value / 1_000)}K`;
-  }
+  // Número completo, sin abreviar y sin decimales. Separadores de miles
+  // para que sea legible: $6,000,000 en vez de $6M.
   return `$${Math.round(value).toLocaleString('en-US')}`;
 }
 
@@ -24,8 +19,7 @@ export function formatCurrencyFull(value: number, currency = 'MXN'): string {
 
 export function formatNumber(value: number): string {
   if (value == null || isNaN(value)) return '—';
-  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
-  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  // Número completo, sin abreviar (sin K/M): 1,234,567 en vez de 1.23M.
   return Math.round(value).toLocaleString('en-US');
 }
 

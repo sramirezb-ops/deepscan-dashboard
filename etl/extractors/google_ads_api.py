@@ -725,6 +725,62 @@ def extract_pmax_assets(client, customer_id, client_id, date_start, date_end):
     return rows
 
 
+def extract_asset_groups(client, customer_id, client_id, date_start, date_end):
+    """Performance DIARIA por ASSET GROUP de Performance Max.
+
+    En PMax la unidad real de optimización es el asset group (no el ad group).
+    El recurso `asset_group` SÍ reporta métricas por día + el `ad_strength` que
+    Google calcula (POOR→EXCELLENT). Esto reemplaza la pestaña r_ag del sheet de
+    Mike Rhodes: la regla del proyecto es que el sheet solo cubra el split de
+    emplazamientos (redes) y todo lo demás salga de la API.
+    """
+    query = f"""
+        SELECT
+            campaign.id,
+            campaign.name,
+            asset_group.id,
+            asset_group.name,
+            asset_group.ad_strength,
+            asset_group.status,
+            segments.date,
+            metrics.impressions,
+            metrics.clicks,
+            metrics.cost_micros,
+            metrics.conversions,
+            metrics.conversions_value
+        FROM asset_group
+        WHERE campaign.advertising_channel_type = 'PERFORMANCE_MAX'
+            AND segments.date BETWEEN '{date_start}' AND '{date_end}'
+            AND asset_group.status != 'REMOVED'
+        ORDER BY segments.date DESC, metrics.cost_micros DESC
+    """
+    rows = []
+    try:
+        response = client.get_service("GoogleAdsService").search(
+            customer_id=customer_id, query=query
+        )
+        for row in response:
+            cost = row.metrics.cost_micros / 1_000_000
+            conv_value = row.metrics.conversions_value
+            rows.append({
+                "client_id": client_id,
+                "date": row.segments.date,
+                "campaign_name": row.campaign.name,
+                "asset_group_name": row.asset_group.name,
+                "ad_strength": row.asset_group.ad_strength.name,
+                "status": row.asset_group.status.name,
+                "impressions": row.metrics.impressions,
+                "clicks": row.metrics.clicks,
+                "cost": round(cost, 2),
+                "conversions": round(row.metrics.conversions, 2),
+                "conv_value": round(conv_value, 2),
+                "roas": round(conv_value / cost, 4) if cost > 0 else 0,
+            })
+    except GoogleAdsException as e:
+        log.error(f"Asset groups error {customer_id}: {e}")
+    return rows
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def run():
@@ -774,6 +830,10 @@ def run():
             rows = extract_pmax_assets(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_assets", rows, "client_id,asset_group_id,asset_id,field_type")
             log.info(f"   ✓ gads_assets (PMax): {n} filas")
+
+            rows = extract_asset_groups(gads, customer_id, cid, date_start, date_end)
+            n = upsert("gads_asset_groups", rows, "client_id,date,campaign_name,asset_group_name")
+            log.info(f"   ✓ gads_asset_groups (PMax): {n} filas")
 
         except Exception as e:
             log.error(f"   ✗ Error {name}: {e}")

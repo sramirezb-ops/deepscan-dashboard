@@ -5,7 +5,7 @@ export type ChannelId =
   | 'ov2' | 'week'
   | 'gads' | 'pmax' | 'srch' | 'shop' | 'yt' | 'prop'
   | 'meta' | 'mili' | 'wa' | 'ig'
-  | 'ttok'
+  | 'ttok' | 'ttkc' | 'ttkr'
   | 'ga4' | 'cro' | 'gsc'
   | 'shp' | 'gmc'
   | 'ia' | 'abtest' | 'learn';
@@ -187,6 +187,8 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'TikTok Ads',
     items: [
       { id: 'ttok', label: 'Overview', icon: '◒', href: '/tiktok', crumb1: 'TikTok', crumb2: 'Overview' },
+      { id: 'ttkc', label: 'Resultados por campañas', icon: '', href: '/tiktok/campanas', crumb1: 'TikTok', crumb2: 'Campañas', isSubItem: true, requiresChannel: 'ttok' },
+      { id: 'ttkr', label: 'Retención de los anuncios', icon: '', href: '/tiktok/retencion', crumb1: 'TikTok', crumb2: 'Retención', isSubItem: true, requiresChannel: 'ttok' },
     ],
   },
   {

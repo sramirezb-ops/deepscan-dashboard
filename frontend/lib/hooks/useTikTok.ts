@@ -41,15 +41,19 @@ export interface TikTokRetention {
 }
 
 export interface TikTokCampaignRow {
+  campaignId: string;
   name: string;
   spend: number;
   impressions: number;
   clicks: number;
+  reach: number; // suma del alcance diario (aprox., no únicos del período)
+  frequency: number; // impressions / reach
   ctr: number; // clicks / impressions (fracción 0-1)
   conversions: number; // leads
   cpl: number; // spend / conversions
   cvr: number; // conversions / clicks (fracción 0-1)
   cpc: number; // spend / clicks
+  cpm: number; // spend / (impressions/1000)
   videoViews: number;
   video: TikTokRetention; // curva de retención de la campaña
 }
@@ -58,15 +62,42 @@ export interface TikTokAdGroupRow {
   adgroupId: string;
   name: string;
   campaignName: string; // a qué campaña pertenece
+  campaignId: string;
   spend: number;
   impressions: number;
   clicks: number;
+  reach: number;
+  frequency: number;
   ctr: number;
   conversions: number; // leads
   cpl: number;
   cvr: number;
+  cpc: number;
+  cpm: number;
   videoViews: number;
   video: TikTokRetention; // curva de retención del conjunto
+}
+
+// Nivel más granular: un anuncio (creativo) agregado en el período.
+export interface TikTokAdRow {
+  adId: string;
+  name: string;
+  adgroupId: string;
+  adgroupName: string;
+  campaignName: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  frequency: number;
+  ctr: number;
+  conversions: number; // leads
+  cpl: number;
+  cvr: number;
+  cpc: number;
+  cpm: number;
+  videoViews: number;
+  video: TikTokRetention; // curva de retención del anuncio
 }
 
 export interface TikTokTotals {
@@ -75,6 +106,7 @@ export interface TikTokTotals {
   clicks: number;
   ctr: number;
   reach: number;
+  frequency: number; // impressions / reach
   conversions: number; // leads totales
   cpl: number; // costo por lead
   cvr: number; // tasa de conversión
@@ -88,10 +120,12 @@ export type TikTokVideo = TikTokRetention;
 export interface TikTokData {
   campaigns: TikTokCampaignRow[]; // ordenadas por inversión desc
   adgroups: TikTokAdGroupRow[]; // conjuntos de anuncios, ordenados por inversión desc
+  ads: TikTokAdRow[]; // anuncios (creativos), ordenados por inversión desc
   totals: TikTokTotals;
   video: TikTokVideo;
   campaignCount: number;
   adgroupCount: number;
+  adCount: number;
   // ¿El cliente tiene datos de TikTok en CUALQUIER fecha?
   tiktokExistsEver: boolean;
   // Deltas vs período anterior
@@ -111,9 +145,12 @@ export interface UseTikTokResult {
 }
 
 interface RawRow {
+  campaign_id: string | null;
   campaign_name: string | null;
   adgroup_id: string | null;
   adgroup_name: string | null;
+  ad_id: string | null;
+  ad_name: string | null;
   spend: number | null;
   impressions: number | null;
   clicks: number | null;
@@ -130,7 +167,7 @@ interface RawRow {
 }
 
 const SELECT =
-  'campaign_name, adgroup_id, adgroup_name, spend, impressions, clicks, reach, conversions, video_views, video_watched_2s, video_watched_6s, video_watched_p25, video_watched_p50, video_watched_p75, video_completes, avg_watch_time';
+  'campaign_id, campaign_name, adgroup_id, adgroup_name, ad_id, ad_name, spend, impressions, clicks, reach, conversions, video_views, video_watched_2s, video_watched_6s, video_watched_p25, video_watched_p50, video_watched_p75, video_completes, avg_watch_time';
 
 /** Trae TODAS las filas del rango paginando (Supabase corta en 1000 por request). */
 async function fetchRows(clientId: string, from: string, to: string): Promise<RawRow[]> {
@@ -236,47 +273,60 @@ interface GroupAcc {
   spend: number;
   impressions: number;
   clicks: number;
+  reach: number;
   conversions: number;
   vid: VidAgg;
 }
 
 function newGroupAcc(): GroupAcc {
-  return { spend: 0, impressions: 0, clicks: 0, conversions: 0, vid: emptyVid() };
+  return { spend: 0, impressions: 0, clicks: 0, reach: 0, conversions: 0, vid: emptyVid() };
 }
 
 function addToGroup(g: GroupAcc, r: RawRow): void {
   g.spend += Number(r.spend) || 0;
   g.impressions += Number(r.impressions) || 0;
   g.clicks += Number(r.clicks) || 0;
+  g.reach += Number(r.reach) || 0;
   g.conversions += Number(r.conversions) || 0;
   addVid(g.vid, r);
 }
 
-/** Agrupa filas (anuncio/día) por nombre de campaña, con curva de retención. */
+// Derivadas comunes a campaña/conjunto/anuncio a partir del acumulador.
+function deriv(g: GroupAcc) {
+  return {
+    ctr: g.impressions > 0 ? g.clicks / g.impressions : 0,
+    cpl: g.conversions > 0 ? g.spend / g.conversions : 0,
+    cvr: g.clicks > 0 ? g.conversions / g.clicks : 0,
+    cpc: g.clicks > 0 ? g.spend / g.clicks : 0,
+    cpm: g.impressions > 0 ? g.spend / (g.impressions / 1000) : 0,
+    frequency: g.reach > 0 ? g.impressions / g.reach : 0,
+  };
+}
+
+/** Agrupa filas (anuncio/día) por campaña, con curva de retención. */
 function groupByCampaign(rows: RawRow[]): TikTokCampaignRow[] {
-  const map = new Map<string, GroupAcc>();
+  const map = new Map<string, { g: GroupAcc; campaignId: string }>();
   for (const r of rows) {
     const name = r.campaign_name || '(sin nombre)';
-    let g = map.get(name);
-    if (!g) {
-      g = newGroupAcc();
-      map.set(name, g);
+    let entry = map.get(name);
+    if (!entry) {
+      entry = { g: newGroupAcc(), campaignId: (r.campaign_id || '').trim() };
+      map.set(name, entry);
     }
-    addToGroup(g, r);
+    addToGroup(entry.g, r);
   }
 
-  const list: TikTokCampaignRow[] = Array.from(map.entries()).map(([name, g]) => ({
+  const list: TikTokCampaignRow[] = Array.from(map.entries()).map(([name, { g, campaignId }]) => ({
+    campaignId,
     name,
     spend: g.spend,
     impressions: g.impressions,
     clicks: g.clicks,
-    ctr: g.impressions > 0 ? g.clicks / g.impressions : 0,
+    reach: g.reach,
     conversions: g.conversions,
-    cpl: g.conversions > 0 ? g.spend / g.conversions : 0,
-    cvr: g.clicks > 0 ? g.conversions / g.clicks : 0,
-    cpc: g.clicks > 0 ? g.spend / g.clicks : 0,
     videoViews: g.vid.views,
     video: finalizeVid(g.vid),
+    ...deriv(g),
   }));
 
   list.sort((a, b) => b.spend - a.spend);
@@ -285,7 +335,7 @@ function groupByCampaign(rows: RawRow[]): TikTokCampaignRow[] {
 
 /** Agrupa por conjunto de anuncios (adgroup), con curva de retención. */
 function groupByAdGroup(rows: RawRow[]): TikTokAdGroupRow[] {
-  const map = new Map<string, { g: GroupAcc; name: string; campaignName: string }>();
+  const map = new Map<string, { g: GroupAcc; name: string; campaignName: string; campaignId: string }>();
   for (const r of rows) {
     // Clave por id real del conjunto; si falta, caemos al nombre.
     const id = (r.adgroup_id || '').trim() || r.adgroup_name || '(sin conjunto)';
@@ -295,26 +345,71 @@ function groupByAdGroup(rows: RawRow[]): TikTokAdGroupRow[] {
         g: newGroupAcc(),
         name: r.adgroup_name || '(sin nombre)',
         campaignName: r.campaign_name || '(sin campaña)',
+        campaignId: (r.campaign_id || '').trim(),
       };
       map.set(id, entry);
     }
     addToGroup(entry.g, r);
   }
 
-  const list: TikTokAdGroupRow[] = Array.from(map.entries()).map(([adgroupId, { g, name, campaignName }]) => ({
+  const list: TikTokAdGroupRow[] = Array.from(map.entries()).map(([adgroupId, { g, name, campaignName, campaignId }]) => ({
     adgroupId,
     name,
     campaignName,
+    campaignId,
     spend: g.spend,
     impressions: g.impressions,
     clicks: g.clicks,
-    ctr: g.impressions > 0 ? g.clicks / g.impressions : 0,
+    reach: g.reach,
     conversions: g.conversions,
-    cpl: g.conversions > 0 ? g.spend / g.conversions : 0,
-    cvr: g.clicks > 0 ? g.conversions / g.clicks : 0,
     videoViews: g.vid.views,
     video: finalizeVid(g.vid),
+    ...deriv(g),
   }));
+
+  list.sort((a, b) => b.spend - a.spend);
+  return list;
+}
+
+/** Agrupa por anuncio (ad_id), con curva de retención. El nivel más granular. */
+function groupByAd(rows: RawRow[]): TikTokAdRow[] {
+  const map = new Map<
+    string,
+    { g: GroupAcc; name: string; adgroupId: string; adgroupName: string; campaignName: string }
+  >();
+  for (const r of rows) {
+    const id = (r.ad_id || '').trim() || r.ad_name || '(sin anuncio)';
+    let entry = map.get(id);
+    if (!entry) {
+      entry = {
+        g: newGroupAcc(),
+        name: r.ad_name || '(sin nombre)',
+        adgroupId: (r.adgroup_id || '').trim(),
+        adgroupName: r.adgroup_name || '(sin conjunto)',
+        campaignName: r.campaign_name || '(sin campaña)',
+      };
+      map.set(id, entry);
+    }
+    addToGroup(entry.g, r);
+  }
+
+  const list: TikTokAdRow[] = Array.from(map.entries()).map(
+    ([adId, { g, name, adgroupId, adgroupName, campaignName }]) => ({
+      adId,
+      name,
+      adgroupId,
+      adgroupName,
+      campaignName,
+      spend: g.spend,
+      impressions: g.impressions,
+      clicks: g.clicks,
+      reach: g.reach,
+      conversions: g.conversions,
+      videoViews: g.vid.views,
+      video: finalizeVid(g.vid),
+      ...deriv(g),
+    })
+  );
 
   list.sort((a, b) => b.spend - a.spend);
   return list;
@@ -346,6 +441,7 @@ export function useTikTok(
 
         const campaigns = groupByCampaign(nowRows);
         const adgroups = groupByAdGroup(nowRows);
+        const ads = groupByAd(nowRows);
         const t = sumTotals(nowRows);
         const p = sumTotals(prevRows);
 
@@ -362,6 +458,7 @@ export function useTikTok(
           clicks: t.clicks,
           ctr: t.impressions > 0 ? t.clicks / t.impressions : 0,
           reach: t.reach,
+          frequency: t.reach > 0 ? t.impressions / t.reach : 0,
           conversions: t.conversions,
           cpl: t.conversions > 0 ? t.spend / t.conversions : 0,
           cvr: t.clicks > 0 ? t.conversions / t.clicks : 0,
@@ -382,10 +479,12 @@ export function useTikTok(
         setData({
           campaigns,
           adgroups,
+          ads,
           totals,
           video,
           campaignCount: campaigns.length,
           adgroupCount: adgroups.length,
+          adCount: ads.length,
           tiktokExistsEver,
           spendDelta: calcDelta(t.spend, p.spend),
           conversionsDelta: calcDelta(t.conversions, p.conversions),

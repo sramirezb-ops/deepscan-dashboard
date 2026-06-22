@@ -366,6 +366,14 @@ body{
 .t td:last-child{padding-right:0}
 .t tr:last-child td{border-bottom:none}
 .t tr:hover td{background:var(--bg2)}
+/* Encabezados ordenables (clic para ordenar, estilo Looker) */
+.t th.th-sort{cursor:pointer;user-select:none;white-space:nowrap;transition:color .12s}
+.t th.th-sort:hover{color:var(--t1)}
+.t th.th-sort::after{content:'⇅';margin-left:5px;font-size:9px;opacity:.3;display:inline-block}
+.t th.th-sort:hover::after{opacity:.6}
+.t th.th-sort[data-sort='asc']::after{content:'▲';opacity:.95;color:var(--acc2)}
+.t th.th-sort[data-sort='desc']::after{content:'▼';opacity:.95;color:var(--acc2)}
+.t th.th-sort:focus-visible{outline:1px solid var(--acc2);outline-offset:2px}
 .t td.num{font-variant-numeric:tabular-nums;font-family:'JetBrains Mono',monospace;font-size:12px}
 .t td.strong{color:var(--t1);font-weight:500}
 .t td.hero-num{font-family:'Space Grotesk',sans-serif;font-weight:600;color:var(--t1);font-size:13px}

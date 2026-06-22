@@ -13,6 +13,7 @@ import {
 } from '@/lib/hooks/useTikTok';
 import { formatCurrency, formatInt, formatNumber, formatPercent } from '@/lib/utils';
 import { PieChart, type PieSlice } from '@/components/ui/PieChart';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import {
   TikTokLoading,
   TikTokError,
@@ -198,52 +199,7 @@ export function TikTokCampaigns() {
 
                   {/* 3 · Tabla de anuncios con su visual */}
                   <SectionLabel style={{ marginTop: 22 }}>Anuncios de la campaña</SectionLabel>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="t" style={{ minWidth: 820 }}>
-                      <thead>
-                        <tr>
-                          <th data-cat="dim">Anuncio</th>
-                          <th data-cat="cost">Inversión</th>
-                          <th data-cat="conv">Conv.</th>
-                          <th data-cat="cost,conv">Costo/conv.</th>
-                          <th data-cat="impr">CTR</th>
-                          <th data-cat="impr">Alcance</th>
-                          <th data-cat="impr">Impr.</th>
-                          <th data-cat="impr">Frec.</th>
-                          <th data-cat="impr">CPM</th>
-                          <th data-cat="conv">Conv. rate</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ads.map((a) => (
-                          <tr key={a.adId}>
-                            <td data-cat="dim">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <CreativeThumb name={a.name} coverUrl={a.coverUrl} videoUrl={a.videoUrl} />
-                                <span style={{ ...ellipsis, maxWidth: 240 }}>{a.name}</span>
-                              </div>
-                            </td>
-                            <td data-cat="cost">{formatCurrency(a.spend, cur)}</td>
-                            <td data-cat="conv">{formatInt(a.conversions)}</td>
-                            <td data-cat="cost,conv">{a.conversions > 0 ? formatCurrency(a.cpl, cur) : '—'}</td>
-                            <td data-cat="impr">{formatPercent(a.ctr, 2)}</td>
-                            <td data-cat="impr">{formatNumber(a.reach)}</td>
-                            <td data-cat="impr">{formatNumber(a.impressions)}</td>
-                            <td data-cat="impr">{a.frequency > 0 ? `${a.frequency.toFixed(2)}×` : '—'}</td>
-                            <td data-cat="impr">{a.cpm > 0 ? formatCurrency(a.cpm, cur) : '—'}</td>
-                            <td data-cat="conv">{formatPercent(a.cvr, 1)}</td>
-                          </tr>
-                        ))}
-                        {ads.length === 0 && (
-                          <tr>
-                            <td data-cat="dim" colSpan={10} style={{ color: 'var(--mu)' }}>
-                              Sin anuncios con actividad en este rango.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                  <AdsTable ads={ads} cur={cur} />
                 </div>
               )}
             </div>
@@ -264,6 +220,182 @@ export function TikTokCampaigns() {
       </div>
     </div>
   );
+}
+
+// ── Tabla de anuncios: filtro por conjunto + orden por columna + paginación ──
+const ADS_PER_PAGE = 10;
+
+function AdsTable({ ads, cur }: { ads: TikTokAdRow[]; cur: string }) {
+  // Conjuntos (grupos de anuncios) presentes en esta campaña.
+  const conjuntos = useMemo(
+    () => Array.from(new Set(ads.map((a) => a.adgroupName))).sort((a, b) => a.localeCompare(b, 'es')),
+    [ads],
+  );
+  // Set vacío = "todos". Si el usuario elige conjuntos, filtramos por ellos.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const isAll = selected.size === 0;
+
+  const filtered = useMemo(
+    () => (isAll ? ads : ads.filter((a) => selected.has(a.adgroupName))),
+    [ads, selected, isAll],
+  );
+
+  // Accesores paralelos a las columnas (null = no ordenable).
+  const accessors: SortAccessor<TikTokAdRow>[] = [
+    (a) => a.name,         // 0 Anuncio
+    (a) => a.adgroupName,  // 1 Conjunto
+    (a) => a.spend,        // 2 Inversión
+    (a) => a.conversions,  // 3 Conv.
+    (a) => a.cpl,          // 4 Costo/conv.
+    (a) => a.ctr,          // 5 CTR
+    (a) => a.reach,        // 6 Alcance
+    (a) => a.impressions,  // 7 Impr.
+    (a) => a.frequency,    // 8 Frec.
+    (a) => a.cpm,          // 9 CPM
+    (a) => a.cvr,          // 10 Conv. rate
+  ];
+  const { rows, headerProps } = useSortableTable(filtered, accessors, { col: 2, dir: 'desc' });
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / ADS_PER_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const start = (safePage - 1) * ADS_PER_PAGE;
+  const pageRows = rows.slice(start, start + ADS_PER_PAGE);
+
+  const toggleConjunto = (name: string) => {
+    setPage(1);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (prev.size === 0) {
+        // Estábamos en "todos" → empezar a filtrar por el que se eligió.
+        next.add(name);
+        return next;
+      }
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+  const selectAll = () => {
+    setPage(1);
+    setSelected(new Set());
+  };
+
+  return (
+    <>
+      {/* Filtro de conjuntos (solo si hay más de uno) */}
+      {conjuntos.length > 1 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, margin: '0 0 12px' }}>
+          <span style={{ fontSize: 11, color: 'var(--mu)', marginRight: 2 }}>Conjuntos:</span>
+          <button onClick={selectAll} style={chipStyle(isAll)}>Todos</button>
+          {conjuntos.map((name) => (
+            <button key={name} onClick={() => toggleConjunto(name)} style={chipStyle(!isAll && selected.has(name))}>
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ overflowX: 'auto' }}>
+        <table className="t" style={{ minWidth: 960 }}>
+          <thead>
+            <tr>
+              <th {...headerProps(0)} data-cat="dim">Anuncio</th>
+              <th {...headerProps(1)} data-cat="dim">Conjunto</th>
+              <th {...headerProps(2)} data-cat="cost">Inversión</th>
+              <th {...headerProps(3)} data-cat="conv">Conv.</th>
+              <th {...headerProps(4)} data-cat="cost,conv">Costo/conv.</th>
+              <th {...headerProps(5)} data-cat="impr">CTR</th>
+              <th {...headerProps(6)} data-cat="impr">Alcance</th>
+              <th {...headerProps(7)} data-cat="impr">Impr.</th>
+              <th {...headerProps(8)} data-cat="impr">Frec.</th>
+              <th {...headerProps(9)} data-cat="impr">CPM</th>
+              <th {...headerProps(10)} data-cat="conv">Conv. rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((a) => (
+              <tr key={a.adId}>
+                <td data-cat="dim">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <CreativeThumb name={a.name} coverUrl={a.coverUrl} videoUrl={a.videoUrl} />
+                    <span style={{ ...ellipsis, maxWidth: 220 }}>{a.name}</span>
+                  </div>
+                </td>
+                <td data-cat="dim">
+                  <span style={{ ...ellipsis, maxWidth: 150, display: 'inline-block', color: 'var(--mu)' }}>
+                    {a.adgroupName}
+                  </span>
+                </td>
+                <td data-cat="cost">{formatCurrency(a.spend, cur)}</td>
+                <td data-cat="conv">{formatInt(a.conversions)}</td>
+                <td data-cat="cost,conv">{a.conversions > 0 ? formatCurrency(a.cpl, cur) : '—'}</td>
+                <td data-cat="impr">{formatPercent(a.ctr, 2)}</td>
+                <td data-cat="impr">{formatNumber(a.reach)}</td>
+                <td data-cat="impr">{formatNumber(a.impressions)}</td>
+                <td data-cat="impr">{a.frequency > 0 ? `${a.frequency.toFixed(2)}×` : '—'}</td>
+                <td data-cat="impr">{a.cpm > 0 ? formatCurrency(a.cpm, cur) : '—'}</td>
+                <td data-cat="conv">{formatPercent(a.cvr, 1)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td data-cat="dim" colSpan={11} style={{ color: 'var(--mu)' }}>
+                  Sin anuncios con actividad en este rango{isAll ? '' : ' para los conjuntos elegidos'}.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Paginación */}
+      {rows.length > ADS_PER_PAGE && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12 }}>
+          <span style={{ fontSize: 11, color: 'var(--mu)' }}>
+            {start + 1}–{Math.min(start + ADS_PER_PAGE, rows.length)} de {rows.length} anuncios
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setPage(safePage - 1)} disabled={safePage <= 1} style={pagerBtnStyle(safePage <= 1)}>
+              ‹ Anterior
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--t2)', minWidth: 70, textAlign: 'center' }}>
+              Página {safePage} / {pageCount}
+            </span>
+            <button onClick={() => setPage(safePage + 1)} disabled={safePage >= pageCount} style={pagerBtnStyle(safePage >= pageCount)}>
+              Siguiente ›
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function chipStyle(active: boolean): React.CSSProperties {
+  return {
+    fontSize: 11,
+    padding: '4px 10px',
+    borderRadius: 999,
+    cursor: 'pointer',
+    border: `1px solid ${active ? TT_PINK : 'var(--b2)'}`,
+    background: active ? 'rgba(238,29,82,0.14)' : 'transparent',
+    color: active ? '#fff' : 'var(--mu)',
+    whiteSpace: 'nowrap',
+    transition: 'all .12s',
+  };
+}
+
+function pagerBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    fontSize: 11,
+    padding: '5px 11px',
+    borderRadius: 7,
+    border: '1px solid var(--b2)',
+    background: 'transparent',
+    color: disabled ? 'var(--b2)' : 'var(--t2)',
+    cursor: disabled ? 'default' : 'pointer',
+  };
 }
 
 // ── KPI con tendencia: número grande + delta vs período anterior + sparkline ──

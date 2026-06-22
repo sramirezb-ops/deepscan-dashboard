@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 from extractors.google_sheets   import (
     extract_mike_rhodes,
+    extract_pmax_channels,
     extract_smec_search_terms,
     extract_pmax_search_terms,
     extract_flowboost,
@@ -94,6 +95,24 @@ def run_etl(client_id: str, days_back: int = 30):
             log.error(f"   ✗ Mike Rhodes error: {e}")
     else:
         log.warning("   ⚠ Mike Rhodes sin MIKE_RHODES_SHEET_ID — saltando")
+
+    # ── 1b. PMAX CHANNEL SPLIT · pestaña "Campaigns" ────────────
+    # Desglose del gasto PMax por red (Shop/Video/Display/Search*). Es la ÚNICA
+    # fuente de este split (Google no lo expone por API). Va en su propia
+    # variable PMAX_CHANNELS_SHEET_ID para que un cliente de LEADS (p.ej. Ofero)
+    # traiga SOLO el split sin el resto del sheet de Mike Rhodes; si no está,
+    # cae al MIKE_RHODES_SHEET_ID (mismo sheet, pestaña "Campaigns").
+    log.info("── PMAX Channel Split (pestaña Campaigns)")
+    pmax_channels_sheet = os.environ.get("PMAX_CHANNELS_SHEET_ID", "") or mike_sheet_id
+    if pmax_channels_sheet:
+        try:
+            channels = extract_pmax_channels(pmax_channels_sheet)
+            loader.upsert("gads_pmax_channels", channels, client_id)
+            log.info(f"   ✓ Redes PMax: {len(channels)} filas (campaña × red)")
+        except Exception as e:
+            log.error(f"   ✗ PMAX Channel Split error: {e}")
+    else:
+        log.warning("   ⚠ Sin PMAX_CHANNELS_SHEET_ID ni MIKE_RHODES_SHEET_ID — saltando")
 
     # ── 2. BRAND ANALYZER · smec ────────────────────────────────
     # También opcional (Google Sheet de términos branded). Sin SMEC_SHEET_ID

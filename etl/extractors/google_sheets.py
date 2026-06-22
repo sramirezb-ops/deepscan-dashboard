@@ -249,6 +249,85 @@ def extract_mike_rhodes(sheet_id: str) -> dict:
 
 
 # ════════════════════════════════════════════════════════════════
+# 1b. PMAX CHANNEL SPLIT — pestaña "Campaigns" (Mike Rhodes)
+# ════════════════════════════════════════════════════════════════
+# La pestaña "Campaigns" del sheet de Mike Rhodes es una hoja de PRESENTACIÓN
+# (calculada con fórmulas, no por el runReport del script) que descompone el
+# gasto de cada campaña PMax por RED: Shop, Video, Display y Search*.
+#
+# Por qué importa: Google NO expone oficialmente el costo-por-red dentro de una
+# campaña Performance Max ni por API ni por Script. Esta pestaña lo aproxima:
+#   · Video y Display salen de datos REALES de emplazamientos (placements).
+#   · Shop sale de shopping_performance_view.
+#   · Search* es el RESIDUAL (Total − Video − Display − Shop). El asterisco
+#     significa justamente eso: "lo que sobra", no un dato etiquetado por Google.
+#
+# Es la ÚNICA fuente de este split, por eso lo traemos del sheet aunque todo lo
+# demás de PMax (assets, asset groups, imágenes) lo saquemos de la API.
+#
+# Devuelve formato LARGO: una fila por (campaña × red), lista para
+# loader.upsert("gads_pmax_channels", ...). Las fracciones (%) las calculamos
+# nosotros sobre el total para mantener la convención 0-1 del dashboard.
+
+# Cada red: (clave_en_la_pestaña, código_interno, es_residual)
+_PMAX_CHANNELS = [
+    ("shop",     "shop",    False),
+    ("video",    "video",   False),
+    ("display",  "display", False),
+    ("search*",  "search",  True),   # Search* = residual (Total − Video − Display − Shop)
+]
+
+
+def extract_pmax_channels(sheet_id: str) -> list[dict]:
+    """
+    Lee la pestaña "Campaigns" del sheet de Mike Rhodes y devuelve el desglose
+    de gasto/leads por red (Shop/Video/Display/Search*) para cada campaña PMax.
+    Formato largo: una fila por (campaña × red). Devuelve [] si no hay datos.
+    """
+    log.info(f"   PMAX Channel Split (pestaña Campaigns): {sheet_id}")
+    rows = _read_sheet_csv(sheet_id, "Campaigns")
+    if not rows:
+        log.warning("   Campaigns: sin datos")
+        return []
+
+    result: list[dict] = []
+    for r in rows:
+        campaign = (r.get("campaign_last_30_days_data", "") or "").strip()
+        total_cost = _safe_float(r.get("total_cost", 0))
+        # Filtra filas vacías / de relleno: necesitamos nombre y gasto real.
+        if not campaign or total_cost <= 0:
+            continue
+
+        total_conv  = _safe_float(r.get("conv", 0))
+        total_value = _safe_float(r.get("conv_value", 0))
+
+        for prefix, channel, is_residual in _PMAX_CHANNELS:
+            cost  = _safe_float(r.get(f"{prefix}_cost", 0))
+            conv  = _safe_float(r.get(f"{prefix}_conv", 0))
+            value = _safe_float(r.get(f"{prefix}_value", 0))
+
+            result.append({
+                "campaign_name":       campaign,
+                "channel":             channel,
+                "is_residual":         is_residual,
+                "cost":                round(cost, 2),
+                "conversions":         conv,
+                "conv_value":          round(value, 2),
+                # Fracciones 0-1 calculadas por nosotros sobre el total real.
+                "cost_pct":            round(cost / total_cost, 4) if total_cost > 0 else 0,
+                "conv_pct":            round(conv / total_conv, 4) if total_conv > 0 else 0,
+                "roas":                round(value / cost, 4) if cost > 0 else 0,
+                # Contexto de la campaña (denormalizado para el frontend).
+                "campaign_total_cost": round(total_cost, 2),
+                "campaign_total_conv": total_conv,
+                "campaign_total_value":round(total_value, 2),
+            })
+
+    log.info(f"   Campaigns: {len(result)} filas (campañas × red)")
+    return result
+
+
+# ════════════════════════════════════════════════════════════════
 # 2. BRAND ANALYZER — smec
 # ════════════════════════════════════════════════════════════════
 

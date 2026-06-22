@@ -1,6 +1,7 @@
 'use client';
 
 import { GoogleAdsSegmentView } from './GoogleAdsSegmentView';
+import { GadsPmaxChannels } from './GadsPmaxChannels';
 import { GadsAssetGroups } from './GadsAssetGroups';
 import { GadsAssets } from './GadsAssets';
 import { GadsProducts } from './GadsProducts';
@@ -14,6 +15,7 @@ export function PMAX() {
       icon="🅿"
       extraSection={
         <>
+          <GadsPmaxChannels />
           <GadsAssetGroups />
           <GadsProducts />
           <GadsAssets />

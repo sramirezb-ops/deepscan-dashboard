@@ -118,6 +118,7 @@ class SupabaseLoader:
             "clarity_metrics":          "client_id,date",
             "clarity_pages":            "client_id,date,page_url",
             "gads_placements":          "client_id,campaign_name,placement",
+            "gads_pmax_channels":       "client_id,campaign_name,channel",
             "gads_flowboost_products":  "client_id,product_item_id",
             "gads_flowboost_summary":   "client_id,label",
             "gads_search_categories":   "client_id,campaign_id,category_id",

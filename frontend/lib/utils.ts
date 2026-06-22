@@ -1,10 +1,25 @@
 // Helpers de formato
 
+// Separador de miles por país: Colombia (COP) usa punto → 6.000.000.
+// El resto (México MXN, USD…) usa coma → 6,000,000.
+// ClientProvider fija la moneda activa para los formateadores que no la reciben
+// (formatNumber/formatInt), según el cliente seleccionado.
+let _activeCurrency: string | undefined;
+
+export function setActiveCurrency(currency?: string): void {
+  _activeCurrency = currency;
+}
+
+function localeFor(currency?: string): string {
+  const c = currency ?? _activeCurrency;
+  return c === 'COP' ? 'es-CO' : 'en-US';
+}
+
 export function formatCurrency(value: number, currency = 'MXN'): string {
   if (value == null || isNaN(value)) return '—';
   // Número completo, sin abreviar y sin decimales. Separadores de miles
-  // para que sea legible: $6,000,000 en vez de $6M.
-  return `$${Math.round(value).toLocaleString('en-US')}`;
+  // según el país: $6.000.000 (COP) o $6,000,000 (MXN).
+  return `$${Math.round(value).toLocaleString(localeFor(currency))}`;
 }
 
 export function formatCurrencyFull(value: number, currency = 'MXN'): string {
@@ -19,13 +34,13 @@ export function formatCurrencyFull(value: number, currency = 'MXN'): string {
 
 export function formatNumber(value: number): string {
   if (value == null || isNaN(value)) return '—';
-  // Número completo, sin abreviar (sin K/M): 1,234,567 en vez de 1.23M.
-  return Math.round(value).toLocaleString('en-US');
+  // Número completo, sin abreviar (sin K/M): 1.234.567 (COP) o 1,234,567.
+  return Math.round(value).toLocaleString(localeFor());
 }
 
 export function formatInt(value: number): string {
   if (value == null || isNaN(value)) return '—';
-  return Math.round(value).toLocaleString('en-US');
+  return Math.round(value).toLocaleString(localeFor());
 }
 
 export function formatPercent(value: number, decimals = 2): string {

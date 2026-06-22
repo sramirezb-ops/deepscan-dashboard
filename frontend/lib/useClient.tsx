@@ -3,10 +3,13 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { Client } from './types';
 import type { ChannelId } from './channels';
+import { setActiveCurrency } from './utils';
 
 const ClientContext = createContext<Client | null>(null);
 
 export function ClientProvider({ client, children }: { client: Client; children: ReactNode }) {
+  // Fija la moneda activa para los formateadores de miles (COP → punto).
+  setActiveCurrency(client.currency);
   return <ClientContext.Provider value={client}>{children}</ClientContext.Provider>;
 }
 

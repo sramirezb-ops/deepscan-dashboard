@@ -497,8 +497,9 @@ def extract_ad_assets(client, customer_id, client_id, date_start, date_end):
     reporta por asset: impresiones, clics y conversiones. Nada de costo/CPL por
     asset — sería inventado. `performance_label` es la calificación de Google.
     """
-    query = f"""
-        SELECT
+    # Campos de identidad/contenido del asset. Estos SÍ los soporta cualquier
+    # tipo de campaña (Search, Display, PMax, App) en ad_group_ad_asset_view.
+    asset_fields = """
             campaign.id,
             campaign.name,
             campaign.advertising_channel_type,
@@ -513,7 +514,14 @@ def extract_ad_assets(client, customer_id, client_id, date_start, date_end):
             asset.text_asset.text,
             asset.image_asset.full_size.url,
             asset.youtube_video_asset.youtube_video_id,
-            asset.youtube_video_asset.youtube_video_title,
+            asset.youtube_video_asset.youtube_video_title"""
+
+    # Tier 1 — con métricas por día. Google reporta métricas por asset en
+    # Search (RSA), Performance Max y App. En DISPLAY (nuestro caso Propietarios)
+    # la API normalmente NO segmenta métricas por asset y esta consulta puede
+    # fallar o volver vacía → caemos al Tier 2.
+    q_full = f"""
+        SELECT {asset_fields},
             segments.date,
             metrics.impressions,
             metrics.clicks,
@@ -524,39 +532,76 @@ def extract_ad_assets(client, customer_id, client_id, date_start, date_end):
         WHERE segments.date BETWEEN '{date_start}' AND '{date_end}'
         ORDER BY segments.date DESC, metrics.impressions DESC
     """
+
+    # Tier 2 — inventario de assets que están sirviendo, SIN métricas ni
+    # segmento de fecha (lo que Display sí permite). No inventamos métricas:
+    # quedan en 0, pero conservamos lo más valioso y 100% real por pieza: la
+    # calificación de Google (performance_label: BEST/GOOD/LOW) y el contenido
+    # (imagen / video / texto). El date_start se fija al fin del rango (snapshot).
+    q_inv = f"""
+        SELECT {asset_fields}
+        FROM ad_group_ad_asset_view
+        WHERE ad_group_ad_asset_view.enabled = TRUE
+    """
+
+    def parse(row, with_metrics):
+        d = {
+            "client_id": client_id,
+            "date_start": row.segments.date if with_metrics else date_end,
+            "campaign_id": str(row.campaign.id),
+            "campaign_name": row.campaign.name,
+            "campaign_type": row.campaign.advertising_channel_type.name,
+            "ad_group_id": str(row.ad_group.id),
+            "ad_group_name": row.ad_group.name,
+            "ad_id": str(row.ad_group_ad.ad.id),
+            "asset_id": str(row.asset.id),
+            "field_type": row.ad_group_ad_asset_view.field_type.name,
+            "asset_type": row.asset.type_.name,
+            "performance_label": row.ad_group_ad_asset_view.performance_label.name,
+            "asset_name": row.asset.name or "",
+            "asset_text": row.asset.text_asset.text or "",
+            "image_url": row.asset.image_asset.full_size.url or "",
+            "youtube_video_id": row.asset.youtube_video_asset.youtube_video_id or "",
+            "youtube_title": row.asset.youtube_video_asset.youtube_video_title or "",
+            "impressions": row.metrics.impressions if with_metrics else 0,
+            "clicks": row.metrics.clicks if with_metrics else 0,
+            "conversions": round(row.metrics.conversions, 2) if with_metrics else 0,
+            "conv_value": round(row.metrics.conversions_value, 2) if with_metrics else 0,
+            "ctr": round(row.metrics.ctr, 4) if with_metrics else 0,
+        }
+        return d
+
+    svc = client.get_service("GoogleAdsService")
     rows = []
+    seen = set()  # identidad de pieza ya cubierta por Tier 1: (ad_id, asset_id, field_type)
+
+    # Tier 1: métricas por día (Search/PMax/App). Cubre las piezas que Google sí
+    # mide por asset.
     try:
-        response = client.get_service("GoogleAdsService").search(
-            customer_id=customer_id, query=query
-        )
-        for row in response:
-            yt_id = row.asset.youtube_video_asset.youtube_video_id or ""
-            rows.append({
-                "client_id": client_id,
-                "date_start": row.segments.date,
-                "campaign_id": str(row.campaign.id),
-                "campaign_name": row.campaign.name,
-                "campaign_type": row.campaign.advertising_channel_type.name,
-                "ad_group_id": str(row.ad_group.id),
-                "ad_group_name": row.ad_group.name,
-                "ad_id": str(row.ad_group_ad.ad.id),
-                "asset_id": str(row.asset.id),
-                "field_type": row.ad_group_ad_asset_view.field_type.name,
-                "asset_type": row.asset.type_.name,
-                "performance_label": row.ad_group_ad_asset_view.performance_label.name,
-                "asset_name": row.asset.name or "",
-                "asset_text": row.asset.text_asset.text or "",
-                "image_url": row.asset.image_asset.full_size.url or "",
-                "youtube_video_id": yt_id,
-                "youtube_title": row.asset.youtube_video_asset.youtube_video_title or "",
-                "impressions": row.metrics.impressions,
-                "clicks": row.metrics.clicks,
-                "conversions": round(row.metrics.conversions, 2),
-                "conv_value": round(row.metrics.conversions_value, 2),
-                "ctr": round(row.metrics.ctr, 4),
-            })
+        for row in svc.search(customer_id=customer_id, query=q_full):
+            d = parse(row, True)
+            rows.append(d)
+            seen.add((d["ad_id"], d["asset_id"], d["field_type"]))
     except GoogleAdsException as e:
-        log.error(f"Ad assets error {customer_id}: {e}")
+        log.warning(f"Ad assets con métricas no disponible {customer_id} (se completa con inventario): {e}")
+
+    # Tier 2: inventario de las piezas que sirven pero que Tier 1 NO cubrió
+    # (típicamente Display, donde Google no reparte métricas por asset). NO
+    # inventamos métricas: quedan en 0, pero conservamos su contenido y la
+    # calificación de Google (performance_label). Se corre SIEMPRE porque un
+    # mismo cliente puede tener Search (con métricas) y Display (sin ellas).
+    try:
+        added = 0
+        for row in svc.search(customer_id=customer_id, query=q_inv):
+            d = parse(row, False)
+            if (d["ad_id"], d["asset_id"], d["field_type"]) in seen:
+                continue  # ya vino con métricas reales en Tier 1
+            rows.append(d)
+            added += 1
+        if added:
+            log.info(f"   ↪ ad_assets sin métricas por pieza (Display u otras): {added} piezas con calificación de Google")
+    except GoogleAdsException as e:
+        log.error(f"Ad assets inventario error {customer_id}: {e}")
     return rows
 
 

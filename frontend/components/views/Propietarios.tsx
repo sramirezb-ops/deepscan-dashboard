@@ -11,6 +11,7 @@ import {
   type PropDeltas,
   type PropDailyPoint,
 } from '@/lib/hooks/useGadsPropietarios';
+import { useGadsAdAssets, type AssetCampaign, type AssetItem } from '@/lib/hooks/useGadsAdAssets';
 import { PieChart, type PieSlice } from '@/components/ui/PieChart';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -330,15 +331,180 @@ function AdsTable({ campaign }: { campaign: PropCampaign }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
 
-      {/* Honesto: el desglose por imagen/video individual aún no existe en la base. */}
-      <div style={{ padding: '0 14px 14px' }}>
-        <div style={{ fontSize: 11.5, color: 'var(--mu)', lineHeight: 1.6, borderTop: '1px solid var(--b2)', paddingTop: 12 }}>
-          🔜 <b style={{ color: 'var(--tx)' }}>Próximamente — resultados por imagen y video.</b> Cada anuncio adaptable de
-          display combina varias imágenes y videos. El detalle de cuál imagen o video genera más impresiones, clics y leads
-          se activará cuando se extraiga del ETL (ad_group_ad_asset_view). Hoy mostramos el dato real disponible: el
-          rendimiento agregado de cada anuncio.
+// Calificación de Google a cada pieza creativa (performance_label).
+function PerfBadge({ label }: { label: string }) {
+  const map: Record<string, { txt: string; color: string; bg: string }> = {
+    BEST: { txt: 'La mejor', color: '#34d399', bg: 'rgba(52,211,153,0.14)' },
+    GOOD: { txt: 'Buena', color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
+    LOW: { txt: 'Baja', color: '#f87171', bg: 'rgba(248,113,113,0.14)' },
+    LEARNING: { txt: 'Aprendiendo', color: 'var(--mu)', bg: 'var(--b2)' },
+    PENDING: { txt: 'Pendiente', color: 'var(--mu)', bg: 'var(--b2)' },
+  };
+  const m = map[label];
+  if (!m) return null;
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 5, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+      {m.txt}
+    </span>
+  );
+}
+
+function fieldTypeLabel(ft: string, kind: string): string {
+  const f = (ft || '').toUpperCase();
+  if (f.includes('LOGO')) return 'Logo';
+  if (f.includes('SQUARE')) return 'Imagen cuadrada';
+  if (f.includes('PORTRAIT')) return 'Imagen vertical';
+  if (f.includes('LANDSCAPE') || f === 'MARKETING_IMAGE') return 'Imagen horizontal';
+  if (f.includes('VIDEO')) return 'Video';
+  if (f.includes('LONG_HEADLINE')) return 'Titular largo';
+  if (f.includes('HEADLINE')) return 'Titular';
+  if (f.includes('DESCRIPTION')) return 'Descripción';
+  if (f.includes('BUSINESS_NAME')) return 'Nombre del negocio';
+  if (kind === 'image') return 'Imagen';
+  if (kind === 'video') return 'Video';
+  return 'Texto';
+}
+
+// Mini-métricas bajo cada pieza (impresiones · clics · CTR · leads).
+function AssetMetrics({ a }: { a: AssetItem }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', fontSize: 11, color: 'var(--mu)' }}>
+      <span><b style={{ color: 'var(--tx)' }}>{fmtInt(a.impressions)}</b> impr.</span>
+      <span><b style={{ color: 'var(--tx)' }}>{fmtInt(a.clicks)}</b> clics</span>
+      <span><b style={{ color: 'var(--tx)' }}>{fmtPct(a.ctr)}</b> CTR</span>
+      <span style={{ color: a.conversions > 0 ? '#34d399' : 'var(--mu)' }}>
+        <b>{fmtDec(a.conversions)}</b> leads
+      </span>
+    </div>
+  );
+}
+
+// Tarjeta visual (imagen o video) con miniatura + calificación + métricas.
+function VisualCard({ a, showMetrics }: { a: AssetItem; showMetrics: boolean }) {
+  const thumb =
+    a.kind === 'video' && a.youtubeVideoId
+      ? `https://img.youtube.com/vi/${a.youtubeVideoId}/mqdefault.jpg`
+      : a.imageUrl;
+  return (
+    <div className="card" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '1.4', borderRadius: 8, overflow: 'hidden', background: 'var(--b2)' }}>
+        {thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumb} alt={fieldTypeLabel(a.fieldType, a.kind)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        ) : (
+          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--mu)' }}>
+            sin miniatura
+          </div>
+        )}
+        {a.kind === 'video' && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <span style={{ fontSize: 26, color: '#fff', textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>▶</span>
+          </div>
+        )}
+        <div style={{ position: 'absolute', top: 6, right: 6 }}>
+          <PerfBadge label={a.performanceLabel} />
         </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--mu)' }}>
+        <span>{a.kind === 'video' ? '🎬' : '🖼️'}</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {a.youtubeTitle || fieldTypeLabel(a.fieldType, a.kind)}
+        </span>
+      </div>
+      {showMetrics && <AssetMetrics a={a} />}
+    </div>
+  );
+}
+
+// Fila de texto (titular o descripción) con su calificación + métricas.
+function TextRow({ a, showMetrics }: { a: AssetItem; showMetrics: boolean }) {
+  return (
+    <div className="card" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 10.5, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+          {fieldTypeLabel(a.fieldType, a.kind)}
+        </span>
+        <PerfBadge label={a.performanceLabel} />
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--tx)', lineHeight: 1.35 }}>“{a.assetText || '—'}”</div>
+      {showMetrics && <AssetMetrics a={a} />}
+    </div>
+  );
+}
+
+// Bloque ④ — resultados por imagen / video / texto (Fase 2, dato real).
+// Si la tabla aún no tiene datos para esta campaña (ETL no corrido o fuera de
+// ventana), mostramos el aviso honesto en vez de inventar nada.
+function AssetsSection({ assets }: { assets?: AssetCampaign }) {
+  const hasVisuals = assets && assets.visuals.length > 0;
+  const hasTexts = assets && assets.texts.length > 0;
+  // En Display, Google no reparte métricas por pieza → solo tenemos su
+  // calificación (BEST/GOOD/LOW). En ese caso ocultamos las mini-métricas en 0
+  // (serían engañosas) y ordenamos/explicamos por calificación.
+  const showMetrics = !!assets && assets.hasMetrics;
+
+  if (!hasVisuals && !hasTexts) {
+    return (
+      <div className="card" style={{ marginTop: 16, padding: 18, borderStyle: 'dashed', borderColor: 'var(--b2)' }}>
+        <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.6 }}>
+          🔜 <b style={{ color: 'var(--tx)' }}>Resultados por imagen y video — pendiente de sincronizar.</b> Cada anuncio
+          adaptable combina varias imágenes, videos y textos. El detalle por pieza se llena desde el ETL
+          (ad_group_ad_asset_view); cuando la próxima sincronización lo traiga, aparecerá aquí automáticamente con
+          impresiones, clics y leads de cada pieza.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 13, color: 'var(--mu)', marginBottom: 10 }}>
+        🎨 ¿Qué pieza creativa funciona mejor? ·{' '}
+        <span style={{ color: 'var(--tx)' }}>
+          {showMetrics
+            ? 'resultados por imagen, video y texto'
+            : 'piezas ordenadas por la calificación de Google'}
+        </span>
+      </div>
+
+      {hasVisuals && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          {assets!.visuals.map((a) => (
+            <VisualCard key={`${a.assetId}__${a.fieldType}`} a={a} showMetrics={showMetrics} />
+          ))}
+        </div>
+      )}
+
+      {hasTexts && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, color: 'var(--mu)', marginBottom: 8 }}>Titulares y descripciones</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+            {assets!.texts.map((a) => (
+              <TextRow key={`${a.assetId}__${a.fieldType}`} a={a} showMetrics={showMetrics} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 10, lineHeight: 1.5 }}>
+        {showMetrics ? (
+          <>
+            Métricas reales por pieza desde Google Ads. El <b style={{ color: 'var(--tx)' }}>costo por pieza no existe</b>:
+            Google no reparte la inversión entre imágenes/videos de un anuncio adaptable, así que medimos cada pieza por
+            impresiones, clics y leads, más la calificación de Google.
+          </>
+        ) : (
+          <>
+            En campañas de Display, Google <b style={{ color: 'var(--tx)' }}>no reparte métricas por pieza</b> (ni
+            impresiones ni costo por imagen/video). Lo que sí entrega, y mostramos aquí, es su propia{' '}
+            <b style={{ color: 'var(--tx)' }}>calificación de cada pieza</b> (La mejor / Buena / Baja): así sabes qué
+            creativos conviene mantener o reemplazar, sin inventar números.
+          </>
+        )}
       </div>
     </div>
   );
@@ -374,8 +540,8 @@ function CityPies({ campaign }: { campaign: PropCampaign }) {
   );
 }
 
-// Una campaña Propietarios completa (los 3 bloques).
-function CampaignSection({ campaign, previousLabel }: { campaign: PropCampaign; previousLabel: string }) {
+// Una campaña Propietarios completa (los 4 bloques).
+function CampaignSection({ campaign, previousLabel, assets }: { campaign: PropCampaign; previousLabel: string; assets?: AssetCampaign }) {
   const k = campaign.kpis;
   return (
     <div style={{ marginTop: 30 }}>
@@ -390,6 +556,7 @@ function CampaignSection({ campaign, previousLabel }: { campaign: PropCampaign; 
 
       <KpiGrid kpis={campaign.kpis} deltas={campaign.deltas} daily={campaign.daily} />
       <AdsTable campaign={campaign} />
+      <AssetsSection assets={assets} />
       <CityPies campaign={campaign} />
     </div>
   );
@@ -399,6 +566,7 @@ export function Propietarios() {
   const client = useClient();
   const { range, previous } = usePeriod();
   const { data, loading, error } = useGadsPropietarios(client.id, range, previous);
+  const { data: assetsData } = useGadsAdAssets(client.id, range);
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);
@@ -468,7 +636,12 @@ export function Propietarios() {
       </div>
 
       {data.campaigns.map((c) => (
-        <CampaignSection key={c.campaignId} campaign={c} previousLabel={previousLabel} />
+        <CampaignSection
+          key={c.campaignId}
+          campaign={c}
+          previousLabel={previousLabel}
+          assets={assetsData?.byCampaign.get(c.campaignId)}
+        />
       ))}
 
       <div className="card" style={{ marginTop: 24, borderStyle: 'dashed', borderColor: 'var(--b2)' }}>

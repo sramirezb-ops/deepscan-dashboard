@@ -9,7 +9,7 @@ import { Topbar } from '@/components/layout/Topbar';
 import { ChannelModal } from '@/components/layout/ChannelModal';
 
 export const metadata: Metadata = {
-  title: 'DeepScan · Dashboard',
+  title: 'DEEPSCAN · Dashboard',
   description: 'Performance marketing dashboard para agencias',
 };
 

@@ -165,6 +165,8 @@ export interface TikTokData {
   // Deltas vs período anterior
   spendDelta: number;
   conversionsDelta: number;
+  impressionsDelta: number;
+  reachDelta: number;
   cplDelta: number; // absoluto
   ctrDelta: number; // absoluto
   from: string;
@@ -636,6 +638,8 @@ export function useTikTok(
           tiktokExistsEver,
           spendDelta: calcDelta(t.spend, p.spend),
           conversionsDelta: calcDelta(t.conversions, p.conversions),
+          impressionsDelta: calcDelta(t.impressions, p.impressions),
+          reachDelta: calcDelta(t.reach, p.reach),
           cplDelta: totals.cpl - cplPrev,
           ctrDelta: totals.ctr - ctrPrev,
           from: range.from,

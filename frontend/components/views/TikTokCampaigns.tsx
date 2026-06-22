@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -78,6 +78,9 @@ const METRICS: MetricCfg[] = [
     pick: (p) => p.cpm, fmt: (v, c) => (v > 0 ? formatCurrency(v, c) : '—') },
 ];
 
+// Criterios de orden para la lista de campañas (toolbar).
+type CampSortKey = 'spend' | 'conversions' | 'cpl' | 'ctr' | 'name';
+
 export function TikTokCampaigns() {
   const client = useClient();
   const { range, previous } = usePeriod();
@@ -107,18 +110,54 @@ export function TikTokCampaigns() {
     return m;
   }, [data]);
 
-  // Primera campaña abierta por defecto (mejor primera impresión).
+  // Estado de acordeones. `null` = aún sin tocar → abrimos la primera campaña
+  // (mejor primera impresión). Cualquier acción guarda un Set EXPLÍCITO, así
+  // "Colapsar todo" deja un Set vacío real (nada abierto) sin reabrir la primera.
+  const allNames = useMemo(() => (data?.campaigns ?? []).map((c) => c.name), [data]);
   const firstName = data?.campaigns[0]?.name;
-  const [openCampaigns, setOpenCampaigns] = useState<Set<string>>(new Set());
-  const openSet = openCampaigns.size === 0 && firstName ? new Set([firstName]) : openCampaigns;
+  const [openCampaigns, setOpenCampaigns] = useState<Set<string> | null>(null);
+  const openSet = openCampaigns ?? (firstName ? new Set([firstName]) : new Set<string>());
 
   const toggle = (key: string) => {
-    const base = openCampaigns.size === 0 && firstName ? new Set([firstName]) : openCampaigns;
-    const next = new Set(base);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setOpenCampaigns(next);
+    setOpenCampaigns((prev) => {
+      const next = new Set(prev ?? (firstName ? [firstName] : []));
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
+  const expandAll = () => setOpenCampaigns(new Set(allNames));
+  const collapseAll = () => setOpenCampaigns(new Set());
+
+  // Toolbar de campañas: buscar por nombre + ordenar por métrica.
+  const [query, setQuery] = useState('');
+  const [campSort, setCampSort] = useState<CampSortKey>('spend');
+
+  const visibleCampaigns = useMemo(() => {
+    const base = data?.campaigns ?? [];
+    const q = query.trim().toLowerCase();
+    const filtered = q ? base.filter((c) => c.name.toLowerCase().includes(q)) : base;
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      switch (campSort) {
+        case 'name':
+          return a.name.localeCompare(b.name, 'es');
+        case 'conversions':
+          return b.conversions - a.conversions;
+        case 'ctr':
+          return b.ctr - a.ctr;
+        case 'cpl': {
+          const av = a.cpl > 0 ? a.cpl : Infinity; // sin conversiones → al final
+          const bv = b.cpl > 0 ? b.cpl : Infinity;
+          return av - bv;
+        }
+        case 'spend':
+        default:
+          return b.spend - a.spend;
+      }
+    });
+    return arr;
+  }, [data, query, campSort]);
 
   if (loading && !data) return <TikTokLoading clientName={client.name} />;
   if (error) return <TikTokError error={error} />;
@@ -139,14 +178,95 @@ export function TikTokCampaigns() {
         }
       />
 
-      <div style={{ fontSize: 12, color: 'var(--mu)', margin: '0 0 14px', lineHeight: 1.5 }}>
+      {/* Resumen del período — orientación "lo importante primero" */}
+      <SectionLabel>Resumen del período</SectionLabel>
+      <div style={summaryGridStyle}>
+        <SummaryStat label="Inversión" value={formatCurrency(t.spend, cur)} delta={data.spendDelta} good="neutral" />
+        <SummaryStat label="Conversiones" value={formatInt(t.conversions)} delta={data.conversionsDelta} good="up" />
+        <SummaryStat
+          label="Costo / conv."
+          value={t.conversions > 0 ? formatCurrency(t.cpl, cur) : '—'}
+          delta={data.cplDelta}
+          good="down"
+          fmtDelta={(v) => formatCurrency(v, cur)}
+        />
+        <SummaryStat
+          label="CTR"
+          value={formatPercent(t.ctr, 2)}
+          delta={data.ctrDelta}
+          good="up"
+          fmtDelta={(v) => formatPercent(v, 2)}
+        />
+        <SummaryStat label="Impresiones" value={formatNumber(t.impressions)} delta={data.impressionsDelta} good="up" />
+        <SummaryStat label="Alcance" value={formatNumber(t.reach)} delta={data.reachDelta} good="up" />
+      </div>
+
+      <div style={{ fontSize: 12, color: 'var(--mu)', margin: '18px 0 12px', lineHeight: 1.5 }}>
         Haz clic en una <b>campaña</b> para desplegar sus <b>KPIs con tendencia diaria</b>, la{' '}
         <b>distribución por conjunto</b> y la <b>tabla de anuncios</b> con su creativo. Todo es dato
         real del rango seleccionado.
       </div>
 
+      {/* Toolbar: buscar + ordenar + expandir/colapsar (solo si hay varias) */}
+      {data.campaigns.length > 1 && (
+        <div style={toolbarStyle}>
+          <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
+            <span style={searchIconStyle}>⌕</span>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar campaña por nombre…"
+              style={searchInputStyle}
+              aria-label="Buscar campaña por nombre"
+            />
+            {query && (
+              <button onClick={() => setQuery('')} style={searchClearStyle} title="Limpiar" aria-label="Limpiar búsqueda">
+                ×
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 11, color: 'var(--mu)' }}>
+              Ordenar:{' '}
+              <select
+                value={campSort}
+                onChange={(e) => setCampSort(e.target.value as CampSortKey)}
+                style={selectStyle}
+                aria-label="Ordenar campañas"
+              >
+                <option value="spend">Inversión</option>
+                <option value="conversions">Conversiones</option>
+                <option value="cpl">Costo / conv.</option>
+                <option value="ctr">CTR</option>
+                <option value="name">Nombre</option>
+              </select>
+            </label>
+            <button onClick={expandAll} style={toolBtnStyle} title="Expandir todas las campañas">
+              Expandir todo
+            </button>
+            <button onClick={collapseAll} style={toolBtnStyle} title="Colapsar todas las campañas">
+              Colapsar todo
+            </button>
+          </div>
+        </div>
+      )}
+
+      {data.campaigns.length > 1 && (
+        <div style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 12px' }}>
+          {query
+            ? `${visibleCampaigns.length} de ${data.campaigns.length} campañas`
+            : `${data.campaigns.length} campañas`}
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {data.campaigns.map((c: TikTokCampaignRow) => {
+        {visibleCampaigns.length === 0 && (
+          <div className="card" style={{ fontSize: 12, color: 'var(--mu)', textAlign: 'center', padding: 24 }}>
+            Ninguna campaña coincide con «{query}».
+          </div>
+        )}
+        {visibleCampaigns.map((c: TikTokCampaignRow) => {
           const open = openSet.has(c.name);
           const groups = adgroupsByCampaign.get(c.name) ?? [];
           const ads = adsByCampaign.get(c.name) ?? [];
@@ -218,6 +338,8 @@ export function TikTokCampaigns() {
           mientras tanto mostramos la distribución real por conjunto de anuncios.
         </div>
       </div>
+
+      <BackToTop />
     </div>
   );
 }
@@ -372,6 +494,90 @@ function AdsTable({ ads, cur }: { ads: TikTokAdRow[]; cur: string }) {
   );
 }
 
+// Etiqueta de variación vs. período anterior, honesta y legible.
+// `fmtDelta` presente = el delta es ABSOLUTO (moneda, p.p.) → se muestra tal cual.
+// `fmtDelta` ausente = el delta es una FRACCIÓN (cambio %); si la base anterior
+// fue casi nula el % se dispara, así que lo acotamos a ">+1000%" en vez de
+// mostrar cifras absurdas (255000%) que parecen un error.
+function deltaParts(
+  delta: number | null,
+  good: 'up' | 'down' | 'neutral',
+  fmtDelta?: (v: number) => string,
+): { text: string; color: string } {
+  if (delta == null) return { text: 'sin período anterior', color: 'var(--mu)' };
+  if (Math.abs(delta) < 5e-4) return { text: '■ sin cambio vs. anterior', color: 'var(--mu)' };
+  const dir: 'up' | 'down' = delta > 0 ? 'up' : 'down';
+  const tone = good === 'neutral' ? 'neutral' : dir === good ? 'good' : 'bad';
+  const color = tone === 'good' ? '#4ade80' : tone === 'bad' ? '#f87171' : 'var(--mu)';
+  const arrow = dir === 'up' ? '▲' : '▼';
+  const isFraction = !fmtDelta;
+  if (isFraction && Math.abs(delta) >= 10) return { text: `${arrow} +1000% vs. anterior`, color };
+  const fmt = fmtDelta ?? ((v: number) => formatPercent(v, 1));
+  return { text: `${arrow} ${fmt(Math.abs(delta))} vs. anterior`, color };
+}
+
+// ── Tarjeta de resumen del período (overview-first) ──
+function SummaryStat({
+  label,
+  value,
+  delta,
+  good,
+  fmtDelta,
+}: {
+  label: string;
+  value: string;
+  delta: number | null;
+  good: 'up' | 'down' | 'neutral';
+  fmtDelta?: (v: number) => string;
+}) {
+  const { text, color } = deltaParts(delta, good, fmtDelta);
+  return (
+    <div
+      style={{
+        background: 'var(--bg3)',
+        border: '1px solid var(--b2)',
+        borderRadius: 10,
+        padding: '11px 13px 9px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+      }}
+    >
+      <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 10, color, fontVariantNumeric: 'tabular-nums' }}>{text}</div>
+    </div>
+  );
+}
+
+// ── Botón flotante "volver arriba" para la página larga ──
+function BackToTop() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const el = document.getElementById('ctContent');
+    if (!el) return;
+    const onScroll = () => setShow(el.scrollTop > 600);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+  if (!show) return null;
+  return (
+    <button
+      onClick={() => document.getElementById('ctContent')?.scrollTo({ top: 0, behavior: 'smooth' })}
+      style={backToTopStyle}
+      title="Volver arriba"
+      aria-label="Volver arriba"
+    >
+      ↑
+    </button>
+  );
+}
+
 function chipStyle(active: boolean): React.CSSProperties {
   return {
     fontSize: 11,
@@ -405,15 +611,7 @@ function TrendKpi({ cfg, c, cur }: { cfg: MetricCfg; c: TikTokCampaignRow; cur: 
   const value = c[cfg.key];
   const prev = c.prev ? c.prev[cfg.key] : null;
   const delta = prev != null && prev > 0 ? (value - prev) / prev : null;
-
-  let dir: 'up' | 'down' | 'flat' = 'flat';
-  if (delta != null) dir = delta > 0.0005 ? 'up' : delta < -0.0005 ? 'down' : 'flat';
-  // ¿El cambio es bueno? Depende de la métrica.
-  const goodTone =
-    cfg.good === 'neutral' || dir === 'flat'
-      ? 'neutral'
-      : (dir === cfg.good ? 'good' : 'bad');
-  const deltaColor = goodTone === 'good' ? '#4ade80' : goodTone === 'bad' ? '#f87171' : 'var(--mu)';
+  const { text: deltaText, color: deltaColor } = deltaParts(delta, cfg.good);
 
   return (
     <div
@@ -434,9 +632,7 @@ function TrendKpi({ cfg, c, cur }: { cfg: MetricCfg; c: TikTokCampaignRow; cur: 
         {cfg.fmt(value, cur)}
       </div>
       <div style={{ fontSize: 10, color: deltaColor, height: 13, fontVariantNumeric: 'tabular-nums' }}>
-        {delta != null
-          ? `${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '■'} ${formatPercent(Math.abs(delta), 1)} vs. anterior`
-          : 'sin período anterior'}
+        {deltaText}
       </div>
       <Sparkline points={series} color={cfg.color} />
     </div>
@@ -558,4 +754,96 @@ const ellipsis: React.CSSProperties = {
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
+};
+
+const summaryGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+  gap: 10,
+};
+
+const toolbarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  flexWrap: 'wrap',
+  gap: 10,
+  margin: '0 0 8px',
+};
+
+const searchInputStyle: React.CSSProperties = {
+  width: '100%',
+  fontSize: 12,
+  color: 'var(--t1)',
+  background: 'var(--bg3)',
+  border: '1px solid var(--b2)',
+  borderRadius: 8,
+  padding: '7px 28px 7px 28px',
+  outline: 'none',
+};
+
+const searchIconStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 9,
+  top: '50%',
+  transform: 'translateY(-50%)',
+  fontSize: 13,
+  color: 'var(--mu)',
+  pointerEvents: 'none',
+};
+
+const searchClearStyle: React.CSSProperties = {
+  position: 'absolute',
+  right: 6,
+  top: '50%',
+  transform: 'translateY(-50%)',
+  width: 18,
+  height: 18,
+  lineHeight: '16px',
+  textAlign: 'center',
+  fontSize: 14,
+  color: 'var(--mu)',
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  borderRadius: 4,
+};
+
+const selectStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--t1)',
+  background: 'var(--bg3)',
+  border: '1px solid var(--b2)',
+  borderRadius: 7,
+  padding: '5px 7px',
+  cursor: 'pointer',
+};
+
+const toolBtnStyle: React.CSSProperties = {
+  fontSize: 11,
+  padding: '6px 11px',
+  borderRadius: 7,
+  border: '1px solid var(--b2)',
+  background: 'transparent',
+  color: 'var(--t2)',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+};
+
+const backToTopStyle: React.CSSProperties = {
+  position: 'fixed',
+  bottom: 24,
+  right: 28,
+  zIndex: 50,
+  width: 40,
+  height: 40,
+  borderRadius: '50%',
+  border: `1px solid ${TT_PINK}`,
+  background: 'rgba(238,29,82,0.16)',
+  color: '#fff',
+  fontSize: 18,
+  lineHeight: '1',
+  cursor: 'pointer',
+  boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+  backdropFilter: 'blur(4px)',
 };

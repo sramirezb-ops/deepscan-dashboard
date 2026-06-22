@@ -829,7 +829,14 @@ def run():
             gads = build_client(customer_id)
 
             rows = extract_campaigns(gads, customer_id, cid, date_start, date_end)
-            n = upsert("gads_campaigns", rows, "client_id,date,campaign_id")
+            # Conflicto por NOMBRE (no por id): la identidad canónica de una
+            # campaña-día en esta tabla es (client_id, date, campaign_name) —es
+            # la unique constraint del esquema y la que comparten el sheet y la
+            # API. Las filas viejas del sheet traen campaign_id NULL; al hacer
+            # upsert por id, la API insertaba una fila nueva que chocaba contra
+            # la unique de nombre (error 23505 en Sneakers). Por nombre, la API
+            # ACTUALIZA esas filas y rellena el campaign_id real, sin colisión.
+            n = upsert("gads_campaigns", rows, "client_id,date,campaign_name")
             log.info(f"   ✓ gads_campaigns: {n} filas")
 
             rows = extract_ad_groups(gads, customer_id, cid, date_start, date_end)

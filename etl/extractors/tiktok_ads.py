@@ -191,9 +191,11 @@ def extract_tiktok_ads(
 # ─────────────────────────────────────────────────────────────────────────────
 # El reporte de rendimiento NO trae la imagen/video del anuncio, solo el nombre.
 # Para tener la miniatura real hacemos:
-#   1) /ad/get/            → mapea ad_id → video_id / image_ids
-#   2) /file/video/ad/info → resuelve video_id → portada + preview (video)
-#   3) /file/image/ad/info → fallback: image_id → url (anuncios sin video)
+#   1) /ad/get/             → mapea ad_id → video_id / image_ids / identidad
+#   2) /file/video/ad/info  → resuelve video_id → portada + preview (video)
+#   3) /file/image/ad/info  → fallback: image_id → url (anuncios sin video)
+#   3.5) /identity/video/info → Spark Ads (posts orgánicos): portada vía
+#        identity_id + tiktok_item_id (no tienen video subido al anunciante)
 # Alimenta la tabla `tiktok_creatives` (una fila por anuncio). Best-effort: si la
 # app no tiene permiso de gestión de anuncios, la API responde code!=0; lo
 # registramos y devolvemos lo que se haya podido resolver, sin lanzar. Así el
@@ -202,6 +204,18 @@ def extract_tiktok_ads(
 AD_IDS_PER_CALL    = 100   # límite de /ad/get/ filtering.ad_ids
 VIDEO_IDS_PER_CALL = 60    # límite de /file/video/ad/info/
 IMAGE_IDS_PER_CALL = 100   # límite de /file/image/ad/info/
+
+
+def _identity_info(data: dict) -> dict:
+    """Normaliza la respuesta de /identity/video/info/: el bloque del video puede
+    venir como objeto directo, anidado en `video`/`video_info`, o como primer
+    elemento de `list`. Devolvemos el dict que contenga la portada."""
+    if isinstance(data.get("list"), list) and data["list"]:
+        return data["list"][0] or {}
+    for key in ("video", "video_info"):
+        if isinstance(data.get(key), dict):
+            return data[key]
+    return data
 
 
 def _chunks(seq: list, size: int):
@@ -262,7 +276,8 @@ def extract_tiktok_creatives(
                 "advertiser_id": advertiser_id,
                 "filtering":     json.dumps({"ad_ids": chunk}),
                 "fields":        json.dumps(
-                    ["ad_id", "ad_name", "video_id", "image_ids", "ad_format"]
+                    ["ad_id", "ad_name", "video_id", "image_ids", "ad_format",
+                     "identity_id", "identity_type", "tiktok_item_id"]
                 ),
                 "page":      page,
                 "page_size": AD_IDS_PER_CALL,
@@ -278,6 +293,10 @@ def extract_tiktok_creatives(
                     "video_id":  str(it.get("video_id", "") or ""),
                     "image_ids": [str(x) for x in (it.get("image_ids") or []) if x],
                     "ad_name":   it.get("ad_name", "") or "",
+                    # Spark Ads (posts orgánicos): apuntan a un post vía identidad.
+                    "identity_id":   str(it.get("identity_id", "") or ""),
+                    "identity_type": str(it.get("identity_type", "") or ""),
+                    "item_id":       str(it.get("tiktok_item_id", "") or ""),
                 }
             page += 1
             if page <= total_pages:
@@ -330,6 +349,46 @@ def extract_tiktok_creatives(
                 if iid:
                     image_map[iid] = _first(it, "image_url")
 
+    # ── 3.5) Spark Ads (posts orgánicos): portada vía identidad + item_id ───
+    # Un Spark Ad no tiene video subido a la biblioteca del anunciante (sin
+    # video_id resoluble); apunta al post orgánico con identity_id + item_id.
+    # Lo resolvemos con /identity/video/info/. Best-effort: si la API no lo
+    # soporta o falla, esos anuncios quedan con el marcador honesto (sin romper
+    # nada de lo ya resuelto). Cacheamos por item_id para no repetir llamadas.
+    spark_map: dict[str, dict] = {}   # ad_id → {cover, preview}
+    spark_cache: dict[str, dict] = {} # item_id → {cover, preview}
+    url_identity = f"{BASE_URL}/identity/video/info/"
+    spark_ads = [
+        (aid, m) for aid, m in ad_meta.items()
+        if m.get("item_id") and m.get("identity_id")
+        and not (m["video_id"] and m["video_id"] in video_map)
+        and not m["image_ids"]
+    ]
+    for aid, m in spark_ads:
+        key = m["item_id"]
+        if key not in spark_cache:
+            data = _api_get(url_identity, headers, {
+                "advertiser_id": advertiser_id,
+                "identity_id":   m["identity_id"],
+                "identity_type": m["identity_type"] or "TT_USER",
+                "item_id":       key,
+            })
+            if data:
+                info = _identity_info(data)
+                spark_cache[key] = {
+                    "cover":   _first(info, "poster_url", "video_cover_url", "cover_url", "cover"),
+                    "preview": _first(info, "preview_url", "embed_url", "share_url"),
+                }
+            else:
+                spark_cache[key] = {"cover": "", "preview": ""}
+            time.sleep(0.1)
+        res = spark_cache[key]
+        if res["cover"] or res["preview"]:
+            spark_map[aid] = res
+
+    if spark_map:
+        log.info(f"   TikTok creativos: {len(spark_map)} Spark Ads (post orgánico) resueltos")
+
     # ── 4) Ensamblar filas (solo las que tienen al menos una portada) ───────
     out: list[dict] = []
     for aid, m in ad_meta.items():
@@ -343,6 +402,10 @@ def extract_tiktok_creatives(
         elif m["image_ids"]:
             cover = image_map.get(m["image_ids"][0], "")
             media_type = "image" if cover else ""
+        elif aid in spark_map:
+            cover = spark_map[aid]["cover"]
+            video_url = spark_map[aid]["preview"]
+            media_type = "video"  # Spark Ad: video orgánico
 
         if not cover and not video_url:
             continue  # sin creativo resoluble → el dashboard deja el marcador

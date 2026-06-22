@@ -184,3 +184,180 @@ def extract_tiktok_ads(
 
     log.info(f"   TikTok Ads: {len(rows)} filas ({total_pages} páginas)")
     return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Creativos: portada (cover) y video de cada anuncio
+# ─────────────────────────────────────────────────────────────────────────────
+# El reporte de rendimiento NO trae la imagen/video del anuncio, solo el nombre.
+# Para tener la miniatura real hacemos:
+#   1) /ad/get/            → mapea ad_id → video_id / image_ids
+#   2) /file/video/ad/info → resuelve video_id → portada + preview (video)
+#   3) /file/image/ad/info → fallback: image_id → url (anuncios sin video)
+# Alimenta la tabla `tiktok_creatives` (una fila por anuncio). Best-effort: si la
+# app no tiene permiso de gestión de anuncios, la API responde code!=0; lo
+# registramos y devolvemos lo que se haya podido resolver, sin lanzar. Así el
+# dashboard mantiene su marcador honesto en vez de romperse o inventar.
+
+AD_IDS_PER_CALL    = 100   # límite de /ad/get/ filtering.ad_ids
+VIDEO_IDS_PER_CALL = 60    # límite de /file/video/ad/info/
+IMAGE_IDS_PER_CALL = 100   # límite de /file/image/ad/info/
+
+
+def _chunks(seq: list, size: int):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
+
+
+def _api_get(url: str, headers: dict, params: dict) -> dict | None:
+    """GET tolerante: devuelve data dict o None si la API responde error."""
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=60)
+        resp.raise_for_status()
+        payload = resp.json()
+    except Exception as e:
+        log.warning(f"   TikTok creativos: fallo de red en {url}: {e}")
+        return None
+    if payload.get("code") != 0:
+        log.warning(
+            f"   TikTok creativos: {url} code={payload.get('code')} "
+            f"msg={payload.get('message')}"
+        )
+        return None
+    return payload.get("data", {}) or {}
+
+
+def _first(d: dict, *keys: str) -> str:
+    """Primer valor no vacío entre varias claves posibles del payload."""
+    for k in keys:
+        v = d.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
+def extract_tiktok_creatives(
+    access_token: str,
+    advertiser_id: str,
+    ad_ids: list[str],
+) -> list[dict]:
+    """
+    Resuelve portada + video de cada anuncio. Devuelve filas listas para
+    loader.upsert("tiktok_creatives", ...). Nunca lanza.
+    """
+    headers = {"Access-Token": access_token}
+    # Anuncios únicos y no vacíos.
+    uniq = sorted({str(a).strip() for a in ad_ids if str(a).strip()})
+    if not uniq:
+        return []
+
+    # ── 1) ad_id → video_id / image_ids ─────────────────────────────────────
+    ad_meta: dict[str, dict] = {}   # ad_id → {video_id, image_ids, ad_name}
+    url_ad = f"{BASE_URL}/ad/get/"
+    for chunk in _chunks(uniq, AD_IDS_PER_CALL):
+        page = 1
+        total_pages = 1
+        while page <= total_pages:
+            data = _api_get(url_ad, headers, {
+                "advertiser_id": advertiser_id,
+                "filtering":     json.dumps({"ad_ids": chunk}),
+                "fields":        json.dumps(
+                    ["ad_id", "ad_name", "video_id", "image_ids", "ad_format"]
+                ),
+                "page":      page,
+                "page_size": AD_IDS_PER_CALL,
+            })
+            if data is None:
+                break
+            total_pages = int((data.get("page_info", {}) or {}).get("total_page", 1) or 1)
+            for it in data.get("list", []):
+                aid = str(it.get("ad_id", "") or "")
+                if not aid:
+                    continue
+                ad_meta[aid] = {
+                    "video_id":  str(it.get("video_id", "") or ""),
+                    "image_ids": [str(x) for x in (it.get("image_ids") or []) if x],
+                    "ad_name":   it.get("ad_name", "") or "",
+                }
+            page += 1
+            if page <= total_pages:
+                time.sleep(0.2)
+
+    if not ad_meta:
+        log.warning("   TikTok creativos: /ad/get/ no devolvió datos (¿permiso de gestión de anuncios?)")
+        return []
+
+    # ── 2) video_id → portada + preview ─────────────────────────────────────
+    video_ids = sorted({m["video_id"] for m in ad_meta.values() if m["video_id"]})
+    video_map: dict[str, dict] = {}  # video_id → {cover, preview}
+    url_vid = f"{BASE_URL}/file/video/ad/info/"
+    for chunk in _chunks(video_ids, VIDEO_IDS_PER_CALL):
+        data = _api_get(url_vid, headers, {
+            "advertiser_id": advertiser_id,
+            "video_ids":     json.dumps(chunk),
+            "fields":        json.dumps(["video_id", "video_cover_url", "preview_url"]),
+        })
+        if data is None:
+            continue
+        for it in data.get("list", []):
+            vid = str(it.get("video_id", "") or "")
+            if not vid:
+                continue
+            video_map[vid] = {
+                "cover":   _first(it, "video_cover_url", "poster_url"),
+                "preview": _first(it, "preview_url"),
+            }
+
+    # ── 3) image_id → url (fallback para anuncios sin video) ────────────────
+    need_images = sorted({
+        m["image_ids"][0]
+        for m in ad_meta.values()
+        if not m["video_id"] and m["image_ids"]
+    })
+    image_map: dict[str, str] = {}   # image_id → url
+    if need_images:
+        url_img = f"{BASE_URL}/file/image/ad/info/"
+        for chunk in _chunks(need_images, IMAGE_IDS_PER_CALL):
+            data = _api_get(url_img, headers, {
+                "advertiser_id": advertiser_id,
+                "image_ids":     json.dumps(chunk),
+                "fields":        json.dumps(["image_id", "image_url"]),
+            })
+            if data is None:
+                continue
+            for it in data.get("list", []):
+                iid = str(it.get("image_id", "") or "")
+                if iid:
+                    image_map[iid] = _first(it, "image_url")
+
+    # ── 4) Ensamblar filas (solo las que tienen al menos una portada) ───────
+    out: list[dict] = []
+    for aid, m in ad_meta.items():
+        cover = ""
+        video_url = ""
+        media_type = ""
+        if m["video_id"] and m["video_id"] in video_map:
+            cover = video_map[m["video_id"]]["cover"]
+            video_url = video_map[m["video_id"]]["preview"]
+            media_type = "video"
+        elif m["image_ids"]:
+            cover = image_map.get(m["image_ids"][0], "")
+            media_type = "image" if cover else ""
+
+        if not cover and not video_url:
+            continue  # sin creativo resoluble → el dashboard deja el marcador
+
+        out.append({
+            "ad_id":      aid,
+            "ad_name":    m["ad_name"],
+            "video_id":   m["video_id"],
+            "media_type": media_type,
+            "cover_url":  cover,
+            "video_url":  video_url,
+        })
+
+    log.info(
+        f"   TikTok creativos: {len(out)}/{len(ad_meta)} anuncios con portada "
+        f"({len(video_map)} videos, {len(image_map)} imágenes resueltas)"
+    )
+    return out

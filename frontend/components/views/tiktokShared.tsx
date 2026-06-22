@@ -206,41 +206,84 @@ export function MiniRetentionBar({ v }: { v: TikTokRetention }) {
   );
 }
 
-// Miniatura honesta del creativo. Hoy NO tenemos la portada/video real del
-// anuncio en la base (el reporte de TikTok no la trae); mostramos un tile con
-// la inicial y el nombre, claramente un marcador y no una imagen inventada.
-// El Paso 2 reemplazará esto por la portada/preview real desde la API.
-export function CreativeThumb({ name }: { name: string }) {
+// Miniatura del creativo. Si ya tenemos la portada real (tabla tiktok_creatives)
+// la mostramos; si no, caemos a un marcador honesto con la inicial — nunca una
+// imagen inventada. `videoUrl` (si existe) abre el preview del video en pestaña
+// nueva al hacer clic.
+export function CreativeThumb({
+  name,
+  coverUrl,
+  videoUrl,
+  size = 'sm',
+}: {
+  name: string;
+  coverUrl?: string;
+  videoUrl?: string;
+  size?: 'sm' | 'lg';
+}) {
+  const dims = size === 'lg' ? { w: 64, h: 84 } : { w: 46, h: 60 };
+  const box: React.CSSProperties = {
+    width: dims.w,
+    height: dims.h,
+    borderRadius: 8,
+    flexShrink: 0,
+    border: '1px solid var(--b2)',
+    position: 'relative',
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+
+  if (coverUrl) {
+    const inner = (
+      <div style={{ ...box, background: 'var(--bg3)' }} title={name}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={coverUrl}
+          alt={name}
+          loading="lazy"
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+        {videoUrl && (
+          <span
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 16,
+              color: '#fff',
+              textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+              pointerEvents: 'none',
+            }}
+          >
+            ▶
+          </span>
+        )}
+      </div>
+    );
+    return videoUrl ? (
+      <a href={videoUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex' }}>
+        {inner}
+      </a>
+    ) : (
+      inner
+    );
+  }
+
+  // Marcador honesto (sin portada resuelta todavía).
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
   return (
     <div
-      title={name}
-      style={{
-        width: 46,
-        height: 60,
-        borderRadius: 8,
-        flexShrink: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: `linear-gradient(150deg, ${TT_PINK}22, ${TT_CYAN}22)`,
-        border: '1px solid var(--b2)',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
+      title={`${name} · portada aún no sincronizada`}
+      style={{ ...box, background: `linear-gradient(150deg, ${TT_PINK}22, ${TT_CYAN}22)` }}
     >
-      <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', opacity: 0.7 }}>{initial}</span>
-      <span
-        style={{
-          position: 'absolute',
-          bottom: 3,
-          right: 4,
-          fontSize: 9,
-          color: 'var(--mu)',
-        }}
-      >
-        ▶
+      <span style={{ fontSize: size === 'lg' ? 24 : 18, fontWeight: 700, color: 'var(--t1)', opacity: 0.7 }}>
+        {initial}
       </span>
+      <span style={{ position: 'absolute', bottom: 3, right: 4, fontSize: 9, color: 'var(--mu)' }}>▶</span>
     </div>
   );
 }

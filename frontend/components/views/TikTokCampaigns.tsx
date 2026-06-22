@@ -178,7 +178,7 @@ export function TikTokCampaigns() {
                                   <tr key={a.adId}>
                                     <td data-cat="dim">
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <CreativeThumb name={a.name} />
+                                        <CreativeThumb name={a.name} coverUrl={a.coverUrl} videoUrl={a.videoUrl} />
                                         <span style={{ ...ellipsis, maxWidth: 240 }}>{a.name}</span>
                                       </div>
                                     </td>

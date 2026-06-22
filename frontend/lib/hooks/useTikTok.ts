@@ -98,6 +98,11 @@ export interface TikTokAdRow {
   cpm: number;
   videoViews: number;
   video: TikTokRetention; // curva de retención del anuncio
+  // Creativo real (tabla tiktok_creatives). Vacío si aún no se resolvió la
+  // portada → la UI muestra el marcador honesto.
+  coverUrl: string;
+  videoUrl: string;
+  mediaType: string; // 'video' | 'image' | ''
 }
 
 export interface TikTokTotals {
@@ -407,12 +412,47 @@ function groupByAd(rows: RawRow[]): TikTokAdRow[] {
       conversions: g.conversions,
       videoViews: g.vid.views,
       video: finalizeVid(g.vid),
+      coverUrl: '',
+      videoUrl: '',
+      mediaType: '',
       ...deriv(g),
     })
   );
 
   list.sort((a, b) => b.spend - a.spend);
   return list;
+}
+
+// Creativos (portada/video) por anuncio. Tabla pequeña (una fila por anuncio),
+// así que la traemos completa para el cliente y la mapeamos por ad_id.
+interface CreativeRow {
+  ad_id: string | null;
+  cover_url: string | null;
+  video_url: string | null;
+  media_type: string | null;
+}
+
+async function fetchCreatives(clientId: string): Promise<Map<string, CreativeRow>> {
+  const map = new Map<string, CreativeRow>();
+  let offset = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await supabase
+      .from('tiktok_creatives')
+      .select('ad_id, cover_url, video_url, media_type')
+      .eq('client_id', clientId)
+      .range(offset, offset + PAGE - 1);
+    // Si la tabla aún no existe o no hay permiso, no rompemos: la UI usa el marcador.
+    if (error) return map;
+    const batch = (data || []) as CreativeRow[];
+    for (const r of batch) {
+      const id = (r.ad_id || '').trim();
+      if (id) map.set(id, r);
+    }
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
+  return map;
 }
 
 export function useTikTok(
@@ -433,15 +473,25 @@ export function useTikTok(
       setLoading(true);
       setError(null);
       try {
-        const [nowRows, prevRows] = await Promise.all([
+        const [nowRows, prevRows, creatives] = await Promise.all([
           fetchRows(clientId, range.from, range.to),
           fetchRows(clientId, previous.from, previous.to),
+          fetchCreatives(clientId),
         ]);
         if (cancelled) return;
 
         const campaigns = groupByCampaign(nowRows);
         const adgroups = groupByAdGroup(nowRows);
         const ads = groupByAd(nowRows);
+        // Pegar la portada/video real a cada anuncio (si ya se resolvió).
+        for (const a of ads) {
+          const c = creatives.get(a.adId);
+          if (c) {
+            a.coverUrl = c.cover_url || '';
+            a.videoUrl = c.video_url || '';
+            a.mediaType = c.media_type || '';
+          }
+        }
         const t = sumTotals(nowRows);
         const p = sumTotals(prevRows);
 

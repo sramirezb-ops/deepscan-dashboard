@@ -18,7 +18,7 @@ from extractors.google_sheets   import (
     extract_flowboost,
 )
 from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
-from extractors.tiktok_ads        import extract_tiktok_ads
+from extractors.tiktok_ads        import extract_tiktok_ads, extract_tiktok_creatives
 from extractors.instagram_organic import extract_instagram_organic
 from extractors.ga4             import (
     extract_ga4,
@@ -211,6 +211,20 @@ def run_etl(client_id: str, days_back: int = 30):
             )
             loader.upsert("tiktok_campaigns", tiktok_rows, client_id)
             log.info(f"   ✓ TikTok Ads: {len(tiktok_rows)} filas")
+
+            # Creativos (portada + video) de los anuncios del rango. Best-effort:
+            # si la API no da permiso, devuelve [] y el dashboard deja el marcador.
+            try:
+                ad_ids = [r["ad_id"] for r in tiktok_rows if r.get("ad_id")]
+                creatives = extract_tiktok_creatives(
+                    access_token=tiktok_token,
+                    advertiser_id=tiktok_advertiser,
+                    ad_ids=ad_ids,
+                )
+                loader.upsert("tiktok_creatives", creatives, client_id)
+                log.info(f"   ✓ TikTok creativos: {len(creatives)} anuncios con portada")
+            except Exception as e:
+                log.error(f"   ✗ TikTok creativos error: {e}")
         except Exception as e:
             log.error(f"   ✗ TikTok Ads error: {e}")
     else:

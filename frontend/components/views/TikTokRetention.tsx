@@ -160,7 +160,7 @@ export function TikTokRetention() {
         {ads.map((a, i) => (
           <div key={a.adId} className="card" style={{ padding: 16 }}>
             <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-              <CreativeThumb name={a.name} />
+              <CreativeThumb name={a.name} coverUrl={a.coverUrl} videoUrl={a.videoUrl} size="lg" />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span

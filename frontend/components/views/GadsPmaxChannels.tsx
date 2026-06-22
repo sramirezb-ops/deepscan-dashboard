@@ -8,6 +8,7 @@ import {
   type PmaxChannelRow,
 } from '@/lib/hooks/useGadsPmaxChannels';
 import { formatCurrency, formatInt, formatPercent, formatROAS } from '@/lib/utils';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // ============================================================
 // GadsPmaxChannels — "¿En qué red se va la plata?" (PMax)
@@ -40,6 +41,16 @@ function meta(ch: PmaxChannel) {
 function Campaign({ camp, currency, showRoas }: { camp: PmaxChannelCampaign; currency: string; showRoas: boolean }) {
   // Solo redes con gasto para la barra apilada (evita segmentos de 0%).
   const withCost = camp.channels.filter((c) => c.cost > 0);
+
+  const chanAccessors: SortAccessor<PmaxChannelRow>[] = [
+    (c) => meta(c.channel).label,
+    (c) => c.cost,
+    (c) => c.costPct,
+    (c) => c.conversions,
+    (c) => c.convPct,
+    ...(showRoas ? [(c: PmaxChannelRow) => c.roas] : []),
+  ];
+  const { rows: chanRows, headerProps: chanHeader } = useSortableTable(camp.channels, chanAccessors);
 
   return (
     <div style={{ marginTop: '18px' }}>
@@ -100,16 +111,16 @@ function Campaign({ camp, currency, showRoas }: { camp: PmaxChannelCampaign; cur
       <table className="t" style={{ marginTop: '12px' }}>
         <thead>
           <tr>
-            <th>Red</th>
-            <th>Inversión</th>
-            <th>% inv.</th>
-            <th>Leads</th>
-            <th>% leads</th>
-            {showRoas && <th>ROAS</th>}
+            <th {...chanHeader(0)}>Red</th>
+            <th {...chanHeader(1)}>Inversión</th>
+            <th {...chanHeader(2)}>% inv.</th>
+            <th {...chanHeader(3)}>Leads</th>
+            <th {...chanHeader(4)}>% leads</th>
+            {showRoas && <th {...chanHeader(5)}>ROAS</th>}
           </tr>
         </thead>
         <tbody>
-          {camp.channels.map((c: PmaxChannelRow) => {
+          {chanRows.map((c: PmaxChannelRow) => {
             const m = meta(c.channel);
             return (
               <tr key={c.channel}>

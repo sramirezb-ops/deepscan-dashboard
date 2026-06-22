@@ -3,6 +3,7 @@
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { useGadsAssetGroups, type AssetGroupRow } from '@/lib/hooks/useGadsAssetGroups';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import {
   formatCurrency,
   formatNumber,
@@ -69,6 +70,23 @@ export function GadsAssetGroups() {
   const { range, previous } = usePeriod();
   const { data, loading, error } = useGadsAssetGroups(client.id, range, previous);
 
+  const groupAccessors: SortAccessor<AssetGroupRow>[] = [
+    (g) => g.assetGroup,
+    (g) => g.adStrength,
+    (g) => g.impressions,
+    (g) => g.ctr,
+    (g) => g.cost,
+    (g) => g.conversions,
+    (g) => g.cpa,
+    (g) => g.revenue,
+    (g) => g.roas,
+    (g) => g.cost, // Share inv. = cost / total (mismo orden que cost)
+  ];
+  const { rows: groupRows, headerProps: groupHeader } = useSortableTable(
+    data?.groups ?? [],
+    groupAccessors,
+  );
+
   // Silencioso mientras carga: la vista PMAX ya muestra sus KPIs arriba.
   if (loading && !data) return null;
   // Si falla o no hay grupos en el rango, no inventamos una sección vacía.
@@ -131,20 +149,20 @@ export function GadsAssetGroups() {
       <table className="t">
         <thead>
           <tr>
-            <th>Asset group</th>
-            <th>Ad strength</th>
-            <th>Impr.</th>
-            <th>CTR</th>
-            <th>Inversión</th>
-            <th>Conv.</th>
-            <th>CPA</th>
-            <th>Revenue</th>
-            <th>ROAS</th>
-            <th>Share inv.</th>
+            <th {...groupHeader(0)}>Asset group</th>
+            <th {...groupHeader(1)}>Ad strength</th>
+            <th {...groupHeader(2)}>Impr.</th>
+            <th {...groupHeader(3)}>CTR</th>
+            <th {...groupHeader(4)}>Inversión</th>
+            <th {...groupHeader(5)}>Conv.</th>
+            <th {...groupHeader(6)}>CPA</th>
+            <th {...groupHeader(7)}>Revenue</th>
+            <th {...groupHeader(8)}>ROAS</th>
+            <th {...groupHeader(9)}>Share inv.</th>
           </tr>
         </thead>
         <tbody>
-          {data.groups.map((g: AssetGroupRow) => {
+          {groupRows.map((g: AssetGroupRow) => {
             const share = t.cost > 0 ? g.cost / t.cost : 0;
             const key = `${g.campaign}␟${g.assetGroup}`;
             return (

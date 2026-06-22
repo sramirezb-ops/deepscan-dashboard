@@ -10,6 +10,7 @@ import {
   type GoogleAdsSegment,
 } from '@/lib/hooks/useGoogleAds';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import {
   formatCurrency,
   formatInt,
@@ -65,6 +66,22 @@ export function GoogleAdsSegmentView({
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);
+
+  const campAccessors: SortAccessor<CampaignRow>[] = [
+    (c) => c.name,
+    (c) => c.impressions,
+    (c) => c.ctr,
+    (c) => c.cost,
+    (c) => c.conversions,
+    (c) => c.cpa,
+    (c) => c.revenue,
+    (c) => c.roas,
+    (c) => c.cost, // Share inv. = cost / total cost (mismo orden que cost)
+  ];
+  const { rows: campRows, headerProps: campHeader } = useSortableTable(
+    data?.campaigns ?? [],
+    campAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -201,19 +218,19 @@ export function GoogleAdsSegmentView({
         <table className="t">
           <thead>
             <tr>
-              <th>Campaña</th>
-              <th>Impr.</th>
-              <th>CTR</th>
-              <th>Inversión</th>
-              <th>Conv.</th>
-              <th>CPA</th>
-              <th>Revenue</th>
-              <th>ROAS</th>
-              <th>Share inv.</th>
+              <th {...campHeader(0)}>Campaña</th>
+              <th {...campHeader(1)}>Impr.</th>
+              <th {...campHeader(2)}>CTR</th>
+              <th {...campHeader(3)}>Inversión</th>
+              <th {...campHeader(4)}>Conv.</th>
+              <th {...campHeader(5)}>CPA</th>
+              <th {...campHeader(6)}>Revenue</th>
+              <th {...campHeader(7)}>ROAS</th>
+              <th {...campHeader(8)}>Share inv.</th>
             </tr>
           </thead>
           <tbody>
-            {data.campaigns.map((c: CampaignRow) => {
+            {campRows.map((c: CampaignRow) => {
               const share = t.cost > 0 ? c.cost / t.cost : 0;
               return (
                 <tr key={c.name}>

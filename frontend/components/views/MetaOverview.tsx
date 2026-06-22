@@ -5,6 +5,7 @@ import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useMeta, type MetaCampaignRow } from '@/lib/hooks/useMeta';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import {
   formatCurrency,
   formatInt,
@@ -34,6 +35,21 @@ export function MetaOverview() {
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);
+
+  const campaignAccessors: SortAccessor<MetaCampaignRow>[] = [
+    (r) => r.name,
+    (r) => r.impressions,
+    (r) => r.ctr,
+    (r) => r.spend,
+    (r) => r.purchases,
+    (r) => r.cpa,
+    (r) => r.purchaseValue,
+    (r) => r.roas,
+  ];
+  const { rows: campaignRows, headerProps: campaignHeader } = useSortableTable(
+    data?.campaigns ?? [],
+    campaignAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -220,18 +236,18 @@ export function MetaOverview() {
         <table className="t" id="meta-camp-tbl">
           <thead>
             <tr>
-              <th data-cat="dim">Campaña</th>
-              <th data-cat="impr">Impr.</th>
-              <th data-cat="impr">CTR</th>
-              <th data-cat="cost">Inversión</th>
-              <th data-cat="conv">Compras</th>
-              <th data-cat="cost,conv">CPA</th>
-              <th data-cat="rev">Revenue</th>
-              <th data-cat="rev">ROAS</th>
+              <th data-cat="dim" {...campaignHeader(0)}>Campaña</th>
+              <th data-cat="impr" {...campaignHeader(1)}>Impr.</th>
+              <th data-cat="impr" {...campaignHeader(2)}>CTR</th>
+              <th data-cat="cost" {...campaignHeader(3)}>Inversión</th>
+              <th data-cat="conv" {...campaignHeader(4)}>Compras</th>
+              <th data-cat="cost,conv" {...campaignHeader(5)}>CPA</th>
+              <th data-cat="rev" {...campaignHeader(6)}>Revenue</th>
+              <th data-cat="rev" {...campaignHeader(7)}>ROAS</th>
             </tr>
           </thead>
           <tbody>
-            {data.campaigns.map((c: MetaCampaignRow) => (
+            {campaignRows.map((c: MetaCampaignRow) => (
               <tr key={c.name}>
                 <td data-cat="dim">
                   <b>{c.name}</b>

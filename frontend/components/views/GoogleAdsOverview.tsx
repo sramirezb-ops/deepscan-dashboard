@@ -7,6 +7,7 @@ import { formatRangeLabel } from '@/lib/period';
 import { useGadsLeads, type BusinessModel, type CampaignLeadRow } from '@/lib/hooks/useGadsLeads';
 import { GadsGeoCharts } from '@/components/views/GadsGeoCharts';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // ── Formateadores locales en estilo Colombia (COP, coma decimal) ──
 // Moneda COP completa: "$ 5.680.204" (puntos de miles, como en Looker).
@@ -68,6 +69,20 @@ function ModelSection({ model, previousLabel }: { model: BusinessModel; previous
   const d = model.deltas;
   const icon = model.key === 'propietarios' ? '🤝' : '🛒';
 
+  const campAccessors: SortAccessor<CampaignLeadRow>[] = [
+    (c) => c.name,
+    (c) => c.type,
+    (c) => c.cost,
+    (c) => c.impressions,
+    (c) => c.clicks,
+    (c) => c.cpc,
+    (c) => c.ctr,
+    (c) => c.conversions,
+    (c) => c.cpa,
+    (c) => c.convRate,
+  ];
+  const { rows: campRows, headerProps: campHeader } = useSortableTable(model.campaigns, campAccessors);
+
   return (
     <div style={{ marginTop: 28 }}>
       <h3 style={{ margin: '0 0 4px 0', fontSize: 17 }}>
@@ -116,20 +131,20 @@ function ModelSection({ model, previousLabel }: { model: BusinessModel; previous
               <table className="t">
                 <thead>
                   <tr>
-                    <th>Campaña</th>
-                    <th>Tipo</th>
-                    <th>Gasto</th>
-                    <th>Impresiones</th>
-                    <th>Clics</th>
-                    <th>CPC Promedio</th>
-                    <th>CTR</th>
-                    <th>Leads</th>
-                    <th>Coste/lead</th>
-                    <th>Tasa de conversión</th>
+                    <th {...campHeader(0)}>Campaña</th>
+                    <th {...campHeader(1)}>Tipo</th>
+                    <th {...campHeader(2)}>Gasto</th>
+                    <th {...campHeader(3)}>Impresiones</th>
+                    <th {...campHeader(4)}>Clics</th>
+                    <th {...campHeader(5)}>CPC Promedio</th>
+                    <th {...campHeader(6)}>CTR</th>
+                    <th {...campHeader(7)}>Leads</th>
+                    <th {...campHeader(8)}>Coste/lead</th>
+                    <th {...campHeader(9)}>Tasa de conversión</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {model.campaigns.map((c: CampaignLeadRow) => (
+                  {campRows.map((c: CampaignLeadRow) => (
                     <tr key={c.name}>
                       <td>
                         <b>{c.name}</b>

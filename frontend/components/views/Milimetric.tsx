@@ -6,6 +6,7 @@ import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useMetaCreatives, type MetaCreativeRow } from '@/lib/hooks/useMetaCreatives';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import {
   formatCurrency,
   formatInt,
@@ -38,6 +39,24 @@ export function Milimetric() {
 
   const rangeLabel = formatRangeLabel(range);
   const cur = client.currency;
+
+  // Tabla por creativo: ordena sobre TODO el conjunto, luego pagina (slice).
+  const creativesBase = data?.creatives ?? [];
+  const creativeAccessors: SortAccessor<(typeof creativesBase)[number]>[] = [
+    (r) => r.adName, // Anuncio
+    (r) => r.impressions, // Impr.
+    (r) => r.ctr, // CTR
+    (r) => r.spend, // Inversión
+    (r) => r.purchases, // Compras
+    (r) => r.cpa, // CPA
+    (r) => r.purchaseValue, // Revenue
+    (r) => r.roas, // ROAS
+    (r) => r.spend, // Share inv. — barra, ordena por inversión
+  ];
+  const { rows: creativeRows, headerProps: creativeHeader } = useSortableTable(
+    creativesBase,
+    creativeAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -83,7 +102,7 @@ export function Milimetric() {
   }
 
   const t = data.totals;
-  const rows = data.creatives.slice(0, ROW_LIMIT);
+  const rows = creativeRows.slice(0, ROW_LIMIT);
 
   return (
     <div className="view on">
@@ -152,15 +171,15 @@ export function Milimetric() {
         <table className="t">
           <thead>
             <tr>
-              <th>Anuncio</th>
-              <th>Impr.</th>
-              <th>CTR</th>
-              <th>Inversión</th>
-              <th>Compras</th>
-              <th>CPA</th>
-              <th>Revenue</th>
-              <th>ROAS</th>
-              <th>Share inv.</th>
+              <th {...creativeHeader(0)}>Anuncio</th>
+              <th {...creativeHeader(1)}>Impr.</th>
+              <th {...creativeHeader(2)}>CTR</th>
+              <th {...creativeHeader(3)}>Inversión</th>
+              <th {...creativeHeader(4)}>Compras</th>
+              <th {...creativeHeader(5)}>CPA</th>
+              <th {...creativeHeader(6)}>Revenue</th>
+              <th {...creativeHeader(7)}>ROAS</th>
+              <th {...creativeHeader(8)}>Share inv.</th>
             </tr>
           </thead>
           <tbody>

@@ -10,6 +10,7 @@ import {
   type ComprasAdRow,
 } from '@/lib/hooks/useMetaCompras';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import { TrendChart } from '@/components/ui/TrendChart';
 import { FunnelChart } from '@/components/ui/FunnelChart';
 import {
@@ -87,6 +88,38 @@ export function MetaCompras() {
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);
+
+  const campaignAccessors: SortAccessor<ComprasCampaignRow>[] = [
+    (r) => r.name,
+    (r) => r.impressions,
+    (r) => r.ctr,
+    (r) => r.spend,
+    (r) => r.viewContent,
+    (r) => r.addToCart,
+    (r) => r.purchases,
+    (r) => r.cpa,
+    (r) => r.purchaseValue,
+    (r) => r.roas,
+  ];
+  const { rows: campaignRows, headerProps: campaignHeader } = useSortableTable(
+    data?.campaigns ?? [],
+    campaignAccessors,
+  );
+
+  const adAccessors: SortAccessor<ComprasAdRow>[] = [
+    (r) => r.adName,
+    (r) => r.ctr,
+    (r) => r.spend,
+    (r) => r.addToCart,
+    (r) => r.purchases,
+    (r) => r.cpa,
+    (r) => r.purchaseValue,
+    (r) => r.roas,
+  ];
+  const { rows: adRows, headerProps: adHeader } = useSortableTable(
+    data?.ads ?? [],
+    adAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -300,20 +333,20 @@ export function MetaCompras() {
         <table className="t" id="meta-compras-camp">
           <thead>
             <tr>
-              <th data-cat="dim">Campaña</th>
-              <th data-cat="impr">Impr.</th>
-              <th data-cat="impr">CTR</th>
-              <th data-cat="cost">Inversión</th>
-              <th data-cat="conv">Vistas prod.</th>
-              <th data-cat="conv">Carritos</th>
-              <th data-cat="conv">Compras</th>
-              <th data-cat="cost,conv">Costo/compra</th>
-              <th data-cat="rev">Revenue</th>
-              <th data-cat="rev">ROAS</th>
+              <th data-cat="dim" {...campaignHeader(0)}>Campaña</th>
+              <th data-cat="impr" {...campaignHeader(1)}>Impr.</th>
+              <th data-cat="impr" {...campaignHeader(2)}>CTR</th>
+              <th data-cat="cost" {...campaignHeader(3)}>Inversión</th>
+              <th data-cat="conv" {...campaignHeader(4)}>Vistas prod.</th>
+              <th data-cat="conv" {...campaignHeader(5)}>Carritos</th>
+              <th data-cat="conv" {...campaignHeader(6)}>Compras</th>
+              <th data-cat="cost,conv" {...campaignHeader(7)}>Costo/compra</th>
+              <th data-cat="rev" {...campaignHeader(8)}>Revenue</th>
+              <th data-cat="rev" {...campaignHeader(9)}>ROAS</th>
             </tr>
           </thead>
           <tbody>
-            {data.campaigns.map((c: ComprasCampaignRow) => (
+            {campaignRows.map((c: ComprasCampaignRow) => (
               <tr key={c.name}>
                 <td data-cat="dim">
                   <b>{c.name}</b>
@@ -374,18 +407,18 @@ export function MetaCompras() {
         <table className="t" id="meta-compras-ads">
           <thead>
             <tr>
-              <th data-cat="dim">Anuncio</th>
-              <th data-cat="impr">CTR</th>
-              <th data-cat="cost">Inversión</th>
-              <th data-cat="conv">Carritos</th>
-              <th data-cat="conv">Compras</th>
-              <th data-cat="cost,conv">Costo/compra</th>
-              <th data-cat="rev">Revenue</th>
-              <th data-cat="rev">ROAS</th>
+              <th data-cat="dim" {...adHeader(0)}>Anuncio</th>
+              <th data-cat="impr" {...adHeader(1)}>CTR</th>
+              <th data-cat="cost" {...adHeader(2)}>Inversión</th>
+              <th data-cat="conv" {...adHeader(3)}>Carritos</th>
+              <th data-cat="conv" {...adHeader(4)}>Compras</th>
+              <th data-cat="cost,conv" {...adHeader(5)}>Costo/compra</th>
+              <th data-cat="rev" {...adHeader(6)}>Revenue</th>
+              <th data-cat="rev" {...adHeader(7)}>ROAS</th>
             </tr>
           </thead>
           <tbody>
-            {data.ads.map((a: ComprasAdRow) => (
+            {adRows.map((a: ComprasAdRow) => (
               <tr key={a.adId}>
                 <td data-cat="dim">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

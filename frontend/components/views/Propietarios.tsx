@@ -15,6 +15,7 @@ import {
 import { useGadsAdAssets, type AssetCampaign, type AssetItem } from '@/lib/hooks/useGadsAdAssets';
 import { PieChart, type PieSlice } from '@/components/ui/PieChart';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // ============================================================
 // Propietarios — vista EXCLUSIVA del modelo de captación (Display).
@@ -273,6 +274,21 @@ function adTypeLabel(t: string): string {
 // Bloque ② — anuncios (responsive display) de la campaña.
 function AdsTable({ campaign }: { campaign: PropCampaign }) {
   const ads = campaign.ads;
+  const adAccessors: SortAccessor<(typeof ads)[number]>[] = [
+    (a) => a.adGroupName, // Grupo de anuncios / segmento
+    (a) => a.adType, // Tipo
+    (a) => a.status, // Estado
+    (a) => a.cost, // Inversión
+    (a) => a.impressions, // Impresiones
+    (a) => a.clicks, // Clics
+    (a) => a.ctr, // CTR
+    (a) => a.conversions, // Leads
+    (a) => a.cpl, // CPL
+  ];
+  const { rows: adRows, headerProps: adHeader } = useSortableTable(ads, adAccessors);
+  // max calculado sobre el array ORIGINAL completo (no el ordenado).
+  const maxImpr = Math.max(...ads.map((a) => a.impressions), 1);
+  const maxClicks = Math.max(...ads.map((a) => a.clicks), 1);
   if (ads.length === 0) {
     return (
       <div className="card" style={{ marginTop: 16, padding: 18, borderStyle: 'dashed', borderColor: 'var(--b2)', fontSize: 12, color: 'var(--mu)' }}>
@@ -280,8 +296,6 @@ function AdsTable({ campaign }: { campaign: PropCampaign }) {
       </div>
     );
   }
-  const maxImpr = Math.max(...ads.map((a) => a.impressions), 1);
-  const maxClicks = Math.max(...ads.map((a) => a.clicks), 1);
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
@@ -300,19 +314,19 @@ function AdsTable({ campaign }: { campaign: PropCampaign }) {
         <table className="t">
           <thead>
             <tr>
-              <th>Grupo de anuncios / segmento</th>
-              <th>Tipo</th>
-              <th>Estado</th>
-              <th>Inversión</th>
-              <th>Impresiones</th>
-              <th>Clics</th>
-              <th>CTR</th>
-              <th>Leads</th>
-              <th>CPL</th>
+              <th {...adHeader(0)}>Grupo de anuncios / segmento</th>
+              <th {...adHeader(1)}>Tipo</th>
+              <th {...adHeader(2)}>Estado</th>
+              <th {...adHeader(3)}>Inversión</th>
+              <th {...adHeader(4)}>Impresiones</th>
+              <th {...adHeader(5)}>Clics</th>
+              <th {...adHeader(6)}>CTR</th>
+              <th {...adHeader(7)}>Leads</th>
+              <th {...adHeader(8)}>CPL</th>
             </tr>
           </thead>
           <tbody>
-            {ads.map((a) => (
+            {adRows.map((a) => (
               <tr key={a.adId}>
                 <td><b>{a.adGroupName}</b></td>
                 <td style={{ color: 'var(--mu)' }}>{adTypeLabel(a.adType)}</td>

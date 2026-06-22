@@ -5,6 +5,7 @@ import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useInstagram, type InstagramCampaignRow } from '@/lib/hooks/useInstagram';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import {
   formatCurrency,
   formatInt,
@@ -37,6 +38,23 @@ export function Instagram() {
 
   const rangeLabel = formatRangeLabel(range);
   const cur = client.currency;
+
+  const campaignAccessors: SortAccessor<InstagramCampaignRow>[] = [
+    (r) => r.name,
+    (r) => r.impressions,
+    (r) => r.reach,
+    (r) => r.ctr,
+    (r) => r.spend,
+    (r) => r.purchases,
+    (r) => r.cpa,
+    (r) => r.purchaseValue,
+    (r) => r.roas,
+    (r) => r.spend,
+  ];
+  const { rows: campaignRows, headerProps: campaignHeader } = useSortableTable(
+    data?.campaigns ?? [],
+    campaignAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -85,7 +103,7 @@ export function Instagram() {
   }
 
   const t = data.totals;
-  const rows = data.campaigns.slice(0, ROW_LIMIT);
+  const rows = campaignRows.slice(0, ROW_LIMIT);
 
   return (
     <div className="view on">
@@ -154,16 +172,16 @@ export function Instagram() {
         <table className="t">
           <thead>
             <tr>
-              <th>Campaña</th>
-              <th>Impr.</th>
-              <th>Alcance</th>
-              <th>CTR</th>
-              <th>Inversión</th>
-              <th>Compras</th>
-              <th>CPA</th>
-              <th>Revenue</th>
-              <th>ROAS</th>
-              <th>Share inv.</th>
+              <th {...campaignHeader(0)}>Campaña</th>
+              <th {...campaignHeader(1)}>Impr.</th>
+              <th {...campaignHeader(2)}>Alcance</th>
+              <th {...campaignHeader(3)}>CTR</th>
+              <th {...campaignHeader(4)}>Inversión</th>
+              <th {...campaignHeader(5)}>Compras</th>
+              <th {...campaignHeader(6)}>CPA</th>
+              <th {...campaignHeader(7)}>Revenue</th>
+              <th {...campaignHeader(8)}>ROAS</th>
+              <th {...campaignHeader(9)}>Share inv.</th>
             </tr>
           </thead>
           <tbody>

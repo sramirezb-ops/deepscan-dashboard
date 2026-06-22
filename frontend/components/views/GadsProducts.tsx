@@ -1,8 +1,9 @@
 'use client';
 
 import { useClient } from '@/lib/useClient';
-import { useGadsProducts } from '@/lib/hooks/useGadsProducts';
+import { useGadsProducts, type GadsProductRow, type GadsZombieRow } from '@/lib/hooks/useGadsProducts';
 import { formatCurrency, formatNumber, formatInt, formatROAS } from '@/lib/utils';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // ============================================================
 // GadsProducts — detalle producto a producto de Google Ads
@@ -29,14 +30,36 @@ export function GadsProducts() {
   const client = useClient();
   const { data, loading, error } = useGadsProducts(client.id, '30d');
 
+  const topAccessors: SortAccessor<GadsProductRow>[] = [
+    (p) => p.title,
+    (p) => p.impressions,
+    (p) => p.cost,
+    (p) => p.conversions,
+    (p) => p.revenue,
+    (p) => p.roas,
+  ];
+  const { rows: topSorted, headerProps: topHeader } = useSortableTable(
+    data?.topProducts ?? [],
+    topAccessors,
+  );
+
+  const zombieAccessors: SortAccessor<GadsZombieRow>[] = [
+    (z) => z.title,
+    (z) => z.impressions,
+  ];
+  const { rows: zombieSorted, headerProps: zombieHeader } = useSortableTable(
+    data?.zombies ?? [],
+    zombieAccessors,
+  );
+
   // Silencioso mientras carga: la vista PMAX ya muestra sus KPIs arriba.
   if (loading && !data) return null;
   // Si falla o no hay productos, no inventamos una sección vacía.
   if (error || !data || data.productCount === 0) return null;
 
   const cur = client.currency;
-  const top = data.topProducts.slice(0, TOP_LIMIT);
-  const zombies = data.zombies.slice(0, ZOMBIE_LIMIT);
+  const top = topSorted.slice(0, TOP_LIMIT);
+  const zombies = zombieSorted.slice(0, ZOMBIE_LIMIT);
 
   return (
     <>
@@ -65,12 +88,12 @@ export function GadsProducts() {
         <table className="t">
           <thead>
             <tr>
-              <th>Producto</th>
-              <th>Impr.</th>
-              <th>Inversión</th>
-              <th>Conv.</th>
-              <th>Revenue</th>
-              <th>ROAS</th>
+              <th {...topHeader(0)}>Producto</th>
+              <th {...topHeader(1)}>Impr.</th>
+              <th {...topHeader(2)}>Inversión</th>
+              <th {...topHeader(3)}>Conv.</th>
+              <th {...topHeader(4)}>Revenue</th>
+              <th {...topHeader(5)}>ROAS</th>
             </tr>
           </thead>
           <tbody>
@@ -123,8 +146,8 @@ export function GadsProducts() {
           <table className="t">
             <thead>
               <tr>
-                <th>Producto</th>
-                <th>Impresiones sin clic</th>
+                <th {...zombieHeader(0)}>Producto</th>
+                <th {...zombieHeader(1)}>Impresiones sin clic</th>
               </tr>
             </thead>
             <tbody>

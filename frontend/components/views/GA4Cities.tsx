@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useGA4Cities, type CityRow } from '@/lib/hooks/useGA4Cities';
 import type { DateRange } from '@/lib/period';
 import { formatInt, formatNumber } from '@/lib/utils';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // Píldora de delta con flecha (verde sube / rojo baja), estilo Looker.
 function Delta({ value }: { value: number }) {
@@ -49,6 +50,19 @@ export function GA4Cities({
   const { data, loading, error } = useGA4Cities(clientId, range, previous);
   const [page, setPage] = useState(0);
 
+  // Sorting al estilo Looker: ordena toda la lista antes de paginar.
+  const cityAccessors: SortAccessor<CityRow>[] = [
+    null, // # (índice)
+    (r) => r.city,
+    (r) => r.sessions,
+    (r) => r.sessionsDelta,
+    (r) => r.users,
+    (r) => r.usersDelta,
+    (r) => r.conversions,
+    (r) => r.conversionsDelta,
+  ];
+  const { rows: sortedCities, headerProps } = useSortableTable(data?.cities ?? [], cityAccessors);
+
   // Vuelve a la hoja 1 cuando cambia el cliente o el rango de fechas.
   useEffect(() => {
     setPage(0);
@@ -82,7 +96,7 @@ export function GA4Cities({
   const totalPages = Math.max(1, Math.ceil(data.cities.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const startIdx = safePage * PAGE_SIZE;
-  const rows: CityRow[] = data.cities.slice(startIdx, startIdx + PAGE_SIZE);
+  const rows: CityRow[] = sortedCities.slice(startIdx, startIdx + PAGE_SIZE);
   const maxSessions = Math.max(...data.cities.map((c) => c.sessions), 1);
   const maxUsers = Math.max(...data.cities.map((c) => c.users), 1);
   const maxConv = Math.max(...data.cities.map((c) => c.conversions), 1);
@@ -114,13 +128,13 @@ export function GA4Cities({
           <thead>
             <tr>
               <th style={{ width: 32 }}>#</th>
-              <th>Ciudad</th>
-              <th>Sesiones</th>
-              <th>%Δ</th>
-              <th>Usuarios</th>
-              <th>%Δ</th>
-              <th>Eventos clave</th>
-              <th>%Δ</th>
+              <th {...headerProps(1)}>Ciudad</th>
+              <th {...headerProps(2)}>Sesiones</th>
+              <th {...headerProps(3)}>%Δ</th>
+              <th {...headerProps(4)}>Usuarios</th>
+              <th {...headerProps(5)}>%Δ</th>
+              <th {...headerProps(6)}>Eventos clave</th>
+              <th {...headerProps(7)}>%Δ</th>
             </tr>
           </thead>
           <tbody>

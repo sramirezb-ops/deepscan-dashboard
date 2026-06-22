@@ -9,6 +9,7 @@ import {
   type MessagingDestinationRow,
 } from '@/lib/hooks/useMessaging';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import { formatCurrency, formatInt, formatNumber } from '@/lib/utils';
 
 // ============================================================
@@ -47,6 +48,31 @@ export function WhatsApp() {
 
   const rangeLabel = formatRangeLabel(range);
   const cur = client.currency;
+
+  const destAccessors: SortAccessor<MessagingDestinationRow>[] = [
+    (r) => r.destination,
+    (r) => r.conversations,
+    (r) => r.spend,
+    (r) => r.costPerConversation,
+    (r) => r.conversations,
+  ];
+  const { rows: destRows, headerProps: destHeader } = useSortableTable(
+    data?.destinations ?? [],
+    destAccessors,
+  );
+
+  const campaignAccessors: SortAccessor<MessagingCampaignRow>[] = [
+    (r) => r.campaign,
+    (r) => r.destination,
+    (r) => r.conversations,
+    (r) => r.spend,
+    (r) => r.costPerConversation,
+    (r) => r.conversations,
+  ];
+  const { rows: campaignRows, headerProps: campaignHeader } = useSortableTable(
+    data?.campaigns ?? [],
+    campaignAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -96,7 +122,7 @@ export function WhatsApp() {
   }
 
   const t = data.totals;
-  const rows = data.campaigns.slice(0, ROW_LIMIT);
+  const rows = campaignRows.slice(0, ROW_LIMIT);
 
   return (
     <div className="view on">
@@ -148,15 +174,15 @@ export function WhatsApp() {
         <table className="t">
           <thead>
             <tr>
-              <th>Destino</th>
-              <th>Conversaciones</th>
-              <th>Inversión</th>
-              <th>Costo / conv.</th>
-              <th>Share conv.</th>
+              <th {...destHeader(0)}>Destino</th>
+              <th {...destHeader(1)}>Conversaciones</th>
+              <th {...destHeader(2)}>Inversión</th>
+              <th {...destHeader(3)}>Costo / conv.</th>
+              <th {...destHeader(4)}>Share conv.</th>
             </tr>
           </thead>
           <tbody>
-            {data.destinations.map((d: MessagingDestinationRow) => {
+            {destRows.map((d: MessagingDestinationRow) => {
               const share = t.conversations > 0 ? d.conversations / t.conversations : 0;
               return (
                 <tr key={d.destination}>
@@ -216,12 +242,12 @@ export function WhatsApp() {
         <table className="t">
           <thead>
             <tr>
-              <th>Campaña</th>
-              <th>Destino</th>
-              <th>Conversaciones</th>
-              <th>Inversión</th>
-              <th>Costo / conv.</th>
-              <th>Share conv.</th>
+              <th {...campaignHeader(0)}>Campaña</th>
+              <th {...campaignHeader(1)}>Destino</th>
+              <th {...campaignHeader(2)}>Conversaciones</th>
+              <th {...campaignHeader(3)}>Inversión</th>
+              <th {...campaignHeader(4)}>Costo / conv.</th>
+              <th {...campaignHeader(5)}>Share conv.</th>
             </tr>
           </thead>
           <tbody>

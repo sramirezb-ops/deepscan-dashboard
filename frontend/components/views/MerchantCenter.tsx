@@ -4,11 +4,30 @@ import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { useMerchantCenter } from '@/lib/hooks/useMerchantCenter';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import { formatInt, formatPercentRaw } from '@/lib/utils';
 
 export function MerchantCenter() {
   const client = useClient();
   const { data, loading, error } = useMerchantCenter(client.id);
+
+  const feedsBase = data?.feeds ?? [];
+  const issuesBase = data?.topIssues ?? [];
+  const feedAccessors: SortAccessor<(typeof feedsBase)[number]>[] = [
+    (f) => f.label, // Subcuenta / feed
+    (f) => f.total, // Productos
+    (f) => f.approved, // Aprobados
+    (f) => f.disapproved, // Rechazados
+    (f) => f.approvalRate, // % aprobado
+    (f) => f.approvalRate, // Salud — barra, ordena por % aprobado
+  ];
+  const issueAccessors: SortAccessor<(typeof issuesBase)[number]>[] = [
+    (i) => i.description, // Motivo (Google)
+    (i) => i.products, // Productos afectados
+    (i) => i.products, // Peso — barra, ordena por productos
+  ];
+  const { rows: feedRows, headerProps: feedHeader } = useSortableTable(feedsBase, feedAccessors);
+  const { rows: issueRows, headerProps: issueHeader } = useSortableTable(issuesBase, issueAccessors);
 
   if (loading && !data) {
     return (
@@ -121,16 +140,16 @@ export function MerchantCenter() {
         <table className="t">
           <thead>
             <tr>
-              <th>Subcuenta / feed</th>
-              <th>Productos</th>
-              <th>Aprobados</th>
-              <th>Rechazados</th>
-              <th>% aprobado</th>
-              <th>Salud</th>
+              <th {...feedHeader(0)}>Subcuenta / feed</th>
+              <th {...feedHeader(1)}>Productos</th>
+              <th {...feedHeader(2)}>Aprobados</th>
+              <th {...feedHeader(3)}>Rechazados</th>
+              <th {...feedHeader(4)}>% aprobado</th>
+              <th {...feedHeader(5)}>Salud</th>
             </tr>
           </thead>
           <tbody>
-            {data.feeds.map((f) => {
+            {feedRows.map((f) => {
               const pct = f.approvalRate * 100;
               const tone = pct >= 90 ? '#22d97a' : pct >= 60 ? '#f5b14c' : '#ef4444';
               return (
@@ -190,13 +209,13 @@ export function MerchantCenter() {
           <table className="t">
             <thead>
               <tr>
-                <th>Motivo (Google)</th>
-                <th>Productos afectados (muestra)</th>
-                <th>Peso</th>
+                <th {...issueHeader(0)}>Motivo (Google)</th>
+                <th {...issueHeader(1)}>Productos afectados (muestra)</th>
+                <th {...issueHeader(2)}>Peso</th>
               </tr>
             </thead>
             <tbody>
-              {data.topIssues.map((iss) => {
+              {issueRows.map((iss) => {
                 const share =
                   data.issuesSampleSize > 0 ? iss.products / data.issuesSampleSize : 0;
                 return (

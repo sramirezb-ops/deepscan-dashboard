@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useGA4Pages, type PageRow, type LandingRow } from '@/lib/hooks/useGA4Pages';
 import type { DateRange } from '@/lib/period';
 import { formatInt, formatNumber } from '@/lib/utils';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // Píldora de delta con flecha (verde sube / rojo baja), estilo Looker.
 function Delta({ value }: { value: number }) {
@@ -69,6 +70,36 @@ export function GA4Pages({
   const [page, setPage] = useState(0);
   const [landPage, setLandPage] = useState(0);
 
+  // Sorting Looker: ordena la lista completa antes de paginar.
+  const pageAccessors: SortAccessor<PageRow>[] = [
+    null, // # (índice)
+    (r) => r.path,
+    (r) => r.views,
+    (r) => pctDelta(r.views, r.prevViews),
+    (r) => r.users,
+    (r) => r.avgEngagement,
+    (r) => r.bounceRate,
+    (r) => r.conversions,
+  ];
+  const { rows: sortedPages, headerProps: pageHeaderProps } = useSortableTable(
+    data?.pages ?? [],
+    pageAccessors,
+  );
+
+  const landAccessors: SortAccessor<LandingRow>[] = [
+    null, // # (índice)
+    (r) => r.landing,
+    (r) => r.sessions,
+    (r) => pctDelta(r.sessions, r.prevSessions),
+    (r) => r.users,
+    (r) => r.bounceRate,
+    (r) => r.conversions,
+  ];
+  const { rows: sortedLandings, headerProps: landHeaderProps } = useSortableTable(
+    data?.landings ?? [],
+    landAccessors,
+  );
+
   // Vuelve a la hoja 1 cuando cambia el cliente o el rango de fechas.
   useEffect(() => {
     setPage(0);
@@ -100,7 +131,7 @@ export function GA4Pages({
   const totalPages = Math.max(1, Math.ceil(data.pages.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
   const startIdx = safePage * PAGE_SIZE;
-  const rows: PageRow[] = data.pages.slice(startIdx, startIdx + PAGE_SIZE);
+  const rows: PageRow[] = sortedPages.slice(startIdx, startIdx + PAGE_SIZE);
   const maxViews = Math.max(...data.pages.map((p) => p.views), 1);
   const maxUsers = Math.max(...data.pages.map((p) => p.users), 1);
 
@@ -108,7 +139,7 @@ export function GA4Pages({
   const landTotalPages = Math.max(1, Math.ceil(data.landings.length / PAGE_SIZE));
   const landSafePage = Math.min(landPage, landTotalPages - 1);
   const landStartIdx = landSafePage * PAGE_SIZE;
-  const landings: LandingRow[] = data.landings.slice(landStartIdx, landStartIdx + PAGE_SIZE);
+  const landings: LandingRow[] = sortedLandings.slice(landStartIdx, landStartIdx + PAGE_SIZE);
   const maxLandSess = Math.max(...data.landings.map((l) => l.sessions), 1);
 
   return (
@@ -140,13 +171,13 @@ export function GA4Pages({
             <thead>
               <tr>
                 <th style={{ width: 32 }}>#</th>
-                <th>Página</th>
-                <th>Vistas</th>
-                <th>%Δ</th>
-                <th>Usuarios</th>
-                <th>Interacción media</th>
-                <th>Rebote</th>
-                <th>Eventos clave</th>
+                <th {...pageHeaderProps(1)}>Página</th>
+                <th {...pageHeaderProps(2)}>Vistas</th>
+                <th {...pageHeaderProps(3)}>%Δ</th>
+                <th {...pageHeaderProps(4)}>Usuarios</th>
+                <th {...pageHeaderProps(5)}>Interacción media</th>
+                <th {...pageHeaderProps(6)}>Rebote</th>
+                <th {...pageHeaderProps(7)}>Eventos clave</th>
               </tr>
             </thead>
             <tbody>
@@ -233,12 +264,12 @@ export function GA4Pages({
               <thead>
                 <tr>
                   <th style={{ width: 32 }}>#</th>
-                  <th>Página de entrada</th>
-                  <th>Sesiones</th>
-                  <th>%Δ</th>
-                  <th>Usuarios</th>
-                  <th>Rebote</th>
-                  <th>Eventos clave</th>
+                  <th {...landHeaderProps(1)}>Página de entrada</th>
+                  <th {...landHeaderProps(2)}>Sesiones</th>
+                  <th {...landHeaderProps(3)}>%Δ</th>
+                  <th {...landHeaderProps(4)}>Usuarios</th>
+                  <th {...landHeaderProps(5)}>Rebote</th>
+                  <th {...landHeaderProps(6)}>Eventos clave</th>
                 </tr>
               </thead>
               <tbody>

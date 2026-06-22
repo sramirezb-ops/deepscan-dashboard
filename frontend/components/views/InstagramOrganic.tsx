@@ -10,6 +10,7 @@ import {
   type IgTypeBreakdown,
 } from '@/lib/hooks/useInstagramOrganic';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import { TrendChart } from '@/components/ui/TrendChart';
 import { formatInt, formatPercent, formatDelta, deltaDirection } from '@/lib/utils';
 
@@ -89,6 +90,43 @@ export function InstagramOrganic() {
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);
+
+  // Formato derivado por post (también usado para ordenar la columna Formato).
+  const igFormato = (p: IgMediaRow): string =>
+    p.productType?.toUpperCase() === 'REELS'
+      ? 'Reels'
+      : p.mediaType?.toUpperCase() === 'CAROUSEL_ALBUM'
+      ? 'Carrusel'
+      : p.mediaType?.toUpperCase() === 'VIDEO'
+      ? 'Video'
+      : 'Imagen';
+
+  const typeBreakdownBase = data?.typeBreakdown ?? [];
+  const topPostsBase = data?.topPosts ?? [];
+
+  const typeAccessors: SortAccessor<(typeof typeBreakdownBase)[number]>[] = [
+    (r) => r.label, // Formato
+    (r) => r.count, // Publicaciones
+    (r) => r.reach, // Alcance
+    (r) => r.interactions, // Interacciones
+    (r) => r.engagementRate, // Engagement
+    (r) => r.interactions, // Share interacc. — barra, ordena por interacciones
+  ];
+  const postAccessors: SortAccessor<(typeof topPostsBase)[number]>[] = [
+    (r) => r.caption, // Publicación
+    (r) => igFormato(r), // Formato
+    (r) => r.date, // Fecha
+    (r) => r.reach, // Alcance
+    (r) => r.likes, // Likes
+    (r) => r.comments, // Coment.
+    (r) => r.saved, // Guardados
+    (r) => r.engagementRate, // Engagement
+  ];
+  const { rows: typeRows, headerProps: typeHeader } = useSortableTable(
+    typeBreakdownBase,
+    typeAccessors,
+  );
+  const { rows: postRows, headerProps: postHeader } = useSortableTable(topPostsBase, postAccessors);
 
   if (loading && !data) {
     return (
@@ -258,16 +296,16 @@ export function InstagramOrganic() {
           <table className="t">
             <thead>
               <tr>
-                <th>Formato</th>
-                <th>Publicaciones</th>
-                <th>Alcance</th>
-                <th>Interacciones</th>
-                <th>Engagement</th>
-                <th>Share interacc.</th>
+                <th {...typeHeader(0)}>Formato</th>
+                <th {...typeHeader(1)}>Publicaciones</th>
+                <th {...typeHeader(2)}>Alcance</th>
+                <th {...typeHeader(3)}>Interacciones</th>
+                <th {...typeHeader(4)}>Engagement</th>
+                <th {...typeHeader(5)}>Share interacc.</th>
               </tr>
             </thead>
             <tbody>
-              {data.typeBreakdown.map((tb: IgTypeBreakdown) => {
+              {typeRows.map((tb: IgTypeBreakdown) => {
                 const share = t.interactions > 0 ? tb.interactions / t.interactions : 0;
                 return (
                   <tr key={tb.label}>
@@ -307,25 +345,19 @@ export function InstagramOrganic() {
           <table className="t">
             <thead>
               <tr>
-                <th>Publicación</th>
-                <th>Formato</th>
-                <th>Fecha</th>
-                <th>Alcance</th>
-                <th>Likes</th>
-                <th>Coment.</th>
-                <th>Guardados</th>
-                <th>Engagement</th>
+                <th {...postHeader(0)}>Publicación</th>
+                <th {...postHeader(1)}>Formato</th>
+                <th {...postHeader(2)}>Fecha</th>
+                <th {...postHeader(3)}>Alcance</th>
+                <th {...postHeader(4)}>Likes</th>
+                <th {...postHeader(5)}>Coment.</th>
+                <th {...postHeader(6)}>Guardados</th>
+                <th {...postHeader(7)}>Engagement</th>
               </tr>
             </thead>
             <tbody>
-              {data.topPosts.map((p: IgMediaRow) => {
-                const formato = p.productType?.toUpperCase() === 'REELS'
-                  ? 'Reels'
-                  : p.mediaType?.toUpperCase() === 'CAROUSEL_ALBUM'
-                  ? 'Carrusel'
-                  : p.mediaType?.toUpperCase() === 'VIDEO'
-                  ? 'Video'
-                  : 'Imagen';
+              {postRows.map((p: IgMediaRow) => {
+                const formato = igFormato(p);
                 return (
                   <tr key={p.mediaId}>
                     <td style={{ maxWidth: 320 }}>

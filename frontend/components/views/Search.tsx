@@ -14,6 +14,7 @@ import {
 } from '@/lib/hooks/useGadsSearch';
 import { PieChart, type PieSlice } from '@/components/ui/PieChart';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // ============================================================
 // Search — réplica de la hoja "Search" de Looker, POR CAMPAÑA.
@@ -327,7 +328,24 @@ function InsightStat({ label, value, sub, tone }: { label: string; value: string
 function TermsTable({ campaign }: { campaign: SearchCampaign }) {
   const [limit, setLimit] = useState(25);
   const terms = campaign.terms;
-  const shown = terms.slice(0, limit);
+
+  // Sorting Looker: ordena toda la lista (orden por defecto: gasto desc del backend)
+  // y luego recorta a `limit`. Las barras y el diagnóstico usan el array original.
+  const termAccessors: SortAccessor<(typeof terms)[number]>[] = [
+    null, // # (índice)
+    (r) => r.searchTerm,
+    (r) => r.keyword,
+    (r) => r.cost,
+    (r) => r.impressions,
+    (r) => r.clicks,
+    (r) => r.cpc,
+    (r) => r.ctr,
+    (r) => r.conversions,
+    (r) => r.costPerConv,
+    (r) => r.convRate,
+  ];
+  const { rows: sortedTerms, headerProps } = useSortableTable(terms, termAccessors);
+  const shown = sortedTerms.slice(0, limit);
 
   if (terms.length === 0) {
     return (
@@ -397,16 +415,16 @@ function TermsTable({ campaign }: { campaign: SearchCampaign }) {
           <thead>
             <tr>
               <th style={{ width: 34, textAlign: 'right' }}>#</th>
-              <th>Término de búsqueda</th>
-              <th>Palabra clave de búsqueda</th>
-              <th>Gasto</th>
-              <th>Impresiones</th>
-              <th>Clics</th>
-              <th>CPC Promedio</th>
-              <th>CTR</th>
-              <th>Conversiones</th>
-              <th>Coste/conv.</th>
-              <th>Tasa de conversión</th>
+              <th {...headerProps(1)}>Término de búsqueda</th>
+              <th {...headerProps(2)}>Palabra clave de búsqueda</th>
+              <th {...headerProps(3)}>Gasto</th>
+              <th {...headerProps(4)}>Impresiones</th>
+              <th {...headerProps(5)}>Clics</th>
+              <th {...headerProps(6)}>CPC Promedio</th>
+              <th {...headerProps(7)}>CTR</th>
+              <th {...headerProps(8)}>Conversiones</th>
+              <th {...headerProps(9)}>Coste/conv.</th>
+              <th {...headerProps(10)}>Tasa de conversión</th>
             </tr>
           </thead>
           <tbody>

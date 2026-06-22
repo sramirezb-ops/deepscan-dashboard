@@ -10,6 +10,7 @@ import {
   type ShopifyProductRow,
 } from '@/lib/hooks/useShopify';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import { formatCurrency, formatInt } from '@/lib/utils';
 
 // ============================================================
@@ -39,6 +40,35 @@ export function Shopify() {
 
   const rangeLabel = formatRangeLabel(range);
   const cur = client.currency;
+
+  // Tabla diaria: más reciente primero (orden por defecto antes de ordenar).
+  const dailyBase = data ? [...data.daily].reverse() : [];
+  const productsBase = data ? data.products.slice(0, PRODUCT_LIMIT) : [];
+
+  const dailyAccessors: SortAccessor<(typeof dailyBase)[number]>[] = [
+    (r) => r.date, // Fecha
+    (r) => r.orders, // Órdenes
+    (r) => r.revenue, // Ingresos
+    (r) => r.avgOrderValue, // Ticket prom.
+    (r) => r.unitsSold, // Unidades
+    null, // Ingresos (rel.) — barra
+  ];
+  const productAccessors: SortAccessor<(typeof productsBase)[number]>[] = [
+    (r) => r.title, // Producto
+    (r) => r.unitsSold, // Unidades
+    (r) => r.orders, // Órdenes
+    (r) => r.avgPrice, // Precio prom.
+    (r) => r.revenue, // Ingresos
+    null, // Ingresos (rel.) — barra
+  ];
+  const { rows: dailyRowsSorted, headerProps: dailyHeader } = useSortableTable(
+    dailyBase,
+    dailyAccessors,
+  );
+  const { rows: productsSorted, headerProps: productHeader } = useSortableTable(
+    productsBase,
+    productAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -88,11 +118,8 @@ export function Shopify() {
 
   const t = data.totals;
   const daysWithSales = data.daily.length;
-  // Tabla diaria: más reciente primero.
-  const dailyRows = [...data.daily].reverse();
   const maxDailyRevenue = Math.max(1, ...data.daily.map((d) => d.revenue));
-  const products = data.products.slice(0, PRODUCT_LIMIT);
-  const maxProductRevenue = Math.max(1, ...products.map((p) => p.revenue));
+  const maxProductRevenue = Math.max(1, ...productsBase.map((p) => p.revenue));
 
   return (
     <div className="view on">
@@ -142,16 +169,16 @@ export function Shopify() {
         <table className="t">
           <thead>
             <tr>
-              <th>Fecha</th>
-              <th>Órdenes</th>
-              <th>Ingresos</th>
-              <th>Ticket prom.</th>
-              <th>Unidades</th>
-              <th>Ingresos (rel.)</th>
+              <th {...dailyHeader(0)}>Fecha</th>
+              <th {...dailyHeader(1)}>Órdenes</th>
+              <th {...dailyHeader(2)}>Ingresos</th>
+              <th {...dailyHeader(3)}>Ticket prom.</th>
+              <th {...dailyHeader(4)}>Unidades</th>
+              <th {...dailyHeader(5)}>Ingresos (rel.)</th>
             </tr>
           </thead>
           <tbody>
-            {dailyRows.map((d: ShopifyOrderRow) => {
+            {dailyRowsSorted.map((d: ShopifyOrderRow) => {
               const share = d.revenue / maxDailyRevenue;
               return (
                 <tr key={d.date}>
@@ -202,16 +229,16 @@ export function Shopify() {
         <table className="t">
           <thead>
             <tr>
-              <th>Producto</th>
-              <th>Unidades</th>
-              <th>Órdenes</th>
-              <th>Precio prom.</th>
-              <th>Ingresos</th>
-              <th>Ingresos (rel.)</th>
+              <th {...productHeader(0)}>Producto</th>
+              <th {...productHeader(1)}>Unidades</th>
+              <th {...productHeader(2)}>Órdenes</th>
+              <th {...productHeader(3)}>Precio prom.</th>
+              <th {...productHeader(4)}>Ingresos</th>
+              <th {...productHeader(5)}>Ingresos (rel.)</th>
             </tr>
           </thead>
           <tbody>
-            {products.map((p: ShopifyProductRow) => {
+            {productsSorted.map((p: ShopifyProductRow) => {
               const share = p.revenue / maxProductRevenue;
               return (
                 <tr key={p.productId}>

@@ -11,6 +11,7 @@ import {
 } from '@/lib/hooks/useClarity';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatInt, formatPercent } from '@/lib/utils';
+import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 
 // ============================================================
 // Clarity · CRO — comportamiento real del sitio
@@ -47,6 +48,37 @@ export function Clarity() {
   const { data, loading, error } = useClarity(client.id, range);
 
   const rangeLabel = formatRangeLabel(range);
+
+  // Sorting Looker. Orden por defecto: diario más reciente primero (daily invertido),
+  // páginas por sesiones desc (ya vienen así). El hook conserva ese orden hasta el clic.
+  const dailySource = data ? [...data.daily].reverse() : [];
+  const dailyAccessors: SortAccessor<ClarityDailyRow>[] = [
+    (r) => r.date,
+    (r) => r.sessions,
+    (r) => r.scrollDepth,
+    (r) => r.deadClickRate,
+    (r) => r.rageClickRate,
+    (r) => r.quickBackRate,
+    null, // barra relativa
+  ];
+  const { rows: sortedDaily, headerProps: dailyHeaderProps } = useSortableTable(
+    dailySource,
+    dailyAccessors,
+  );
+
+  const pageSource = data ? data.pages.slice(0, PAGE_LIMIT) : [];
+  const pageAccessors: SortAccessor<ClarityPageRow>[] = [
+    (r) => r.pageUrl,
+    (r) => r.sessions,
+    (r) => r.scrollDepth,
+    (r) => r.deadClicks,
+    (r) => r.rageClicks,
+    null, // barra relativa
+  ];
+  const { rows: sortedPages, headerProps: pageHeaderProps } = useSortableTable(
+    pageSource,
+    pageAccessors,
+  );
 
   if (loading && !data) {
     return (
@@ -95,11 +127,11 @@ export function Clarity() {
   }
 
   const t = data.totals;
-  // Tabla diaria: más reciente primero.
-  const dailyRows = [...data.daily].reverse();
+  // Tabla diaria: más reciente primero (orden por defecto), ya ordenable.
+  const dailyRows = sortedDaily;
   const maxDailySessions = Math.max(1, ...data.daily.map((d) => d.sessions));
-  const pages = data.pages.slice(0, PAGE_LIMIT);
-  const maxPageSessions = Math.max(1, ...pages.map((p) => p.sessions));
+  const pages = sortedPages;
+  const maxPageSessions = Math.max(1, ...pageSource.map((p) => p.sessions));
 
   return (
     <div className="view on">
@@ -149,12 +181,12 @@ export function Clarity() {
         <table className="t">
           <thead>
             <tr>
-              <th>Fecha</th>
-              <th>Sesiones</th>
-              <th>Scroll</th>
-              <th>Dead clicks</th>
-              <th>Rage clicks</th>
-              <th>Quickback</th>
+              <th {...dailyHeaderProps(0)}>Fecha</th>
+              <th {...dailyHeaderProps(1)}>Sesiones</th>
+              <th {...dailyHeaderProps(2)}>Scroll</th>
+              <th {...dailyHeaderProps(3)}>Dead clicks</th>
+              <th {...dailyHeaderProps(4)}>Rage clicks</th>
+              <th {...dailyHeaderProps(5)}>Quickback</th>
               <th>Sesiones (rel.)</th>
             </tr>
           </thead>
@@ -195,11 +227,11 @@ export function Clarity() {
         <table className="t">
           <thead>
             <tr>
-              <th>Página</th>
-              <th>Sesiones</th>
-              <th>Scroll</th>
-              <th>Dead clicks</th>
-              <th>Rage clicks</th>
+              <th {...pageHeaderProps(0)}>Página</th>
+              <th {...pageHeaderProps(1)}>Sesiones</th>
+              <th {...pageHeaderProps(2)}>Scroll</th>
+              <th {...pageHeaderProps(3)}>Dead clicks</th>
+              <th {...pageHeaderProps(4)}>Rage clicks</th>
               <th>Sesiones (rel.)</th>
             </tr>
           </thead>

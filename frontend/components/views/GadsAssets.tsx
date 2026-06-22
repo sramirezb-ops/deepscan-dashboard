@@ -128,7 +128,10 @@ export function GadsAssets() {
           <>
             {' '}
             Cada pieza muestra sus <b>métricas reales</b> de los últimos 30 días (impresiones, clics y
-            leads) directo de la API de Google Ads, y se ordenan por las que más leads traen.
+            leads) directo de la API de Google Ads, y se ordenan por las que más leads traen.{' '}
+            <b>Ojo:</b> en PMax estas métricas son de <b>contribución</b> —una misma conversión se
+            acredita a cada asset que participó en el anuncio—, así que sirven para comparar piezas
+            entre sí pero <b>no se suman</b> (no son un reparto del total).
           </>
         )}
         {!data.hasAnyPerfLabel && (

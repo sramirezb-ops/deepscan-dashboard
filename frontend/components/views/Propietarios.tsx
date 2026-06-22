@@ -446,6 +446,12 @@ function AssetsSection({ assets }: { assets?: AssetCampaign }) {
   // calificación (BEST/GOOD/LOW). En ese caso ocultamos las mini-métricas en 0
   // (serían engañosas) y ordenamos/explicamos por calificación.
   const showMetrics = !!assets && assets.hasMetrics;
+  // ¿Alguna pieza trae calificación real de Google? (Display suele devolver
+  // NOT_APPLICABLE → no hay badge). Solo mencionamos la calificación si existe.
+  const RATED = new Set(['BEST', 'GOOD', 'LOW', 'LEARNING', 'PENDING']);
+  const hasRating =
+    !!assets &&
+    [...assets.visuals, ...assets.texts].some((a) => RATED.has((a.performanceLabel || '').toUpperCase()));
 
   if (!hasVisuals && !hasTexts) {
     return (
@@ -495,7 +501,7 @@ function AssetsSection({ assets }: { assets?: AssetCampaign }) {
           <>
             Métricas reales por pieza desde Google Ads. El <b style={{ color: 'var(--tx)' }}>costo por pieza no existe</b>:
             Google no reparte la inversión entre imágenes/videos de un anuncio adaptable, así que medimos cada pieza por
-            impresiones, clics y leads, más la calificación de Google.
+            impresiones, clics y leads{hasRating ? ', más la calificación de Google' : ''}.
           </>
         ) : (
           <>

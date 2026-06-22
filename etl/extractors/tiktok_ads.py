@@ -42,11 +42,17 @@ METRICS = [
     "spend", "impressions", "clicks", "reach",
     # Conversiones / leads
     "conversion",
-    # Video
+    # Video — reproducciones y curva de retención
     "video_play_actions",   # reproducciones de video
     "video_watched_2s",     # llegaron a 2s (mide el "hook")
-    "video_watched_6s",     # llegaron a 6s (retención)
+    "video_watched_6s",     # llegaron a 6s (retención temprana)
+    "video_views_p25",      # llegaron al 25 % del video
+    "video_views_p50",      # llegaron al 50 %
+    "video_views_p75",      # llegaron al 75 %
     "video_views_p100",     # vieron el video completo
+    # Video — tiempo de reproducción promedio (segundos, lo da TikTok directo)
+    "average_video_play",            # promedio por reproducción
+    "average_video_play_per_user",   # promedio por usuario
 ]
 
 PAGE_SIZE = 1000
@@ -127,7 +133,13 @@ def extract_tiktok_ads(
             video_views     = int(_num(m, "video_play_actions"))
             video_2s        = int(_num(m, "video_watched_2s"))
             video_6s        = int(_num(m, "video_watched_6s"))
+            video_p25       = int(_num(m, "video_views_p25"))
+            video_p50       = int(_num(m, "video_views_p50"))
+            video_p75       = int(_num(m, "video_views_p75"))
             video_completes = int(_num(m, "video_views_p100"))
+            # Tiempo de reproducción promedio (segundos). TikTok lo da directo.
+            avg_watch       = round(_num(m, "average_video_play"), 2)
+            avg_watch_user  = round(_num(m, "average_video_play_per_user"), 2)
 
             # Derivadas (calculadas por nosotros, fracciones 0-1 donde aplica).
             ctr  = round(clicks / impressions, 4) if impressions > 0 else 0.0
@@ -158,7 +170,12 @@ def extract_tiktok_ads(
                 "video_views":         video_views,
                 "video_watched_2s":    video_2s,
                 "video_watched_6s":    video_6s,
+                "video_watched_p25":   video_p25,
+                "video_watched_p50":   video_p50,
+                "video_watched_p75":   video_p75,
                 "video_completes":     video_completes,
+                "avg_watch_time":          avg_watch,
+                "avg_watch_time_per_user": avg_watch_user,
             })
 
         page += 1

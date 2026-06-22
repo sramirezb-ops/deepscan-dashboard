@@ -27,12 +27,20 @@ interface ClientRow {
 
 const CLIENT_COLUMNS = 'id,name,slug,currency,country,enabled_channels,objectives';
 
+// Logos reales de cliente (slug → asset en /public/logos). Permite mostrar el
+// logo de marca en el sidebar sin depender de una columna en Supabase. Cuando
+// se sume un cliente nuevo, basta con dejar su SVG en /public/logos y mapearlo.
+const CLIENT_LOGOS: Record<string, string> = {
+  'ofero-colombia': '/logos/ofero.svg',
+};
+
 function rowToClient(row: ClientRow): Client {
   return {
     id: row.id,
     name: row.name,
     currency: (row.currency as Client['currency']) || 'USD',
     country: row.country || '',
+    logoUrl: CLIENT_LOGOS[row.slug] || undefined,
     activeChannels: (Array.isArray(row.enabled_channels) ? row.enabled_channels : []) as ChannelId[],
     objectives: (Array.isArray(row.objectives) ? row.objectives : []) as ObjectiveId[],
   };

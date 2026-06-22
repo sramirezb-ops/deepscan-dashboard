@@ -27,7 +27,7 @@ export function Sidebar() {
     <aside className="sb" id="sb">
       <div className="sbt">
         <div className="sb-logo">
-          <div className="sb-mark">D</div>
+          <div className="sb-mark">DS</div>
           <div className="sb-brand">DeepScan</div>
         </div>
         <div className="sb-client">

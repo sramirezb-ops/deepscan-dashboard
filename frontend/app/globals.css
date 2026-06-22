@@ -112,10 +112,10 @@ body{
 .sb-logo{display:flex;align-items:center;gap:8px;margin-bottom:12px}
 .sb-mark{
   width:26px;height:26px;border-radius:7px;
-  background:linear-gradient(135deg,var(--acc),#c084fc);
+  background:#0a0a0a;border:1px solid #3a3a3a;
   display:flex;align-items:center;justify-content:center;
-  font-weight:700;font-size:13px;color:#fff;
-  box-shadow:0 0 20px var(--acc-glow);
+  font-family:'Space Grotesk',sans-serif;
+  font-weight:800;font-size:11px;color:#fff;letter-spacing:-0.4px;
 }
 .sb-brand{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;color:var(--t1);letter-spacing:-0.02em}
 .sb-client{

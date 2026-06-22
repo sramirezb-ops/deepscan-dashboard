@@ -113,11 +113,14 @@ export function BrandLogo({
     case 'google-ads':
       return (
         <svg {...common}>
-          <rect x="2.4" y="6.4" width="5" height="16.5" rx="2.5" fill="#FBBC04"
-            transform="rotate(-30 12 12)" />
-          <rect x="16.6" y="6.4" width="5" height="16.5" rx="2.5" fill="#4285F4"
-            transform="rotate(30 12 12)" />
-          <circle cx="6.3" cy="18.4" r="2.85" fill="#34A853" />
+          {/* Dos barras (amarilla + azul) que forman la "Λ" partiendo del vértice
+              superior, más el círculo verde al pie. Pivote en (12,5) para que las
+              barras roten sin salirse del viewBox (antes se recortaban abajo). */}
+          <rect x="9.4" y="4" width="5.2" height="17" rx="2.6" fill="#FBBC04"
+            transform="rotate(22 12 5)" />
+          <rect x="9.4" y="4" width="5.2" height="17" rx="2.6" fill="#4285F4"
+            transform="rotate(-22 12 5)" />
+          <circle cx="7" cy="18.2" r="2.95" fill="#34A853" />
         </svg>
       );
 
@@ -260,15 +263,12 @@ export function BrandLogo({
     default:
       return (
         <svg {...common}>
-          <defs>
-            <linearGradient id="bl-ds" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stopColor="#a855f7" />
-              <stop offset="1" stopColor="#c084fc" />
-            </linearGradient>
-          </defs>
-          <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" fill="url(#bl-ds)" />
-          <text x="12" y="16.4" fontSize="12" fontWeight="700" fill="#fff"
-            fontFamily="'Space Grotesk', sans-serif" textAnchor="middle">D</text>
+          {/* Logo real DeepScan: "DS" blanco sobre fondo negro. */}
+          <rect x="2" y="2" width="20" height="20" rx="5" fill="#0a0a0a"
+            stroke="#3a3a3a" strokeWidth="1" />
+          <text x="12" y="15.9" fontSize="8.8" fontWeight="800" fill="#fff"
+            fontFamily="'Space Grotesk', Arial, sans-serif" textAnchor="middle"
+            letterSpacing="-0.4">DS</text>
         </svg>
       );
   }

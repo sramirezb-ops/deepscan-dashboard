@@ -29,7 +29,7 @@ export function Sidebar() {
       <div className="sbt">
         <div className="sb-logo">
           <div className="sb-mark"><BrandLogo brand="deepscan" size={26} /></div>
-          <div className="sb-brand">DeepScan</div>
+          <div className="sb-brand">DEEPSCAN</div>
         </div>
         <div className="sb-client">
           {client.logoUrl ? (

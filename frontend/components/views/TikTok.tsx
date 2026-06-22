@@ -3,7 +3,12 @@
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useTikTok, type TikTokCampaignRow } from '@/lib/hooks/useTikTok';
+import {
+  useTikTok,
+  type TikTokCampaignRow,
+  type TikTokAdGroupRow,
+  type TikTokRetention,
+} from '@/lib/hooks/useTikTok';
 import { EmptyState } from '@/components/ui/EmptyState';
 import {
   formatCurrency,
@@ -202,10 +207,13 @@ export function TikTok() {
             <span className="period-pill">{formatNumber(v.views)} reproducciones</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--mu)', marginBottom: 16, lineHeight: 1.5 }}>
-            En TikTok el creativo manda. El <b>hook (2s)</b> mide cuántos no se fueron en el primer
-            segundo; la <b>retención (6s)</b>, cuántos siguen enganchados; y las <b>completas</b>,
-            cuántos vieron el video entero. Datos reales del reporte de TikTok.
+            En TikTok el creativo manda. El <b>gancho (2s)</b> mide cuántos no se fueron en el primer
+            segundo; la <b>retención (6s)</b>, cuántos siguen enganchados; y la <b>curva</b> (25→100 %)
+            muestra dónde cae la atención. El <b>tiempo promedio</b> es cuántos segundos, en promedio,
+            se reproduce cada video. Todo son datos reales del reporte de TikTok.
           </div>
+
+          {/* Resumen: gancho, retención 6s, completas y tiempo promedio */}
           <div
             style={{
               display: 'grid',
@@ -213,9 +221,19 @@ export function TikTok() {
               gap: 16,
             }}
           >
-            <VideoStat label="Hook (vieron 2s)" pct={v.hookRate} abs={v.watched2s} color={TT_PINK} />
+            <VideoStat label="Gancho (vieron 2s)" pct={v.hookRate} abs={v.watched2s} color={TT_PINK} />
             <VideoStat label="Retención (6s)" pct={v.holdRate} abs={v.watched6s} color={TT_CYAN} />
             <VideoStat label="Video completo" pct={v.completionRate} abs={v.completes} color="#22d97a" />
+            <WatchTimeStat seconds={v.avgWatchTime} />
+          </div>
+
+          {/* Curva de retención completa: del 100 % de reproducciones, cuántos
+              quedan en cada hito. Embudo monótono, 100 % dato real. */}
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--t1)', marginBottom: 10 }}>
+              Curva de retención
+            </div>
+            <RetentionCurve v={v} />
           </div>
         </div>
       )}
@@ -287,6 +305,60 @@ export function TikTok() {
         </table>
       </div>
 
+      {/* Conjuntos de anuncios — retención por ad set */}
+      {data.adgroups.length > 0 && (
+        <div className="card" style={{ marginTop: 20 }}>
+          <div className="dim-tbl-head">
+            <div className="dim-tbl-title">
+              <div className="dim-tbl-ic">🎯</div>
+              <div>
+                <div className="dim-tbl-label">Conjuntos de anuncios</div>
+                <div className="dim-tbl-h">Retención del video por conjunto · ordenado por inversión</div>
+              </div>
+            </div>
+            <span className="period-pill">{data.adgroupCount} conjuntos</span>
+          </div>
+          <table className="t">
+            <thead>
+              <tr>
+                <th data-cat="dim">Conjunto</th>
+                <th data-cat="cost">Inversión</th>
+                <th data-cat="conv">Leads</th>
+                <th data-cat="cost,conv">CPL</th>
+                <th data-cat="impr">Reprod.</th>
+                <th data-cat="impr">Gancho 2s</th>
+                <th data-cat="impr">Ret. 6s</th>
+                <th data-cat="impr">Completo</th>
+                <th data-cat="impr">T. prom.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.adgroups.map((g: TikTokAdGroupRow) => (
+                <tr key={g.adgroupId}>
+                  <td data-cat="dim">
+                    <b>{g.name}</b>
+                    <div style={{ fontSize: 10, color: 'var(--mu)' }}>{g.campaignName}</div>
+                  </td>
+                  <td data-cat="cost">{formatCurrency(g.spend, cur)}</td>
+                  <td data-cat="conv">{formatInt(g.conversions)}</td>
+                  <td data-cat="cost,conv">{g.conversions > 0 ? formatCurrency(g.cpl, cur) : '—'}</td>
+                  <td data-cat="impr">{formatNumber(g.videoViews)}</td>
+                  <td data-cat="impr">{g.videoViews > 0 ? formatPercent(g.video.hookRate, 1) : '—'}</td>
+                  <td data-cat="impr">{g.videoViews > 0 ? formatPercent(g.video.holdRate, 1) : '—'}</td>
+                  <td data-cat="impr">{g.videoViews > 0 ? formatPercent(g.video.completionRate, 1) : '—'}</td>
+                  <td data-cat="impr">{g.videoViews > 0 ? `${g.video.avgWatchTime.toFixed(1)} s` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 10, lineHeight: 1.5 }}>
+            El <b>gancho (2s)</b> y la <b>retención (6s)</b> se miden sobre las reproducciones del
+            conjunto. El <b>tiempo promedio</b> lo reporta TikTok directo. Donde no hubo video,
+            aparece «—».
+          </div>
+        </div>
+      )}
+
       {/* Nota honesta */}
       <div className="card" style={{ marginTop: 20, borderStyle: 'dashed', borderColor: 'var(--b2)' }}>
         <h3 style={{ margin: '0 0 8px 0', fontSize: '15px' }}>Cómo leer esta vista</h3>
@@ -335,6 +407,74 @@ function VideoStat({
       <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 6 }}>
         {formatNumber(abs)} reproducciones
       </div>
+    </div>
+  );
+}
+
+// Tiempo de reproducción promedio (segundos). TikTok lo da directo; no es un
+// porcentaje, así que lo mostramos como "X.X s".
+function WatchTimeStat({ seconds }: { seconds: number }) {
+  return (
+    <div
+      style={{
+        background: 'var(--bg3)',
+        border: '1px solid var(--b2)',
+        borderRadius: 10,
+        padding: '14px 16px',
+      }}
+    >
+      <div style={{ fontSize: 11, color: 'var(--mu)', marginBottom: 6 }}>Tiempo promedio</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--t1)' }}>
+        {seconds > 0 ? `${seconds.toFixed(1)} s` : '—'}
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 26 }}>
+        por reproducción
+      </div>
+    </div>
+  );
+}
+
+// Curva de retención: del 100 % de reproducciones, cuántos quedan en cada hito.
+// Cada barra es una fracción de las reproducciones (dato real de TikTok).
+function RetentionCurve({ v }: { v: TikTokRetention }) {
+  const stages: { label: string; pct: number; abs: number }[] = [
+    { label: 'Reproducciones', pct: 1, abs: v.views },
+    { label: '2 segundos (gancho)', pct: v.hookRate, abs: v.watched2s },
+    { label: '6 segundos', pct: v.holdRate, abs: v.watched6s },
+    { label: '25 % del video', pct: v.p25Rate, abs: v.watchedP25 },
+    { label: '50 % del video', pct: v.p50Rate, abs: v.watchedP50 },
+    { label: '75 % del video', pct: v.p75Rate, abs: v.watchedP75 },
+    { label: '100 % (completo)', pct: v.completionRate, abs: v.completes },
+  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {stages.map((s) => (
+        <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 150, fontSize: 11, color: 'var(--mu)', flexShrink: 0 }}>{s.label}</div>
+          <div className="hb" style={{ flex: 1 }}>
+            <span
+              className="hb-fill"
+              style={{
+                width: `${Math.max(1, Math.round(s.pct * 100))}%`,
+                background: `linear-gradient(90deg, ${TT_PINK}, ${TT_CYAN})`,
+              }}
+            />
+          </div>
+          <div
+            style={{
+              width: 96,
+              textAlign: 'right',
+              fontSize: 11,
+              color: 'var(--t1)',
+              flexShrink: 0,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatPercent(s.pct, 1)}
+            <span style={{ color: 'var(--mu)', marginLeft: 6 }}>{formatNumber(s.abs)}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

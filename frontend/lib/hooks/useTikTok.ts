@@ -18,6 +18,28 @@ import type { DateRange } from '@/lib/period';
 
 const PAGE = 1000;
 
+// Curva de retención + tiempo de reproducción de un grupo de filas (total,
+// campaña o conjunto). Todas las tasas son fracciones 0-1 respecto a las
+// REPRODUCCIONES (video_views), para dibujar un embudo monótono y honesto.
+export interface TikTokRetention {
+  views: number; // reproducciones (base 100% del embudo)
+  watched2s: number;
+  watched6s: number;
+  watchedP25: number;
+  watchedP50: number;
+  watchedP75: number;
+  completes: number; // p100
+  // Tasas respecto a las reproducciones
+  hookRate: number; // 2s / views — el "gancho": cuántos no se fueron al instante
+  holdRate: number; // 6s / views — retención temprana
+  p25Rate: number; // 25 % / views
+  p50Rate: number; // 50 % / views
+  p75Rate: number; // 75 % / views
+  completionRate: number; // 100 % / views
+  // Tiempo de reproducción promedio (segundos), ponderado por reproducciones.
+  avgWatchTime: number;
+}
+
 export interface TikTokCampaignRow {
   name: string;
   spend: number;
@@ -29,6 +51,22 @@ export interface TikTokCampaignRow {
   cvr: number; // conversions / clicks (fracción 0-1)
   cpc: number; // spend / clicks
   videoViews: number;
+  video: TikTokRetention; // curva de retención de la campaña
+}
+
+export interface TikTokAdGroupRow {
+  adgroupId: string;
+  name: string;
+  campaignName: string; // a qué campaña pertenece
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  conversions: number; // leads
+  cpl: number;
+  cvr: number;
+  videoViews: number;
+  video: TikTokRetention; // curva de retención del conjunto
 }
 
 export interface TikTokTotals {
@@ -44,22 +82,16 @@ export interface TikTokTotals {
   cpm: number;
 }
 
-export interface TikTokVideo {
-  views: number;
-  watched2s: number;
-  watched6s: number;
-  completes: number;
-  // Tasas de retención (fracción 0-1) respecto a las vistas.
-  hookRate: number; // watched2s / views
-  holdRate: number; // watched6s / views
-  completionRate: number; // completes / views
-}
+// El bloque de video del TOTAL es exactamente una curva de retención.
+export type TikTokVideo = TikTokRetention;
 
 export interface TikTokData {
   campaigns: TikTokCampaignRow[]; // ordenadas por inversión desc
+  adgroups: TikTokAdGroupRow[]; // conjuntos de anuncios, ordenados por inversión desc
   totals: TikTokTotals;
   video: TikTokVideo;
   campaignCount: number;
+  adgroupCount: number;
   // ¿El cliente tiene datos de TikTok en CUALQUIER fecha?
   tiktokExistsEver: boolean;
   // Deltas vs período anterior
@@ -80,6 +112,8 @@ export interface UseTikTokResult {
 
 interface RawRow {
   campaign_name: string | null;
+  adgroup_id: string | null;
+  adgroup_name: string | null;
   spend: number | null;
   impressions: number | null;
   clicks: number | null;
@@ -88,11 +122,15 @@ interface RawRow {
   video_views: number | null;
   video_watched_2s: number | null;
   video_watched_6s: number | null;
+  video_watched_p25: number | null;
+  video_watched_p50: number | null;
+  video_watched_p75: number | null;
   video_completes: number | null;
+  avg_watch_time: number | null;
 }
 
 const SELECT =
-  'campaign_name, spend, impressions, clicks, reach, conversions, video_views, video_watched_2s, video_watched_6s, video_completes';
+  'campaign_name, adgroup_id, adgroup_name, spend, impressions, clicks, reach, conversions, video_views, video_watched_2s, video_watched_6s, video_watched_p25, video_watched_p50, video_watched_p75, video_completes, avg_watch_time';
 
 /** Trae TODAS las filas del rango paginando (Supabase corta en 1000 por request). */
 async function fetchRows(clientId: string, from: string, to: string): Promise<RawRow[]> {
@@ -128,6 +166,57 @@ async function fetchTikTokExists(clientId: string): Promise<boolean> {
   return (count || 0) > 0;
 }
 
+// ---- Curva de retención (reutilizable: total, campaña, conjunto) ----------
+// Acumulador crudo de conteos de video + segundos·reproducción para promedio.
+interface VidAgg {
+  views: number;
+  watched2s: number;
+  watched6s: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  completes: number;
+  watchSecondsSum: number; // Σ(avg_watch_time × views) → para el promedio ponderado
+}
+
+function emptyVid(): VidAgg {
+  return { views: 0, watched2s: 0, watched6s: 0, p25: 0, p50: 0, p75: 0, completes: 0, watchSecondsSum: 0 };
+}
+
+function addVid(a: VidAgg, r: RawRow): void {
+  const views = Number(r.video_views) || 0;
+  a.views += views;
+  a.watched2s += Number(r.video_watched_2s) || 0;
+  a.watched6s += Number(r.video_watched_6s) || 0;
+  a.p25 += Number(r.video_watched_p25) || 0;
+  a.p50 += Number(r.video_watched_p50) || 0;
+  a.p75 += Number(r.video_watched_p75) || 0;
+  a.completes += Number(r.video_completes) || 0;
+  // El promedio diario viene por reproducción; lo re-pesamos por reproducciones
+  // para poder promediar correctamente entre días/anuncios.
+  a.watchSecondsSum += (Number(r.avg_watch_time) || 0) * views;
+}
+
+function finalizeVid(a: VidAgg): TikTokRetention {
+  const v = a.views;
+  return {
+    views: v,
+    watched2s: a.watched2s,
+    watched6s: a.watched6s,
+    watchedP25: a.p25,
+    watchedP50: a.p50,
+    watchedP75: a.p75,
+    completes: a.completes,
+    hookRate: v > 0 ? a.watched2s / v : 0,
+    holdRate: v > 0 ? a.watched6s / v : 0,
+    p25Rate: v > 0 ? a.p25 / v : 0,
+    p50Rate: v > 0 ? a.p50 / v : 0,
+    p75Rate: v > 0 ? a.p75 / v : 0,
+    completionRate: v > 0 ? a.completes / v : 0,
+    avgWatchTime: v > 0 ? a.watchSecondsSum / v : 0,
+  };
+}
+
 function sumTotals(rows: RawRow[]) {
   return rows.reduce(
     (acc, r) => {
@@ -136,64 +225,97 @@ function sumTotals(rows: RawRow[]) {
       acc.clicks += Number(r.clicks) || 0;
       acc.reach += Number(r.reach) || 0;
       acc.conversions += Number(r.conversions) || 0;
-      acc.videoViews += Number(r.video_views) || 0;
-      acc.watched2s += Number(r.video_watched_2s) || 0;
-      acc.watched6s += Number(r.video_watched_6s) || 0;
-      acc.completes += Number(r.video_completes) || 0;
       return acc;
     },
-    {
-      spend: 0,
-      impressions: 0,
-      clicks: 0,
-      reach: 0,
-      conversions: 0,
-      videoViews: 0,
-      watched2s: 0,
-      watched6s: 0,
-      completes: 0,
-    }
+    { spend: 0, impressions: 0, clicks: 0, reach: 0, conversions: 0 }
   );
 }
 
-/** Agrupa filas (anuncio/día) por nombre de campaña. */
-function groupByCampaign(rows: RawRow[]): TikTokCampaignRow[] {
-  const map = new Map<string, TikTokCampaignRow>();
+// Acumulador común de campaña/conjunto antes de calcular las derivadas.
+interface GroupAcc {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  vid: VidAgg;
+}
 
+function newGroupAcc(): GroupAcc {
+  return { spend: 0, impressions: 0, clicks: 0, conversions: 0, vid: emptyVid() };
+}
+
+function addToGroup(g: GroupAcc, r: RawRow): void {
+  g.spend += Number(r.spend) || 0;
+  g.impressions += Number(r.impressions) || 0;
+  g.clicks += Number(r.clicks) || 0;
+  g.conversions += Number(r.conversions) || 0;
+  addVid(g.vid, r);
+}
+
+/** Agrupa filas (anuncio/día) por nombre de campaña, con curva de retención. */
+function groupByCampaign(rows: RawRow[]): TikTokCampaignRow[] {
+  const map = new Map<string, GroupAcc>();
   for (const r of rows) {
     const name = r.campaign_name || '(sin nombre)';
-    let c = map.get(name);
-    if (!c) {
-      c = {
-        name,
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        ctr: 0,
-        conversions: 0,
-        cpl: 0,
-        cvr: 0,
-        cpc: 0,
-        videoViews: 0,
-      };
-      map.set(name, c);
+    let g = map.get(name);
+    if (!g) {
+      g = newGroupAcc();
+      map.set(name, g);
     }
-    c.spend += Number(r.spend) || 0;
-    c.impressions += Number(r.impressions) || 0;
-    c.clicks += Number(r.clicks) || 0;
-    c.conversions += Number(r.conversions) || 0;
-    c.videoViews += Number(r.video_views) || 0;
+    addToGroup(g, r);
   }
 
-  const list = Array.from(map.values());
-  for (const c of list) {
-    c.ctr = c.impressions > 0 ? c.clicks / c.impressions : 0;
-    c.cpl = c.conversions > 0 ? c.spend / c.conversions : 0;
-    c.cvr = c.clicks > 0 ? c.conversions / c.clicks : 0;
-    c.cpc = c.clicks > 0 ? c.spend / c.clicks : 0;
+  const list: TikTokCampaignRow[] = Array.from(map.entries()).map(([name, g]) => ({
+    name,
+    spend: g.spend,
+    impressions: g.impressions,
+    clicks: g.clicks,
+    ctr: g.impressions > 0 ? g.clicks / g.impressions : 0,
+    conversions: g.conversions,
+    cpl: g.conversions > 0 ? g.spend / g.conversions : 0,
+    cvr: g.clicks > 0 ? g.conversions / g.clicks : 0,
+    cpc: g.clicks > 0 ? g.spend / g.clicks : 0,
+    videoViews: g.vid.views,
+    video: finalizeVid(g.vid),
+  }));
+
+  list.sort((a, b) => b.spend - a.spend);
+  return list;
+}
+
+/** Agrupa por conjunto de anuncios (adgroup), con curva de retención. */
+function groupByAdGroup(rows: RawRow[]): TikTokAdGroupRow[] {
+  const map = new Map<string, { g: GroupAcc; name: string; campaignName: string }>();
+  for (const r of rows) {
+    // Clave por id real del conjunto; si falta, caemos al nombre.
+    const id = (r.adgroup_id || '').trim() || r.adgroup_name || '(sin conjunto)';
+    let entry = map.get(id);
+    if (!entry) {
+      entry = {
+        g: newGroupAcc(),
+        name: r.adgroup_name || '(sin nombre)',
+        campaignName: r.campaign_name || '(sin campaña)',
+      };
+      map.set(id, entry);
+    }
+    addToGroup(entry.g, r);
   }
 
-  // Orden por inversión desc (las que más mueven plata arriba).
+  const list: TikTokAdGroupRow[] = Array.from(map.entries()).map(([adgroupId, { g, name, campaignName }]) => ({
+    adgroupId,
+    name,
+    campaignName,
+    spend: g.spend,
+    impressions: g.impressions,
+    clicks: g.clicks,
+    ctr: g.impressions > 0 ? g.clicks / g.impressions : 0,
+    conversions: g.conversions,
+    cpl: g.conversions > 0 ? g.spend / g.conversions : 0,
+    cvr: g.clicks > 0 ? g.conversions / g.clicks : 0,
+    videoViews: g.vid.views,
+    video: finalizeVid(g.vid),
+  }));
+
   list.sort((a, b) => b.spend - a.spend);
   return list;
 }
@@ -223,6 +345,7 @@ export function useTikTok(
         if (cancelled) return;
 
         const campaigns = groupByCampaign(nowRows);
+        const adgroups = groupByAdGroup(nowRows);
         const t = sumTotals(nowRows);
         const p = sumTotals(prevRows);
 
@@ -246,24 +369,23 @@ export function useTikTok(
           cpm: t.impressions > 0 ? t.spend / (t.impressions / 1000) : 0,
         };
 
-        const video: TikTokVideo = {
-          views: t.videoViews,
-          watched2s: t.watched2s,
-          watched6s: t.watched6s,
-          completes: t.completes,
-          hookRate: t.videoViews > 0 ? t.watched2s / t.videoViews : 0,
-          holdRate: t.videoViews > 0 ? t.watched6s / t.videoViews : 0,
-          completionRate: t.videoViews > 0 ? t.completes / t.videoViews : 0,
-        };
+        // Curva de retención del TOTAL: re-agregamos las filas crudas.
+        const vidTotal = nowRows.reduce((acc, r) => {
+          addVid(acc, r);
+          return acc;
+        }, emptyVid());
+        const video: TikTokVideo = finalizeVid(vidTotal);
 
         const cplPrev = p.conversions > 0 ? p.spend / p.conversions : 0;
         const ctrPrev = p.impressions > 0 ? p.clicks / p.impressions : 0;
 
         setData({
           campaigns,
+          adgroups,
           totals,
           video,
           campaignCount: campaigns.length,
+          adgroupCount: adgroups.length,
           tiktokExistsEver,
           spendDelta: calcDelta(t.spend, p.spend),
           conversionsDelta: calcDelta(t.conversions, p.conversions),

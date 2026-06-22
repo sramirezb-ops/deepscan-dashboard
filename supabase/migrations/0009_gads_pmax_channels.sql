@@ -52,3 +52,15 @@ create table if not exists gads_pmax_channels (
 -- El frontend filtra por client_id; el unique ya cubre el patrón de consulta.
 create index if not exists gads_pmax_channels_client_idx
   on gads_pmax_channels (client_id);
+
+-- ── RLS (Row Level Security) ──────────────────────────────────
+-- Mismo patrón que el resto de tablas: el ETL escribe con service key (acceso
+-- total) y el dashboard lee con la llave anon (solo SELECT). Sin esto, el ETL
+-- inserta bien pero el frontend ve 0 filas.
+alter table gads_pmax_channels enable row level security;
+
+drop policy if exists "service_role_all" on gads_pmax_channels;
+create policy "service_role_all" on gads_pmax_channels for all using (true) with check (true);
+
+drop policy if exists "anon_read_own" on gads_pmax_channels;
+create policy "anon_read_own" on gads_pmax_channels for select using (true);

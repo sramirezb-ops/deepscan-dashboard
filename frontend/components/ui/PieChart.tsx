@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
+
 // ============================================================
 // PieChart — torta/donut en SVG puro (sin librerías), estilo Looker.
 // Recibe slices {label, value}, ordena desc, agrupa la cola en "Otros"
 // y dibuja la dona con leyenda + porcentajes. 100% dato real.
+// Al pasar el mouse (sin click) resalta la tajada y muestra su valor.
 // ============================================================
 
 export interface PieSlice {
@@ -58,6 +61,8 @@ export function PieChart({
   slices: PieSlice[];
   formatValue: (v: number) => string;
 }) {
+  const [hover, setHover] = useState<number | null>(null);
+
   // Ordena desc y descarta valores no positivos.
   const clean = slices.filter((s) => s.value > 0).sort((a, b) => b.value - a.value);
   const total = clean.reduce((acc, s) => acc + s.value, 0);
@@ -108,18 +113,79 @@ export function PieChart({
     return { ...d, path, pct: frac * 100 };
   });
 
+  const active = hover != null ? arcs[hover] : null;
+
   return (
     <div className="card">
       <h3 style={{ margin: '0 0 12px 0', fontSize: 14 }}>{title}</h3>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} style={{ flexShrink: 0 }}>
-          {arcs.map((a, i) => (
-            <path key={i} d={a.path} fill={a.color} fillRule="evenodd" stroke="var(--bg)" strokeWidth={1} />
-          ))}
-        </svg>
+        <div style={{ position: 'relative', flexShrink: 0, width: SIZE, height: SIZE }}>
+          <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
+            {arcs.map((a, i) => (
+              <path
+                key={i}
+                d={a.path}
+                fill={a.color}
+                fillRule="evenodd"
+                stroke="var(--bg)"
+                strokeWidth={1}
+                style={{
+                  cursor: 'default',
+                  opacity: hover == null || hover === i ? 1 : 0.35,
+                  transition: 'opacity 120ms ease',
+                }}
+                onMouseEnter={() => setHover(i)}
+                onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+              />
+            ))}
+          </svg>
+          {/* Centro de la dona: muestra la tajada apuntada (o el total) */}
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              top: '50%',
+              transform: 'translate(-50%, -50%)',
+              textAlign: 'center',
+              pointerEvents: 'none',
+              width: rIn * 1.7,
+            }}
+          >
+            {active ? (
+              <>
+                <div style={{ fontSize: 10, color: 'var(--mu)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {active.label}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--tx)', lineHeight: 1.2 }}>{formatValue(active.value)}</div>
+                <div style={{ fontSize: 11, color: 'var(--mu)' }}>{active.pct.toFixed(1)}%</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 10, color: 'var(--mu)' }}>Total</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--tx)', lineHeight: 1.2 }}>{formatValue(total)}</div>
+              </>
+            )}
+          </div>
+        </div>
         <div style={{ flex: '1 1 160px', minWidth: 160, display: 'flex', flexDirection: 'column', gap: 5 }}>
           {arcs.map((a, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <div
+              key={i}
+              onMouseEnter={() => setHover(i)}
+              onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                padding: '1px 4px',
+                borderRadius: 4,
+                cursor: 'default',
+                background: hover === i ? 'var(--b2)' : 'transparent',
+                opacity: hover == null || hover === i ? 1 : 0.5,
+                transition: 'opacity 120ms ease, background 120ms ease',
+              }}
+            >
               <span
                 style={{ width: 10, height: 10, borderRadius: 2, background: a.color, flexShrink: 0 }}
               />

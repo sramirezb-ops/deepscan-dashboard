@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -47,8 +47,30 @@ function Delta({ value }: { value: number }) {
   );
 }
 
+// Día "5 jun" desde un ISO "YYYY-MM-DD" (sin líos de zona horaria).
+const MESES_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function fmtDay(iso?: string): string {
+  if (!iso) return '';
+  const [, m, d] = iso.split('-').map(Number);
+  return `${d} ${MESES_ABBR[(m || 1) - 1]}`;
+}
+
 // Mini sparkline (área + línea) en SVG puro, baseline en 0 (honesto).
-function Spark({ points, color, height = 34 }: { points: number[]; color: string; height?: number }) {
+// Al pasar el mouse (sin click) muestra el valor del día más cercano, como Looker.
+function Spark({
+  points,
+  color,
+  height = 34,
+  dates,
+  fmt,
+}: {
+  points: number[];
+  color: string;
+  height?: number;
+  dates?: string[];
+  fmt?: (v: number) => string;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
   const W = 120;
   const H = height;
   const n = points.length;
@@ -65,11 +87,71 @@ function Spark({ points, color, height = 34 }: { points: number[]; color: string
   const coords = points.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`);
   const line = coords.join(' ');
   const area = `${line} ${W},${H} 0,${H}`;
+
+  const onMove = (e: MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const idx = Math.max(0, Math.min(n - 1, Math.round((x / rect.width) * (n - 1))));
+    setHover(idx);
+  };
+
+  const leftPct = hover != null ? (hover / (n - 1)) * 100 : 0;
+  const topPct = hover != null ? (yAt(points[hover]) / H) * 100 : 0;
+  const fmtV = fmt ?? ((v: number) => Math.round(v).toLocaleString('es-CO'));
+
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-      <polygon points={area} fill={color} fillOpacity={0.14} />
-      <polyline points={line} fill="none" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
-    </svg>
+    <div
+      style={{ position: 'relative', height: H }}
+      onMouseMove={onMove}
+      onMouseLeave={() => setHover(null)}
+    >
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+        <polygon points={area} fill={color} fillOpacity={0.14} />
+        <polyline points={line} fill="none" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
+      </svg>
+      {hover != null && (
+        <>
+          {/* Guía vertical + punto en el día apuntado */}
+          <div style={{ position: 'absolute', left: `${leftPct}%`, top: 0, bottom: 0, width: 1, background: color, opacity: 0.45, pointerEvents: 'none' }} />
+          <div
+            style={{
+              position: 'absolute',
+              left: `${leftPct}%`,
+              top: `${topPct}%`,
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: color,
+              border: '1.5px solid var(--bg)',
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'none',
+            }}
+          />
+          {/* Tooltip flotante con día + valor */}
+          <div
+            style={{
+              position: 'absolute',
+              left: `${leftPct}%`,
+              bottom: H + 4,
+              transform: `translateX(${leftPct > 70 ? '-90%' : leftPct < 30 ? '-10%' : '-50%'})`,
+              background: 'var(--bg)',
+              border: '1px solid var(--b2)',
+              borderRadius: 6,
+              padding: '4px 8px',
+              fontSize: 11,
+              lineHeight: 1.35,
+              whiteSpace: 'nowrap',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+              pointerEvents: 'none',
+              zIndex: 5,
+            }}
+          >
+            <div style={{ color: 'var(--mu)' }}>{fmtDay(dates?.[hover])}</div>
+            <div style={{ color: 'var(--tx)', fontWeight: 700 }}>{fmtV(points[hover])}</div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -85,6 +167,8 @@ function SparkKpi({
   points,
   color,
   hero = false,
+  dates,
+  fmt,
 }: {
   label: string;
   value: string;
@@ -93,6 +177,8 @@ function SparkKpi({
   points: number[];
   color: string;
   hero?: boolean;
+  dates?: string[];
+  fmt?: (v: number) => string;
 }) {
   const deltaNode = deltaUnavailable ? (
     <span
@@ -115,7 +201,7 @@ function SparkKpi({
             <div style={{ marginTop: 4 }}>{deltaNode}</div>
           </div>
           <div style={{ flex: '1 1 260px', maxWidth: 520, minWidth: 200 }}>
-            <Spark points={points} color={color} height={52} />
+            <Spark points={points} color={color} height={52} dates={dates} fmt={fmt} />
           </div>
         </div>
       </div>
@@ -131,7 +217,7 @@ function SparkKpi({
         {value}
       </div>
       <div style={{ marginTop: 2, marginBottom: 6 }}>{deltaNode}</div>
-      <Spark points={points} color={color} />
+      <Spark points={points} color={color} dates={dates} fmt={fmt} />
     </div>
   );
 }
@@ -157,22 +243,23 @@ function KpiGrid({
 }) {
   // "Coste" es la tarjeta destacada (hero) que encabeza el bloque, igual que el
   // Looker original. El resto (9 KPIs) va debajo en una rejilla compacta.
-  const hero = { label: 'Coste', value: fmtCOP(kpis.cost), delta: deltas.cost, points: series(daily, (p) => p.cost) };
-  const cards: { label: string; value: string; delta: number; points: number[]; deltaUnavailable?: boolean }[] = [
-    { label: '% impresiones de búsqueda', value: fmtPct(kpis.impressionShare), delta: deltas.impressionShare, points: series(daily, (p) => p.impressionShare), deltaUnavailable: !shareDeltaReliable },
-    { label: 'Impression Absolute Top %', value: fmtPct(kpis.absTopImpressionShare), delta: deltas.absTopImpressionShare, points: series(daily, (p) => p.absTopImpressionShare), deltaUnavailable: !shareDeltaReliable },
-    { label: 'Avg. CPM', value: fmtCOP(kpis.cpm), delta: deltas.cpm, points: series(daily, (p) => p.cpm) },
-    { label: 'Clics', value: fmtInt(kpis.clicks), delta: deltas.clicks, points: series(daily, (p) => p.clicks) },
-    { label: 'CPC medio', value: fmtCOP(kpis.cpc), delta: deltas.cpc, points: series(daily, (p) => p.cpc) },
-    { label: 'CTR', value: fmtPct(kpis.ctr), delta: deltas.ctr, points: series(daily, (p) => p.ctr) },
-    { label: 'Conversiones', value: fmtInt(kpis.conversions), delta: deltas.conversions, points: series(daily, (p) => p.conversions) },
-    { label: 'Coste/conv.', value: fmtCOP(kpis.costPerConv), delta: deltas.costPerConv, points: series(daily, (p) => p.costPerConv) },
-    { label: 'Tasa de conversión', value: fmtPct(kpis.convRate), delta: deltas.convRate, points: series(daily, (p) => p.convRate) },
+  const dates = daily.map((p) => p.date);
+  const hero = { label: 'Coste', value: fmtCOP(kpis.cost), delta: deltas.cost, points: series(daily, (p) => p.cost), fmt: fmtCOP };
+  const cards: { label: string; value: string; delta: number; points: number[]; fmt: (v: number) => string; deltaUnavailable?: boolean }[] = [
+    { label: '% impresiones de búsqueda', value: fmtPct(kpis.impressionShare), delta: deltas.impressionShare, points: series(daily, (p) => p.impressionShare), fmt: (v) => fmtPct(v), deltaUnavailable: !shareDeltaReliable },
+    { label: 'Impression Absolute Top %', value: fmtPct(kpis.absTopImpressionShare), delta: deltas.absTopImpressionShare, points: series(daily, (p) => p.absTopImpressionShare), fmt: (v) => fmtPct(v), deltaUnavailable: !shareDeltaReliable },
+    { label: 'Avg. CPM', value: fmtCOP(kpis.cpm), delta: deltas.cpm, points: series(daily, (p) => p.cpm), fmt: fmtCOP },
+    { label: 'Clics', value: fmtInt(kpis.clicks), delta: deltas.clicks, points: series(daily, (p) => p.clicks), fmt: fmtInt },
+    { label: 'CPC medio', value: fmtCOP(kpis.cpc), delta: deltas.cpc, points: series(daily, (p) => p.cpc), fmt: fmtCOP },
+    { label: 'CTR', value: fmtPct(kpis.ctr), delta: deltas.ctr, points: series(daily, (p) => p.ctr), fmt: (v) => fmtPct(v) },
+    { label: 'Conversiones', value: fmtInt(kpis.conversions), delta: deltas.conversions, points: series(daily, (p) => p.conversions), fmt: fmtInt },
+    { label: 'Coste/conv.', value: fmtCOP(kpis.costPerConv), delta: deltas.costPerConv, points: series(daily, (p) => p.costPerConv), fmt: fmtCOP },
+    { label: 'Tasa de conversión', value: fmtPct(kpis.convRate), delta: deltas.convRate, points: series(daily, (p) => p.convRate), fmt: (v) => fmtPct(v) },
   ];
   return (
     <>
       <div style={{ marginTop: 14 }}>
-        <SparkKpi label={hero.label} value={hero.value} delta={hero.delta} points={hero.points} color={KPI_COLOR} hero />
+        <SparkKpi label={hero.label} value={hero.value} delta={hero.delta} points={hero.points} color={KPI_COLOR} hero dates={dates} fmt={hero.fmt} />
       </div>
       <div
         style={{
@@ -191,6 +278,8 @@ function KpiGrid({
             deltaUnavailable={c.deltaUnavailable}
             points={c.points}
             color={KPI_COLOR}
+            dates={dates}
+            fmt={c.fmt}
           />
         ))}
       </div>

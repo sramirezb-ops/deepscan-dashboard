@@ -80,16 +80,18 @@ def run_etl(client_id: str, days_back: int = 30):
     if mike_sheet_id:
         try:
             mike_data = extract_mike_rhodes(mike_sheet_id)
-            loader.upsert("gads_campaigns",    mike_data["campaigns"],         client_id)
-            loader.upsert("gads_asset_groups", mike_data["asset_groups"],      client_id)
+            # gads_campaigns, gads_asset_groups y gads_assets YA NO se escriben
+            # desde el sheet: los provee la API de Google Ads (bloque 10) para
+            # TODOS los clientes, con campaign_id real, fechas frescas, métricas
+            # exactas y ad_strength real cuando Google lo calcula. El sheet solo
+            # conserva lo que la API no expone: productos, zombies y el split de
+            # redes (placements). Así una sola fuente manda por tabla.
             loader.upsert("gads_products",     mike_data["products_30d"],      client_id)
             loader.upsert("gads_products",     mike_data["products_180d"],     client_id)
             loader.upsert("gads_zombies",      mike_data["zombies"],           client_id)
-            loader.upsert("gads_assets",       mike_data["assets"],            client_id)
             loader.upsert("gads_placements",   mike_data["placements_pmax"] + mike_data["placements_detail"], client_id)
-            log.info(f"   ✓ Campañas: {len(mike_data['campaigns'])} filas")
-            log.info(f"   ✓ Asset Groups: {len(mike_data['asset_groups'])} filas")
             log.info(f"   ✓ Productos 30d: {len(mike_data['products_30d'])} filas")
+            log.info(f"   ✓ Zombies: {len(mike_data['zombies'])} filas")
             log.info(f"   ✓ Placements: {len(mike_data['placements_pmax']) + len(mike_data['placements_detail'])} filas")
         except Exception as e:
             log.error(f"   ✗ Mike Rhodes error: {e}")

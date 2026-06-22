@@ -605,6 +605,75 @@ def extract_ad_assets(client, customer_id, client_id, date_start, date_end):
     return rows
 
 
+def extract_pmax_assets(client, customer_id, client_id, date_start, date_end):
+    """Inventario de ASSETS de Performance Max (imagen, video, texto) + la
+    calificación de Google por pieza (performance_label: BEST / GOOD / LOW).
+
+    Por qué un extractor aparte de `extract_ad_assets`: PMax NO tiene ad_groups
+    ni anuncios adaptables clásicos, organiza sus piezas en ASSET GROUPS. Por eso
+    `ad_group_ad_asset_view` no las ve. El recurso correcto es `asset_group_asset`,
+    que además SÍ expone `performance_label` (el entorno de Scripts / la hoja de
+    Mike Rhodes ya NO lo entrega — Mike lo quitó en v30). Esta es la única fuente
+    real de esa calificación por pieza.
+
+    Es un SNAPSHOT del estado actual (asset_group_asset no lleva métricas ni fecha),
+    igual que el resto de gads_assets. No inventamos métricas: solo el contenido y
+    la calificación, que es lo valioso y 100% real.
+    """
+    query = """
+        SELECT
+            campaign.id,
+            campaign.name,
+            asset_group.id,
+            asset_group.name,
+            asset_group.ad_strength,
+            asset_group.status,
+            asset_group_asset.field_type,
+            asset_group_asset.performance_label,
+            asset_group_asset.status,
+            asset_group_asset.source,
+            asset.id,
+            asset.type,
+            asset.name,
+            asset.text_asset.text,
+            asset.image_asset.full_size.url,
+            asset.youtube_video_asset.youtube_video_id,
+            asset.youtube_video_asset.youtube_video_title,
+            asset.final_urls
+        FROM asset_group_asset
+        WHERE campaign.advertising_channel_type = 'PERFORMANCE_MAX'
+            AND asset_group_asset.status != 'REMOVED'
+    """
+    rows = []
+    try:
+        response = client.get_service("GoogleAdsService").search(
+            customer_id=customer_id, query=query
+        )
+        for row in response:
+            final_urls = list(row.asset.final_urls)
+            rows.append({
+                "client_id": client_id,
+                "campaign_name": row.campaign.name,
+                "asset_group_name": row.asset_group.name,
+                "asset_group_id": str(row.asset_group.id),
+                "asset_id": str(row.asset.id),
+                "asset_type": row.asset.type_.name,
+                "field_type": row.asset_group_asset.field_type.name,
+                "performance_label": row.asset_group_asset.performance_label.name,
+                "ad_strength": row.asset_group.ad_strength.name,
+                "status": row.asset_group_asset.status.name,
+                "source": row.asset_group_asset.source.name,
+                "asset_text": row.asset.text_asset.text or "",
+                "image_url": row.asset.image_asset.full_size.url or "",
+                "youtube_video_id": row.asset.youtube_video_asset.youtube_video_id or "",
+                "youtube_title": row.asset.youtube_video_asset.youtube_video_title or "",
+                "final_url": final_urls[0] if final_urls else "",
+            })
+    except GoogleAdsException as e:
+        log.error(f"PMax assets error {customer_id}: {e}")
+    return rows
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def run():
@@ -650,6 +719,10 @@ def run():
             rows = extract_ad_assets(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_ad_assets", rows, "client_id,date_start,ad_id,asset_id,field_type")
             log.info(f"   ✓ gads_ad_assets: {n} filas")
+
+            rows = extract_pmax_assets(gads, customer_id, cid, date_start, date_end)
+            n = upsert("gads_assets", rows, "client_id,asset_group_id,asset_id,field_type")
+            log.info(f"   ✓ gads_assets (PMax): {n} filas")
 
         except Exception as e:
             log.error(f"   ✗ Error {name}: {e}")

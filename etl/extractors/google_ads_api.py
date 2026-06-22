@@ -734,6 +734,29 @@ def extract_asset_groups(client, customer_id, client_id, date_start, date_end):
     Mike Rhodes: la regla del proyecto es que el sheet solo cubra el split de
     emplazamientos (redes) y todo lo demás salga de la API.
     """
+    # ── Snapshot del Ad Strength (sin segments.date) ──────────────────────────
+    # `asset_group.ad_strength` NO es una métrica de serie temporal: cuando se
+    # combina con segments.date la API devuelve UNKNOWN. La consulta-foto (sin
+    # fecha) sí trae el valor real actual (POOR→EXCELLENT). Lo recuperamos aquí
+    # y lo inyectamos en las filas diarias para no perder el dato.
+    strength_by_group = {}
+    snap_query = """
+        SELECT
+            asset_group.id,
+            asset_group.ad_strength
+        FROM asset_group
+        WHERE campaign.advertising_channel_type = 'PERFORMANCE_MAX'
+            AND asset_group.status != 'REMOVED'
+    """
+    try:
+        snap = client.get_service("GoogleAdsService").search(
+            customer_id=customer_id, query=snap_query
+        )
+        for row in snap:
+            strength_by_group[row.asset_group.id] = row.asset_group.ad_strength.name
+    except GoogleAdsException as e:
+        log.error(f"Asset group strength snapshot error {customer_id}: {e}")
+
     query = f"""
         SELECT
             campaign.id,
@@ -762,12 +785,18 @@ def extract_asset_groups(client, customer_id, client_id, date_start, date_end):
         for row in response:
             cost = row.metrics.cost_micros / 1_000_000
             conv_value = row.metrics.conversions_value
+            # Preferimos el ad_strength de la foto (valor real); si no, el de la
+            # fila diaria (casi siempre UNKNOWN cuando va con fecha).
+            row_strength = row.asset_group.ad_strength.name
+            ad_strength = strength_by_group.get(row.asset_group.id, row_strength)
+            if ad_strength in ("UNKNOWN", "UNSPECIFIED") and row_strength not in ("UNKNOWN", "UNSPECIFIED"):
+                ad_strength = row_strength
             rows.append({
                 "client_id": client_id,
                 "date": row.segments.date,
                 "campaign_name": row.campaign.name,
                 "asset_group_name": row.asset_group.name,
-                "ad_strength": row.asset_group.ad_strength.name,
+                "ad_strength": ad_strength,
                 "status": row.asset_group.status.name,
                 "impressions": row.metrics.impressions,
                 "clicks": row.metrics.clicks,

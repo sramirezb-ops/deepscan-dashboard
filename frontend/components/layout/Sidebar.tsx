@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { NAV_SECTIONS, CHANNEL_META, type NavItem } from '@/lib/channels';
 import { useClient } from '@/lib/useClient';
 import { useChannelModal } from '@/lib/useChannelModal';
+import { BrandLogo } from '@/components/ui/BrandLogo';
 import type { MouseEvent } from 'react';
 
 export function Sidebar() {
@@ -27,7 +28,7 @@ export function Sidebar() {
     <aside className="sb" id="sb">
       <div className="sbt">
         <div className="sb-logo">
-          <div className="sb-mark">DS</div>
+          <div className="sb-mark"><BrandLogo brand="deepscan" size={26} /></div>
           <div className="sb-brand">DeepScan</div>
         </div>
         <div className="sb-client">

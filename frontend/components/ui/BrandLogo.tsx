@@ -261,15 +261,24 @@ export function BrandLogo({
 
     case 'deepscan':
     default:
+      // Logo real DeepScan (/logos/DEEPSCAN.svg). En ese archivo el "DS" son
+      // recortes transparentes sobre un cuadrado negro, así que ponemos fondo
+      // blanco detrás para que las letras se lean blancas sobre negro.
       return (
-        <svg {...common}>
-          {/* Logo real DeepScan: "DS" blanco sobre fondo negro. */}
-          <rect x="2" y="2" width="20" height="20" rx="5" fill="#0a0a0a"
-            stroke="#3a3a3a" strokeWidth="1" />
-          <text x="12" y="15.9" fontSize="8.8" fontWeight="800" fill="#fff"
-            fontFamily="'Space Grotesk', Arial, sans-serif" textAnchor="middle"
-            letterSpacing="-0.4">DS</text>
-        </svg>
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src="/logos/DEEPSCAN.svg"
+          width={size}
+          height={size}
+          alt={BRAND_LABEL[brand]}
+          className={className}
+          style={{
+            display: 'block',
+            flexShrink: 0,
+            borderRadius: Math.round(size * 0.22),
+            background: '#fff',
+          }}
+        />
       );
   }
 }

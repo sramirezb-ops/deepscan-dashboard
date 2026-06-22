@@ -31,7 +31,7 @@ const CLIENT_COLUMNS = 'id,name,slug,currency,country,enabled_channels,objective
 // logo de marca en el sidebar sin depender de una columna en Supabase. Cuando
 // se sume un cliente nuevo, basta con dejar su SVG en /public/logos y mapearlo.
 const CLIENT_LOGOS: Record<string, string> = {
-  'ofero-colombia': '/logos/ofero.svg',
+  'ofero-colombia': '/logos/OFERO.jpg',
 };
 
 function rowToClient(row: ClientRow): Client {

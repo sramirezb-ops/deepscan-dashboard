@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -105,7 +106,7 @@ export function GA4() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Google Analytics 4</div>
+        <HeroHead brand="google-analytics">Google Analytics 4</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           Comportamiento web · {client.name} · {rangeLabel}
         </div>

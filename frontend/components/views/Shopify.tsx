@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -96,7 +97,7 @@ export function Shopify() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Shopify · tienda</div>
+        <HeroHead brand="shopify">Shopify · tienda</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {formatInt(t.orders)} órdenes ·{' '}
           {formatCurrency(t.revenue, cur)} en ventas

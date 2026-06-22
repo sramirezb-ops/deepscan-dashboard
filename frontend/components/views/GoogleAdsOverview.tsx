@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -264,7 +265,7 @@ export function GoogleAdsOverview() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Google Ads · Overview</div>
+        <HeroHead brand="google-ads">Google Ads · Overview</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {fmtCOP(totalCost)} invertido · 2 modelos de negocio
         </div>

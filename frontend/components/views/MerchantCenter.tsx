@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { useMerchantCenter } from '@/lib/hooks/useMerchantCenter';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -58,7 +59,7 @@ export function MerchantCenter() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Google Merchant Center</div>
+        <HeroHead brand="merchant">Google Merchant Center</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           Salud del feed · {client.name} · cuenta avanzada (MCA) · {data.feeds.length} subcuentas
         </div>

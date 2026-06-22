@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -223,7 +224,7 @@ export function MetaWhatsApp() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Meta Ads · WhatsApp / Mensajes</div>
+        <HeroHead brand="whatsapp">Meta Ads · WhatsApp / Mensajes</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {formatInt(t.conversations)} conversaciones ·{' '}
           {formatCurrency(t.spend, cur)} invertido · {formatCurrency(t.costPerConversation, cur)} /

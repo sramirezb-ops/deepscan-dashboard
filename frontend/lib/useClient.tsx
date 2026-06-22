@@ -33,6 +33,7 @@ export const DEMO_CLIENT: Client = {
   name: process.env.NEXT_PUBLIC_CLIENT_NAME || 'Sneakers Store',
   currency: (process.env.NEXT_PUBLIC_CURRENCY as 'MXN' | 'COP' | 'USD') || 'MXN',
   country: process.env.NEXT_PUBLIC_COUNTRY || 'México',
+  logoUrl: process.env.NEXT_PUBLIC_CLIENT_LOGO || undefined,
   activeChannels: [
     'ov2', 'week',
     'gads', 'pmax', 'srch', 'shop', 'yt',

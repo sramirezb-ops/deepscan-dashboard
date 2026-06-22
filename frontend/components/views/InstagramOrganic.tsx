@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -161,9 +162,9 @@ export function InstagramOrganic() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">
+        <HeroHead brand="instagram">
           Instagram orgánico{data.username ? ` · @${data.username}` : ''}
-        </div>
+        </HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {formatInt(t.followers)} seguidores ·{' '}
           {formatInt(t.reach)} de alcance · {formatInt(t.postsInRange)} publicaciones

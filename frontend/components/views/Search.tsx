@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useState, type MouseEvent } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
@@ -577,7 +578,7 @@ export function Search() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">🔎 Search</div>
+        <HeroHead brand="google-ads">🔎 Search</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {data.campaigns.length} campaña
           {data.campaigns.length === 1 ? '' : 's'} · {fmtCOP(totalCost)} invertido

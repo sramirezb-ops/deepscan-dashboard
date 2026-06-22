@@ -31,7 +31,13 @@ export function Sidebar() {
           <div className="sb-brand">DeepScan</div>
         </div>
         <div className="sb-client">
-          <div className="sb-client-av">BS</div>
+          {client.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="sb-client-av" src={client.logoUrl} alt={client.name}
+              style={{ objectFit: 'cover' }} />
+          ) : (
+            <div className="sb-client-av">{clientInitials(client.name)}</div>
+          )}
           <div className="sb-client-info">
             <div className="sb-client-name">{client.name}</div>
             <div className="sb-client-meta">{client.currency} · {client.country}</div>
@@ -83,6 +89,15 @@ export function Sidebar() {
       </div>
     </aside>
   );
+}
+
+// Iniciales del cliente a partir del nombre real (nunca inventadas).
+// "Ofero" → "OF"; "Sneakers Store" → "SS".
+function clientInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
 function closeSidebar() {

@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -103,7 +104,7 @@ export function Clarity() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Clarity · CRO</div>
+        <HeroHead brand="clarity">Clarity · CRO</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {formatInt(t.sessions)} sesiones ·{' '}
           {formatPercent(t.scrollDepth, 1)} scroll promedio

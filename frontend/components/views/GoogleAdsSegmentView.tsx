@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead, type Brand } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -33,6 +34,8 @@ export interface GoogleAdsSegmentViewProps {
   channelLabel: string;
   /** Ícono para el aviso de "sin campañas". */
   icon?: string;
+  /** Logo de marca del hero (PMAX/Shopping → Google Ads; Video → YouTube). */
+  brand?: Brand;
   /** Texto bajo la tabla, explicando qué partes aún no tienen fuente real. */
   pendingNote?: string;
   /** Sección opcional inyectada entre la tabla de campañas y el aviso "Próximamente". */
@@ -52,6 +55,7 @@ export function GoogleAdsSegmentView({
   title,
   channelLabel,
   icon = '🟢',
+  brand = 'google-ads',
   pendingNote,
   extraSection,
 }: GoogleAdsSegmentViewProps) {
@@ -127,7 +131,7 @@ export function GoogleAdsSegmentView({
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">{title}</div>
+        <HeroHead brand={brand}>{title}</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {data.campaignCount} campañas ·{' '}
           {formatCurrency(t.cost, cur)} invertido

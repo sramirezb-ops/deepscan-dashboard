@@ -6,6 +6,9 @@ export interface Client {
   name: string;
   currency: 'MXN' | 'COP' | 'USD';
   country: string;
+  // Logo real del cliente (si existe). Si no, el sidebar usa las iniciales del
+  // nombre — nunca un logo inventado.
+  logoUrl?: string;
   // La "receta" del cliente: qué piezas lleva su tablero
   activeChannels: ChannelId[]; // canales (Meta, TikTok, GA4, ...)
   objectives: ObjectiveId[]; // objetivos (ventas, leads, ...) — uno o varios

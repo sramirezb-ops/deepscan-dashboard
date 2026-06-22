@@ -2,16 +2,17 @@
 
 import { usePathname } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { NAV_SECTIONS } from '@/lib/channels';
+import { NAV_SECTIONS, type ChannelId } from '@/lib/channels';
 import { PeriodPicker } from './PeriodPicker';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
+import { BrandLogo, brandForChannel } from '@/components/ui/BrandLogo';
 
 export function Topbar() {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [isDark, setIsDark] = useState(true);
-  const { crumb1, crumb2, title } = findRouteMeta(pathname);
+  const { crumb1, crumb2, title, id } = findRouteMeta(pathname);
   const { previous } = usePeriod();
 
   useEffect(() => {
@@ -33,6 +34,9 @@ export function Topbar() {
       <div className="tbl">
         <div className="bmob" onClick={openSidebar} role="button" aria-label="Abrir menú">
           ☰
+        </div>
+        <div className="tb-brand" title={crumb1}>
+          <BrandLogo brand={brandForChannel(id)} size={30} />
         </div>
         <div className="tb-title-wrap">
           <div className="tb-crumb" id="crumb">
@@ -71,7 +75,12 @@ export function Topbar() {
   );
 }
 
-function findRouteMeta(pathname: string) {
+function findRouteMeta(pathname: string): {
+  crumb1: string;
+  crumb2: string;
+  title: string;
+  id: ChannelId;
+} {
   for (const section of NAV_SECTIONS) {
     for (const item of section.items) {
       if (item.href === pathname) {
@@ -79,9 +88,10 @@ function findRouteMeta(pathname: string) {
           crumb1: item.crumb1,
           crumb2: item.crumb2,
           title: item.label,
+          id: item.id,
         };
       }
     }
   }
-  return { crumb1: 'General', crumb2: 'Overview', title: 'Overview ejecutivo' };
+  return { crumb1: 'General', crumb2: 'Overview', title: 'Overview ejecutivo', id: 'ov2' };
 }

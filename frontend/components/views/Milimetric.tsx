@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -87,7 +88,7 @@ export function Milimetric() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Análisis milimétrico · creativos</div>
+        <HeroHead brand="meta">Análisis milimétrico · creativos</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {formatInt(data.creativeCount)} anuncios ·{' '}
           {formatCurrency(t.spend, cur)} invertido

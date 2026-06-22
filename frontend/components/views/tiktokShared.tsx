@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { formatNumber, formatPercent } from '@/lib/utils';
 import type { TikTokData, TikTokRetention } from '@/lib/hooks/useTikTok';
 
@@ -292,7 +293,7 @@ export function CreativeThumb({
 export function TikTokHero({ title, sub }: { title: string; sub: ReactNode }) {
   return (
     <div className="hero">
-      <div className="hero-title">{title}</div>
+      <HeroHead brand="tiktok">{title}</HeroHead>
       <div className="hero-sub" suppressHydrationWarning>
         {sub}
       </div>

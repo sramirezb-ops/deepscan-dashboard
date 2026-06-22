@@ -1,5 +1,6 @@
 'use client';
 
+import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -170,7 +171,7 @@ export function MetaCompras() {
   return (
     <div className="view on">
       <div className="hero">
-        <div className="hero-title">Meta Ads · Compras</div>
+        <HeroHead brand="meta">Meta Ads · Compras</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {data.campaignCount} campañas de compra ·{' '}
           {formatCurrency(t.spend, cur)} invertido · {formatROAS(t.roas)} ROAS

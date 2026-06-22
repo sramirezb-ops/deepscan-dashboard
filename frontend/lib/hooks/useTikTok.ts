@@ -40,6 +40,33 @@ export interface TikTokRetention {
   avgWatchTime: number;
 }
 
+// Un punto de la serie diaria de una campaña (para las líneas de tendencia).
+// Cada métrica derivada (cpl, ctr, cpm, frecuencia) se recalcula sobre los
+// acumulados DE ESE DÍA — nunca se promedian promedios.
+export interface TikTokDailyPoint {
+  date: string;
+  spend: number;
+  conversions: number;
+  cpl: number;
+  impressions: number;
+  reach: number;
+  frequency: number;
+  ctr: number;
+  cpm: number;
+}
+
+// Mismas 8 métricas agregadas (se usa para el período anterior → deltas).
+export interface TikTokCampaignMetrics {
+  spend: number;
+  conversions: number;
+  cpl: number;
+  impressions: number;
+  reach: number;
+  frequency: number;
+  ctr: number;
+  cpm: number;
+}
+
 export interface TikTokCampaignRow {
   campaignId: string;
   name: string;
@@ -56,6 +83,8 @@ export interface TikTokCampaignRow {
   cpm: number; // spend / (impressions/1000)
   videoViews: number;
   video: TikTokRetention; // curva de retención de la campaña
+  daily: TikTokDailyPoint[]; // serie diaria ordenada (para las tendencias)
+  prev: TikTokCampaignMetrics | null; // mismas métricas en el período anterior
 }
 
 export interface TikTokAdGroupRow {
@@ -150,6 +179,7 @@ export interface UseTikTokResult {
 }
 
 interface RawRow {
+  date: string | null;
   campaign_id: string | null;
   campaign_name: string | null;
   adgroup_id: string | null;
@@ -172,7 +202,7 @@ interface RawRow {
 }
 
 const SELECT =
-  'campaign_id, campaign_name, adgroup_id, adgroup_name, ad_id, ad_name, spend, impressions, clicks, reach, conversions, video_views, video_watched_2s, video_watched_6s, video_watched_p25, video_watched_p50, video_watched_p75, video_completes, avg_watch_time';
+  'date, campaign_id, campaign_name, adgroup_id, adgroup_name, ad_id, ad_name, spend, impressions, clicks, reach, conversions, video_views, video_watched_2s, video_watched_6s, video_watched_p25, video_watched_p50, video_watched_p75, video_completes, avg_watch_time';
 
 /** Trae TODAS las filas del rango paginando (Supabase corta en 1000 por request). */
 async function fetchRows(clientId: string, from: string, to: string): Promise<RawRow[]> {
@@ -331,11 +361,59 @@ function groupByCampaign(rows: RawRow[]): TikTokCampaignRow[] {
     conversions: g.conversions,
     videoViews: g.vid.views,
     video: finalizeVid(g.vid),
+    daily: [],
+    prev: null,
     ...deriv(g),
   }));
 
   list.sort((a, b) => b.spend - a.spend);
   return list;
+}
+
+/**
+ * Serie diaria por campaña: para cada campaña, un punto por día con las 8
+ * métricas (las derivadas se recalculan sobre los acumulados de ese día).
+ * Alimenta las líneas de tendencia. Devuelve un mapa nombre→puntos ordenados.
+ */
+function dailyByCampaign(rows: RawRow[]): Map<string, TikTokDailyPoint[]> {
+  const byCamp = new Map<string, Map<string, GroupAcc>>();
+  for (const r of rows) {
+    const name = r.campaign_name || '(sin nombre)';
+    const date = r.date || '';
+    let dm = byCamp.get(name);
+    if (!dm) {
+      dm = new Map<string, GroupAcc>();
+      byCamp.set(name, dm);
+    }
+    let acc = dm.get(date);
+    if (!acc) {
+      acc = newGroupAcc();
+      dm.set(date, acc);
+    }
+    addToGroup(acc, r);
+  }
+
+  const out = new Map<string, TikTokDailyPoint[]>();
+  for (const [name, dm] of byCamp) {
+    const pts = Array.from(dm.entries())
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([date, g]) => {
+        const d = deriv(g);
+        return {
+          date,
+          spend: g.spend,
+          conversions: g.conversions,
+          cpl: d.cpl,
+          impressions: g.impressions,
+          reach: g.reach,
+          frequency: d.frequency,
+          ctr: d.ctr,
+          cpm: d.cpm,
+        };
+      });
+    out.set(name, pts);
+  }
+  return out;
 }
 
 /** Agrupa por conjunto de anuncios (adgroup), con curva de retención. */
@@ -483,6 +561,26 @@ export function useTikTok(
         const campaigns = groupByCampaign(nowRows);
         const adgroups = groupByAdGroup(nowRows);
         const ads = groupByAd(nowRows);
+
+        // Serie diaria (tendencias) + métricas del período anterior por campaña.
+        const dailyMap = dailyByCampaign(nowRows);
+        const prevByName = new Map(groupByCampaign(prevRows).map((c) => [c.name, c]));
+        for (const c of campaigns) {
+          c.daily = dailyMap.get(c.name) ?? [];
+          const pv = prevByName.get(c.name);
+          c.prev = pv
+            ? {
+                spend: pv.spend,
+                conversions: pv.conversions,
+                cpl: pv.cpl,
+                impressions: pv.impressions,
+                reach: pv.reach,
+                frequency: pv.frequency,
+                ctr: pv.ctr,
+                cpm: pv.cpm,
+              }
+            : null;
+        }
         // Pegar la portada/video real a cada anuncio (si ya se resolvió).
         for (const a of ads) {
           const c = creatives.get(a.adId);

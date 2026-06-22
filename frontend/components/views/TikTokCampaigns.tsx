@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -9,24 +9,73 @@ import {
   type TikTokCampaignRow,
   type TikTokAdGroupRow,
   type TikTokAdRow,
+  type TikTokDailyPoint,
 } from '@/lib/hooks/useTikTok';
 import { formatCurrency, formatInt, formatNumber, formatPercent } from '@/lib/utils';
+import { PieChart, type PieSlice } from '@/components/ui/PieChart';
 import {
   TikTokLoading,
   TikTokError,
   TikTokEmpty,
   TikTokHero,
   CreativeThumb,
+  TT_PINK,
+  TT_CYAN,
 } from './tiktokShared';
 
 // ============================================================
-// TikTok Ads · RESULTADOS POR CAMPAÑAS
+// TikTok Ads · RESULTADOS POR CAMPAÑAS  (rediseño "agencia top level")
 // ============================================================
-// Vista 2 de 3. Desglose jerárquico real: Campaña → Conjunto de anuncios →
-// Anuncio. Cada nivel se expande/colapsa. Por anuncio mostramos costos, leads,
-// CTR, alcance, impresiones, frecuencia y tasa de conversión — todo dato real.
-// La miniatura del creativo es por ahora un marcador honesto (ver Paso 2).
+// Por cada campaña (acordeón), al abrir mostramos:
+//   1. 8 KPIs con línea de tendencia diaria real (inversión, conversiones,
+//      costo/conv, impresiones, alcance, frecuencia, CTR, CPM).
+//   2. Distribución por CONJUNTO de anuncios (donas: gasto/conv/impresiones).
+//      → TikTok no entrega desglose por ciudad en el reporte actual, así que
+//        usamos el corte real que sí existe; "por ciudad" queda para cuando se
+//        conecte el reporte de audiencia/geo en el ETL.
+//   3. Tabla con la visual del anuncio + métricas relevantes.
+// Todo es dato real; si una pieza no tiene datos, se dice honestamente.
 // ============================================================
+
+// Configuración de las 8 métricas con tendencia. `good` indica qué dirección
+// del cambio es buena (para colorear el delta sin engañar).
+type MetricKey =
+  | 'spend'
+  | 'conversions'
+  | 'cpl'
+  | 'impressions'
+  | 'reach'
+  | 'frequency'
+  | 'ctr'
+  | 'cpm';
+
+interface MetricCfg {
+  key: MetricKey;
+  label: string;
+  color: string;
+  good: 'up' | 'down' | 'neutral';
+  pick: (p: TikTokDailyPoint) => number;
+  fmt: (v: number, cur: string) => string;
+}
+
+const METRICS: MetricCfg[] = [
+  { key: 'spend', label: 'Inversión', color: TT_PINK, good: 'neutral',
+    pick: (p) => p.spend, fmt: (v, c) => formatCurrency(v, c) },
+  { key: 'conversions', label: 'Conversiones', color: '#4ade80', good: 'up',
+    pick: (p) => p.conversions, fmt: (v) => formatInt(v) },
+  { key: 'cpl', label: 'Costo / conv.', color: '#fb923c', good: 'down',
+    pick: (p) => p.cpl, fmt: (v, c) => (v > 0 ? formatCurrency(v, c) : '—') },
+  { key: 'impressions', label: 'Impresiones', color: TT_CYAN, good: 'up',
+    pick: (p) => p.impressions, fmt: (v) => formatNumber(v) },
+  { key: 'reach', label: 'Alcance', color: '#22d3ee', good: 'up',
+    pick: (p) => p.reach, fmt: (v) => formatNumber(v) },
+  { key: 'frequency', label: 'Frecuencia', color: '#a78bfa', good: 'neutral',
+    pick: (p) => p.frequency, fmt: (v) => (v > 0 ? `${v.toFixed(2)}×` : '—') },
+  { key: 'ctr', label: 'CTR', color: '#facc15', good: 'up',
+    pick: (p) => p.ctr, fmt: (v) => formatPercent(v, 2) },
+  { key: 'cpm', label: 'CPM', color: '#ec4899', good: 'down',
+    pick: (p) => p.cpm, fmt: (v, c) => (v > 0 ? formatCurrency(v, c) : '—') },
+];
 
 export function TikTokCampaigns() {
   const client = useClient();
@@ -36,7 +85,7 @@ export function TikTokCampaigns() {
   const rangeLabel = formatRangeLabel(range);
   const cur = client.currency;
 
-  // Conjuntos agrupados por campaña, y anuncios agrupados por conjunto.
+  // Conjuntos y anuncios agrupados por campaña.
   const adgroupsByCampaign = useMemo(() => {
     const m = new Map<string, TikTokAdGroupRow[]>();
     for (const g of data?.adgroups ?? []) {
@@ -47,24 +96,27 @@ export function TikTokCampaigns() {
     return m;
   }, [data]);
 
-  const adsByAdgroup = useMemo(() => {
+  const adsByCampaign = useMemo(() => {
     const m = new Map<string, TikTokAdRow[]>();
     for (const a of data?.ads ?? []) {
-      const arr = m.get(a.adgroupId) ?? [];
+      const arr = m.get(a.campaignName) ?? [];
       arr.push(a);
-      m.set(a.adgroupId, arr);
+      m.set(a.campaignName, arr);
     }
     return m;
   }, [data]);
 
+  // Primera campaña abierta por defecto (mejor primera impresión).
+  const firstName = data?.campaigns[0]?.name;
   const [openCampaigns, setOpenCampaigns] = useState<Set<string>>(new Set());
-  const [openAdgroups, setOpenAdgroups] = useState<Set<string>>(new Set());
+  const openSet = openCampaigns.size === 0 && firstName ? new Set([firstName]) : openCampaigns;
 
-  const toggle = (set: Set<string>, key: string, setter: (s: Set<string>) => void) => {
-    const next = new Set(set);
+  const toggle = (key: string) => {
+    const base = openCampaigns.size === 0 && firstName ? new Set([firstName]) : openCampaigns;
+    const next = new Set(base);
     if (next.has(key)) next.delete(key);
     else next.add(key);
-    setter(next);
+    setOpenCampaigns(next);
   };
 
   if (loading && !data) return <TikTokLoading clientName={client.name} />;
@@ -87,24 +139,21 @@ export function TikTokCampaigns() {
       />
 
       <div style={{ fontSize: 12, color: 'var(--mu)', margin: '0 0 14px', lineHeight: 1.5 }}>
-        Haz clic en una <b>campaña</b> para ver sus <b>conjuntos de anuncios</b>, y en un conjunto
-        para ver sus <b>anuncios</b>. Cada fila trae costo, leads, CPL, CTR, alcance, impresiones,
-        frecuencia y tasa de conversión — todo real.
+        Haz clic en una <b>campaña</b> para desplegar sus <b>KPIs con tendencia diaria</b>, la{' '}
+        <b>distribución por conjunto</b> y la <b>tabla de anuncios</b> con su creativo. Todo es dato
+        real del rango seleccionado.
       </div>
 
-      {/* Lista de campañas (acordeón) */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {data.campaigns.map((c: TikTokCampaignRow) => {
-          const open = openCampaigns.has(c.name);
+          const open = openSet.has(c.name);
           const groups = adgroupsByCampaign.get(c.name) ?? [];
+          const ads = adsByCampaign.get(c.name) ?? [];
           const share = t.spend > 0 ? c.spend / t.spend : 0;
           return (
             <div key={c.name} className="card" style={{ padding: 0, overflow: 'hidden' }}>
               {/* Encabezado de campaña */}
-              <button
-                onClick={() => toggle(openCampaigns, c.name, setOpenCampaigns)}
-                style={headerBtnStyle}
-              >
+              <button onClick={() => toggle(c.name)} style={headerBtnStyle}>
                 <span style={{ fontSize: 12, color: 'var(--mu)', width: 14, flexShrink: 0 }}>
                   {open ? '▾' : '▸'}
                 </span>
@@ -113,108 +162,88 @@ export function TikTokCampaigns() {
                     <b>{c.name}</b>
                   </div>
                   <div style={{ fontSize: 10, color: 'var(--mu)' }}>
-                    {groups.length} conjuntos · {formatPercent(share, 1)} de la inversión
+                    {groups.length} conjuntos · {ads.length} anuncios · {formatPercent(share, 1)} de la
+                    inversión
                   </div>
                 </div>
-                <HeaderMetrics
-                  cur={cur}
-                  spend={c.spend}
-                  conversions={c.conversions}
-                  cpl={c.cpl}
-                  ctr={c.ctr}
-                />
+                <HeaderMetrics cur={cur} spend={c.spend} conversions={c.conversions} cpl={c.cpl} ctr={c.ctr} />
               </button>
 
-              {/* Conjuntos de la campaña */}
               {open && (
-                <div style={{ borderTop: '1px solid var(--b2)', background: 'var(--bg2)' }}>
-                  {groups.map((g) => {
-                    const gKey = g.adgroupId;
-                    const gOpen = openAdgroups.has(gKey);
-                    const ads = adsByAdgroup.get(g.adgroupId) ?? [];
-                    return (
-                      <div key={gKey} style={{ borderBottom: '1px solid var(--b2)' }}>
-                        <button
-                          onClick={() => toggle(openAdgroups, gKey, setOpenAdgroups)}
-                          style={{ ...headerBtnStyle, paddingLeft: 30 }}
-                        >
-                          <span style={{ fontSize: 11, color: 'var(--mu)', width: 14, flexShrink: 0 }}>
-                            {gOpen ? '▾' : '▸'}
-                          </span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ ...ellipsis, fontSize: 13 }}>{g.name}</div>
-                            <div style={{ fontSize: 10, color: 'var(--mu)' }}>
-                              {ads.length} anuncios · frec. {g.frequency > 0 ? `${g.frequency.toFixed(2)}×` : '—'}
-                            </div>
-                          </div>
-                          <HeaderMetrics
-                            cur={cur}
-                            spend={g.spend}
-                            conversions={g.conversions}
-                            cpl={g.cpl}
-                            ctr={g.ctr}
-                          />
-                        </button>
+                <div style={{ borderTop: '1px solid var(--b2)', background: 'var(--bg2)', padding: 16 }}>
+                  {/* 1 · KPIs con tendencia */}
+                  <SectionLabel>Tendencia diaria · {c.daily.length} días con actividad</SectionLabel>
+                  <div style={kpiGridStyle}>
+                    {METRICS.map((m) => (
+                      <TrendKpi key={m.key} cfg={m} c={c} cur={cur} />
+                    ))}
+                  </div>
 
-                        {/* Anuncios del conjunto */}
-                        {gOpen && (
-                          <div style={{ padding: '4px 16px 14px 44px', overflowX: 'auto' }}>
-                            <table className="t" style={{ minWidth: 760 }}>
-                              <thead>
-                                <tr>
-                                  <th data-cat="dim">Anuncio</th>
-                                  <th data-cat="cost">Inversión</th>
-                                  <th data-cat="conv">Leads</th>
-                                  <th data-cat="cost,conv">CPL</th>
-                                  <th data-cat="impr">CTR</th>
-                                  <th data-cat="impr">Alcance</th>
-                                  <th data-cat="impr">Impr.</th>
-                                  <th data-cat="impr">Frec.</th>
-                                  <th data-cat="conv">Conv. rate</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {ads.map((a) => (
-                                  <tr key={a.adId}>
-                                    <td data-cat="dim">
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <CreativeThumb name={a.name} coverUrl={a.coverUrl} videoUrl={a.videoUrl} />
-                                        <span style={{ ...ellipsis, maxWidth: 240 }}>{a.name}</span>
-                                      </div>
-                                    </td>
-                                    <td data-cat="cost">{formatCurrency(a.spend, cur)}</td>
-                                    <td data-cat="conv">{formatInt(a.conversions)}</td>
-                                    <td data-cat="cost,conv">
-                                      {a.conversions > 0 ? formatCurrency(a.cpl, cur) : '—'}
-                                    </td>
-                                    <td data-cat="impr">{formatPercent(a.ctr, 1)}</td>
-                                    <td data-cat="impr">{formatNumber(a.reach)}</td>
-                                    <td data-cat="impr">{formatNumber(a.impressions)}</td>
-                                    <td data-cat="impr">
-                                      {a.frequency > 0 ? `${a.frequency.toFixed(2)}×` : '—'}
-                                    </td>
-                                    <td data-cat="conv">{formatPercent(a.cvr, 1)}</td>
-                                  </tr>
-                                ))}
-                                {ads.length === 0 && (
-                                  <tr>
-                                    <td data-cat="dim" colSpan={9} style={{ color: 'var(--mu)' }}>
-                                      Sin anuncios con actividad en este rango.
-                                    </td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
-                          </div>
+                  {/* 2 · Distribución por conjunto de anuncios */}
+                  <SectionLabel style={{ marginTop: 22 }}>
+                    Distribución por conjunto de anuncios
+                  </SectionLabel>
+                  <div style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.5 }}>
+                    TikTok no entrega el desglose por ciudad en el reporte actual, así que mostramos el
+                    corte real que sí existe: por <b>conjunto de anuncios</b>.
+                  </div>
+                  <div style={donutGridStyle}>
+                    <PieChart title="Gasto por conjunto" slices={slicesOf(groups, 'spend')}
+                      formatValue={(v) => formatCurrency(v, cur)} />
+                    <PieChart title="Conversiones por conjunto" slices={slicesOf(groups, 'conversions')}
+                      formatValue={(v) => formatInt(v)} />
+                    <PieChart title="Impresiones por conjunto" slices={slicesOf(groups, 'impressions')}
+                      formatValue={(v) => formatNumber(v)} />
+                  </div>
+
+                  {/* 3 · Tabla de anuncios con su visual */}
+                  <SectionLabel style={{ marginTop: 22 }}>Anuncios de la campaña</SectionLabel>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="t" style={{ minWidth: 820 }}>
+                      <thead>
+                        <tr>
+                          <th data-cat="dim">Anuncio</th>
+                          <th data-cat="cost">Inversión</th>
+                          <th data-cat="conv">Conv.</th>
+                          <th data-cat="cost,conv">Costo/conv.</th>
+                          <th data-cat="impr">CTR</th>
+                          <th data-cat="impr">Alcance</th>
+                          <th data-cat="impr">Impr.</th>
+                          <th data-cat="impr">Frec.</th>
+                          <th data-cat="impr">CPM</th>
+                          <th data-cat="conv">Conv. rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ads.map((a) => (
+                          <tr key={a.adId}>
+                            <td data-cat="dim">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <CreativeThumb name={a.name} coverUrl={a.coverUrl} videoUrl={a.videoUrl} />
+                                <span style={{ ...ellipsis, maxWidth: 240 }}>{a.name}</span>
+                              </div>
+                            </td>
+                            <td data-cat="cost">{formatCurrency(a.spend, cur)}</td>
+                            <td data-cat="conv">{formatInt(a.conversions)}</td>
+                            <td data-cat="cost,conv">{a.conversions > 0 ? formatCurrency(a.cpl, cur) : '—'}</td>
+                            <td data-cat="impr">{formatPercent(a.ctr, 2)}</td>
+                            <td data-cat="impr">{formatNumber(a.reach)}</td>
+                            <td data-cat="impr">{formatNumber(a.impressions)}</td>
+                            <td data-cat="impr">{a.frequency > 0 ? `${a.frequency.toFixed(2)}×` : '—'}</td>
+                            <td data-cat="impr">{a.cpm > 0 ? formatCurrency(a.cpm, cur) : '—'}</td>
+                            <td data-cat="conv">{formatPercent(a.cvr, 1)}</td>
+                          </tr>
+                        ))}
+                        {ads.length === 0 && (
+                          <tr>
+                            <td data-cat="dim" colSpan={10} style={{ color: 'var(--mu)' }}>
+                              Sin anuncios con actividad en este rango.
+                            </td>
+                          </tr>
                         )}
-                      </div>
-                    );
-                  })}
-                  {groups.length === 0 && (
-                    <div style={{ padding: '12px 30px', fontSize: 12, color: 'var(--mu)' }}>
-                      Sin conjuntos con actividad en este rango.
-                    </div>
-                  )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -225,36 +254,116 @@ export function TikTokCampaigns() {
       {/* Nota honesta */}
       <div className="card" style={{ marginTop: 20, borderStyle: 'dashed', borderColor: 'var(--b2)' }}>
         <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.6 }}>
-          La <b>frecuencia</b> es impresiones ÷ alcance (cuántas veces vio el anuncio cada persona, en
-          promedio). El <b>alcance</b> es la suma del alcance diario reportado por TikTok, así que es
-          una aproximación, no usuarios únicos del período completo. La miniatura del creativo es por
-          ahora un marcador: la portada/video real se conecta en el siguiente paso.
+          Las <b>líneas de tendencia</b> son la serie diaria real de cada campaña; cada métrica
+          derivada (costo/conv., CTR, CPM, frecuencia) se recalcula sobre los acumulados de cada día.
+          El <b>alcance</b> es la suma del alcance diario reportado por TikTok, así que es una
+          aproximación, no usuarios únicos del período. El desglose <b>por ciudad</b> de la imagen de
+          referencia requiere conectar el reporte de audiencia/geo de TikTok en la sincronización;
+          mientras tanto mostramos la distribución real por conjunto de anuncios.
         </div>
       </div>
     </div>
   );
 }
 
-// Métricas inline del encabezado (campaña o conjunto): inversión, leads, CPL, CTR.
-function HeaderMetrics({
-  cur,
-  spend,
-  conversions,
-  cpl,
-  ctr,
-}: {
-  cur: string;
-  spend: number;
-  conversions: number;
-  cpl: number;
-  ctr: number;
+// ── KPI con tendencia: número grande + delta vs período anterior + sparkline ──
+function TrendKpi({ cfg, c, cur }: { cfg: MetricCfg; c: TikTokCampaignRow; cur: string }) {
+  const series = c.daily.map(cfg.pick);
+  // Valor del período = agregado de la campaña (no la suma de las derivadas).
+  const value = c[cfg.key];
+  const prev = c.prev ? c.prev[cfg.key] : null;
+  const delta = prev != null && prev > 0 ? (value - prev) / prev : null;
+
+  let dir: 'up' | 'down' | 'flat' = 'flat';
+  if (delta != null) dir = delta > 0.0005 ? 'up' : delta < -0.0005 ? 'down' : 'flat';
+  // ¿El cambio es bueno? Depende de la métrica.
+  const goodTone =
+    cfg.good === 'neutral' || dir === 'flat'
+      ? 'neutral'
+      : (dir === cfg.good ? 'good' : 'bad');
+  const deltaColor = goodTone === 'good' ? '#4ade80' : goodTone === 'bad' ? '#f87171' : 'var(--mu)';
+
+  return (
+    <div
+      style={{
+        background: 'var(--bg3)',
+        border: '1px solid var(--b2)',
+        borderRadius: 10,
+        padding: '11px 12px 8px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+      }}
+    >
+      <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {cfg.label}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--t1)', lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
+        {cfg.fmt(value, cur)}
+      </div>
+      <div style={{ fontSize: 10, color: deltaColor, height: 13, fontVariantNumeric: 'tabular-nums' }}>
+        {delta != null
+          ? `${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '■'} ${formatPercent(Math.abs(delta), 1)} vs. anterior`
+          : 'sin período anterior'}
+      </div>
+      <Sparkline points={series} color={cfg.color} />
+    </div>
+  );
+}
+
+// Sparkline ligera (área + línea + último punto). Baseline en 0 = honesto.
+function Sparkline({ points, color }: { points: number[]; color: string }) {
+  const uid = useId().replace(/:/g, '');
+  const W = 168;
+  const H = 34;
+  const PAD = 3;
+  const n = points.length;
+
+  if (n < 2) {
+    return (
+      <div style={{ height: H, display: 'flex', alignItems: 'center', fontSize: 9, color: 'var(--mu)' }}>
+        ≥2 días para ver tendencia
+      </div>
+    );
+  }
+
+  const max = Math.max(...points, 0.0001);
+  const xAt = (i: number) => PAD + ((W - 2 * PAD) * i) / (n - 1);
+  const yAt = (v: number) => H - PAD - (v / max) * (H - 2 * PAD);
+  const coords = points.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
+  const line = coords.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const area = `${line} ${coords[n - 1].x.toFixed(1)},${H - PAD} ${coords[0].x.toFixed(1)},${H - PAD}`;
+  const last = coords[n - 1];
+
+  return (
+    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ marginTop: 3, display: 'block' }}>
+      <defs>
+        <linearGradient id={`sg-${uid}`} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#sg-${uid})`} />
+      <polyline points={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={last.x} cy={last.y} r="2.1" fill={color} />
+    </svg>
+  );
+}
+
+// Tajadas de dona a partir de los conjuntos de una campaña.
+function slicesOf(groups: TikTokAdGroupRow[], key: 'spend' | 'conversions' | 'impressions'): PieSlice[] {
+  return groups.map((g) => ({ label: g.name, value: g[key] }));
+}
+
+function HeaderMetrics({ cur, spend, conversions, cpl, ctr }: {
+  cur: string; spend: number; conversions: number; cpl: number; ctr: number;
 }) {
   return (
     <div style={{ display: 'flex', gap: 18, flexShrink: 0 }}>
       <Metric label="Inversión" value={formatCurrency(spend, cur)} />
-      <Metric label="Leads" value={formatInt(conversions)} />
-      <Metric label="CPL" value={conversions > 0 ? formatCurrency(cpl, cur) : '—'} />
-      <Metric label="CTR" value={formatPercent(ctr, 1)} />
+      <Metric label="Conv." value={formatInt(conversions)} />
+      <Metric label="Costo/conv." value={conversions > 0 ? formatCurrency(cpl, cur) : '—'} />
+      <Metric label="CTR" value={formatPercent(ctr, 2)} />
     </div>
   );
 }
@@ -269,6 +378,36 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+function SectionLabel({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: 'var(--t1)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        margin: '0 0 10px',
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const kpiGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+  gap: 10,
+};
+
+const donutGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: 12,
+};
 
 const headerBtnStyle: React.CSSProperties = {
   display: 'flex',

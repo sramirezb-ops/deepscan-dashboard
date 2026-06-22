@@ -3,7 +3,7 @@
 
 export type ChannelId =
   | 'ov2' | 'week'
-  | 'gads' | 'pmax' | 'srch' | 'shop' | 'yt'
+  | 'gads' | 'pmax' | 'srch' | 'shop' | 'yt' | 'prop'
   | 'meta' | 'mili' | 'wa' | 'ig'
   | 'ttok'
   | 'ga4' | 'cro' | 'gsc'
@@ -144,6 +144,10 @@ export interface NavItem {
   isSubItem?: boolean;
   badge?: string | number;
   dotColor?: 'warn' | 'alert';
+  // Si está presente, la visibilidad en el sidebar depende de ESTE canal en vez
+  // de `id`. Útil para sub-vistas que dependen de la activación del canal padre
+  // (p.ej. Propietarios depende de que Google Ads esté activo).
+  requiresChannel?: ChannelId;
 }
 
 export interface NavSection {
@@ -165,6 +169,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { id: 'gads', label: 'Overview', icon: '◎', href: '/google-ads', crumb1: 'Google Ads', crumb2: 'Overview' },
       { id: 'pmax', label: 'Performance Max', icon: '', href: '/google-ads/pmax', crumb1: 'Google Ads', crumb2: 'PMAX', isSubItem: true },
       { id: 'srch', label: 'Search', icon: '', href: '/google-ads/search', crumb1: 'Google Ads', crumb2: 'Search', isSubItem: true },
+      { id: 'prop', label: 'Propietarios', icon: '', href: '/google-ads/propietarios', crumb1: 'Google Ads', crumb2: 'Propietarios', isSubItem: true, requiresChannel: 'gads' },
       { id: 'shop', label: 'Shopping', icon: '', href: '/google-ads/shopping', crumb1: 'Google Ads', crumb2: 'Shopping', isSubItem: true },
       { id: 'yt', label: 'YouTube', icon: '', href: '/google-ads/youtube', crumb1: 'Google Ads', crumb2: 'YouTube', isSubItem: true },
     ],

@@ -46,7 +46,7 @@ export function Sidebar() {
           // (clients.enabled_channels en Supabase). Si una sección entera
           // se queda sin items visibles, no la dibujamos.
           const visibleItems = section.items.filter((item) =>
-            client.activeChannels.includes(item.id)
+            client.activeChannels.includes(item.requiresChannel ?? item.id)
           );
           if (visibleItems.length === 0) return null;
 

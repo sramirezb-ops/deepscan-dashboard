@@ -389,6 +389,48 @@ def extract_tiktok_creatives(
     if spark_map:
         log.info(f"   TikTok creativos: {len(spark_map)} Spark Ads (post orgánico) resueltos")
 
+    # ── DIAG TEMPORAL: si hay Spark Ads sin resolver, averiguar la identidad ─
+    # correcta probando cada identidad válida del anunciante. Estos logs salen
+    # en GitHub Actions y nos dicen qué identity_id/type hace que la portada
+    # cargue (code=0). BORRAR este bloque cuando el fix esté confirmado.
+    if spark_ads and len(spark_map) < len(spark_ads):
+        log.warning("   [DIAG] === Spark Ads sin resolver: iniciando diagnóstico ===")
+        a0_id, a0 = spark_ads[0]
+        log.warning(
+            f"   [DIAG] ejemplo ad_id={a0_id} item_id={a0.get('item_id')} "
+            f"identity_id={a0.get('identity_id')} identity_type={a0.get('identity_type')}"
+        )
+        # 1) Identidades válidas del anunciante.
+        id_data = _api_get(f"{BASE_URL}/identity/get/", headers, {
+            "advertiser_id": advertiser_id, "page": 1, "page_size": 50,
+        })
+        ids = []
+        if id_data:
+            ids = id_data.get("identity_list") or id_data.get("list") or []
+        log.warning(f"   [DIAG] /identity/get/ devolvió {len(ids)} identidades")
+        for it in ids[:20]:
+            log.warning(
+                f"   [DIAG]   id={it.get('identity_id')} "
+                f"type={it.get('identity_type')} name={it.get('display_name')}"
+            )
+        # 2) Probar la portada del item con cada identidad válida.
+        item0 = a0.get("item_id")
+        for cand in ids:
+            r = _api_get(f"{BASE_URL}/identity/video/info/", headers, {
+                "advertiser_id": advertiser_id,
+                "identity_id":   cand.get("identity_id"),
+                "identity_type": cand.get("identity_type"),
+                "item_id":       item0,
+            })
+            if r is not None:
+                info = _identity_info(r)
+                log.warning(
+                    f"   [DIAG] OK item={item0} con identity_id={cand.get('identity_id')} "
+                    f"type={cand.get('identity_type')} -> claves={list(info.keys())[:12]}"
+                )
+            time.sleep(0.1)
+        log.warning("   [DIAG] === fin diagnóstico ===")
+
     # ── 4) Ensamblar filas (solo las que tienen al menos una portada) ───────
     out: list[dict] = []
     for aid, m in ad_meta.items():

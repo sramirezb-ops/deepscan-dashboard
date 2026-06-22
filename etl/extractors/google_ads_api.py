@@ -484,6 +484,82 @@ def extract_ads(client, customer_id, client_id, date_start, date_end):
     return rows
 
 
+def extract_ad_assets(client, customer_id, client_id, date_start, date_end):
+    """Resultados POR ASSET (cada imagen, video o texto) y por día.
+
+    Abre el rendimiento del anuncio adaptable pieza por pieza usando
+    `ad_group_ad_asset_view`, unido al recurso `asset` para traer la URL de
+    imagen, el video de YouTube y el texto. Responde, con dato real, "¿qué
+    imagen / video / titular trae más impresiones, clics y leads?".
+
+    OJO: Google NO atribuye costo por asset en anuncios adaptables (el costo
+    vive a nivel anuncio). Por eso aquí solo se guardan métricas que Google sí
+    reporta por asset: impresiones, clics y conversiones. Nada de costo/CPL por
+    asset — sería inventado. `performance_label` es la calificación de Google.
+    """
+    query = f"""
+        SELECT
+            campaign.id,
+            campaign.name,
+            campaign.advertising_channel_type,
+            ad_group.id,
+            ad_group.name,
+            ad_group_ad.ad.id,
+            ad_group_ad_asset_view.field_type,
+            ad_group_ad_asset_view.performance_label,
+            asset.id,
+            asset.type,
+            asset.name,
+            asset.text_asset.text,
+            asset.image_asset.full_size.url,
+            asset.youtube_video_asset.youtube_video_id,
+            asset.youtube_video_asset.youtube_video_title,
+            segments.date,
+            metrics.impressions,
+            metrics.clicks,
+            metrics.conversions,
+            metrics.conversions_value,
+            metrics.ctr
+        FROM ad_group_ad_asset_view
+        WHERE segments.date BETWEEN '{date_start}' AND '{date_end}'
+        ORDER BY segments.date DESC, metrics.impressions DESC
+    """
+    rows = []
+    try:
+        response = client.get_service("GoogleAdsService").search(
+            customer_id=customer_id, query=query
+        )
+        for row in response:
+            yt_id = row.asset.youtube_video_asset.youtube_video_id or ""
+            rows.append({
+                "client_id": client_id,
+                "date_start": row.segments.date,
+                "campaign_id": str(row.campaign.id),
+                "campaign_name": row.campaign.name,
+                "campaign_type": row.campaign.advertising_channel_type.name,
+                "ad_group_id": str(row.ad_group.id),
+                "ad_group_name": row.ad_group.name,
+                "ad_id": str(row.ad_group_ad.ad.id),
+                "asset_id": str(row.asset.id),
+                "field_type": row.ad_group_ad_asset_view.field_type.name,
+                "asset_type": row.asset.type_.name,
+                "performance_label": row.ad_group_ad_asset_view.performance_label.name,
+                "asset_name": row.asset.name or "",
+                "asset_text": row.asset.text_asset.text or "",
+                "image_url": row.asset.image_asset.full_size.url or "",
+                "youtube_video_id": yt_id,
+                "youtube_title": row.asset.youtube_video_asset.youtube_video_title or "",
+                "impressions": row.metrics.impressions,
+                "clicks": row.metrics.clicks,
+                "conversions": round(row.metrics.conversions, 2),
+                "conv_value": round(row.metrics.conversions_value, 2),
+                "ctr": round(row.metrics.ctr, 4),
+            })
+    except GoogleAdsException as e:
+        log.error(f"Ad assets error {customer_id}: {e}")
+    return rows
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def run():
@@ -525,6 +601,10 @@ def run():
             rows = extract_ads(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_ads", rows, "client_id,date_start,ad_id")
             log.info(f"   ✓ gads_ads: {n} filas")
+
+            rows = extract_ad_assets(gads, customer_id, cid, date_start, date_end)
+            n = upsert("gads_ad_assets", rows, "client_id,date_start,ad_id,asset_id,field_type")
+            log.info(f"   ✓ gads_ad_assets: {n} filas")
 
         except Exception as e:
             log.error(f"   ✗ Error {name}: {e}")

@@ -1,34 +1,95 @@
 'use client';
 
+import { useMemo, useState, useEffect } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { TT_PINK, TT_CYAN, TikTokHero, SectionLabel } from './tiktokShared';
+import { formatInt, formatPercent } from '@/lib/utils';
+import { useTikTokComments } from '@/lib/hooks/useTikTokComments';
+import type { Sentiment, TikTokCommentItem } from '@/lib/hooks/useTikTokComments';
+import {
+  TT_PINK,
+  TT_CYAN,
+  TikTokHero,
+  TikTokLoading,
+  TikTokError,
+  SectionLabel,
+  BackToTop,
+  chipStyle,
+  toolbarStyle,
+  searchInputStyle,
+  searchIconStyle,
+  searchClearStyle,
+  selectStyle,
+} from './tiktokShared';
 
 // ============================================================
-// TikTok Ads · COMENTARIOS  (vista en preparación — placeholder honesto)
+// TikTok Ads · COMENTARIOS
 // ============================================================
-// Vista 4 de TikTok. El objetivo es monitorear los comentarios de los anuncios
-// (y su SENTIMENT) para entender la reacción real de la audiencia al creativo.
+// Vista 4 de TikTok. Monitorea los comentarios de los anuncios y su SENTIMENT
+// para entender la reacción real de la audiencia al creativo.
 //
-// IMPORTANTE: hoy NO existe la fuente de datos. No hay tabla `tiktok_comments`
-// en Supabase y la API de comentarios aún no está conectada. Por eso esta hoja
-// muestra un estado honesto de "esperando conexión" + un preview de cómo se
-// verá, en lugar de inventar comentarios falsos. En cuanto el ETL escriba los
-// comentarios reales, se reemplaza el preview por datos en vivo.
+// Los datos vienen de la tabla `tiktok_comments` (la llena el ETL
+// etl/extractors/tiktok_comments.py). El sentiment NO es una métrica de TikTok:
+// lo DERIVA el ETL con una heurística de léxico en español. Lo decimos con
+// honestidad en la propia hoja. Mientras la fuente no escriba comentarios,
+// se muestra el marcador "esperando conexión" en vez de inventar nada.
 // ============================================================
 
-// Colores de sentiment (se usarán también cuando haya datos reales).
-const SENT = {
-  pos: '#22d97a',
-  neu: '#9aa3b2',
-  neg: '#f87171',
+// Colores de sentiment.
+const SENT: Record<Sentiment, string> = {
+  positive: '#22d97a',
+  neutral: '#9aa3b2',
+  negative: '#f87171',
 };
+const SENT_LABEL: Record<Sentiment, string> = {
+  positive: 'Positivo',
+  neutral: 'Neutral',
+  negative: 'Negativo',
+};
+
+const PER_PAGE = 20;
 
 export function TikTokComments() {
   const client = useClient();
   const { range } = usePeriod();
   const rangeLabel = formatRangeLabel(range);
+  const { data, loading, error } = useTikTokComments(client.id, range);
+
+  // Filtros de la lista.
+  const [query, setQuery] = useState('');
+  const [adFilter, setAdFilter] = useState('all');
+  const [sentFilter, setSentFilter] = useState<'all' | Sentiment>('all');
+  const [page, setPage] = useState(1);
+
+  useEffect(() => setPage(1), [query, adFilter, sentFilter]);
+
+  const comments = data?.comments ?? [];
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return comments.filter((c) => {
+      if (adFilter !== 'all' && (c.adId || c.adName) !== adFilter) return false;
+      if (sentFilter !== 'all' && c.sentiment !== sentFilter) return false;
+      if (q && !c.content.toLowerCase().includes(q) && !c.author.toLowerCase().includes(q))
+        return false;
+      return true;
+    });
+  }, [comments, query, adFilter, sentFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
+  if (loading && !data) return <TikTokLoading clientName={client.name} />;
+  if (error) return <TikTokError error={error} />;
+
+  // ── Estado honesto: la fuente aún no escribió comentarios ──────────────────
+  if (!data || !data.existsEver) {
+    return <EsperandoConexion rangeLabel={rangeLabel} clientName={client.name} />;
+  }
+
+  const s = data.summary;
 
   return (
     <div className="view on">
@@ -36,12 +97,317 @@ export function TikTokComments() {
         title="TikTok Ads · Comentarios"
         sub={
           <>
-            {rangeLabel} · {client.name} · función en preparación
+            {rangeLabel} · {client.name} · {formatInt(s.total)} comentarios ·{' '}
+            {formatInt(s.totalLikes)} likes
           </>
         }
       />
 
-      {/* Aviso honesto: no hay datos todavía */}
+      {data.existsEver && s.total === 0 ? (
+        // Hay comentarios en otras fechas, pero no en este rango.
+        <div className="card" style={{ padding: 28, textAlign: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--t1)', marginBottom: 6 }}>
+            Sin comentarios en este período
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--mu)' }}>
+            No hay comentarios de TikTok para {client.name} entre <b>{rangeLabel}</b>. Prueba a
+            ampliar el rango con el filtro de fechas de arriba.
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Resumen de sentiment */}
+          <SectionLabel>Sentiment del período</SectionLabel>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: 10,
+            }}
+          >
+            <SentimentStat label="Comentarios" big={formatInt(s.total)} hint="total del período" color="var(--t1)" />
+            <SentimentStat
+              label="Positivos"
+              big={formatInt(s.positive)}
+              hint={`${formatPercent(s.positivePct, 0)} del total`}
+              color={SENT.positive}
+            />
+            <SentimentStat
+              label="Neutrales"
+              big={formatInt(s.neutral)}
+              hint={`${formatPercent(s.neutralPct, 0)} del total`}
+              color={SENT.neutral}
+            />
+            <SentimentStat
+              label="Negativos"
+              big={formatInt(s.negative)}
+              hint={`${formatPercent(s.negativePct, 0)} del total`}
+              color={SENT.negative}
+            />
+          </div>
+
+          {/* Barra de distribución de sentiment */}
+          <div className="card" style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', height: 16, borderRadius: 8, overflow: 'hidden', background: 'var(--bg3)' }}>
+              {(['positive', 'neutral', 'negative'] as Sentiment[]).map((k) => {
+                const pct = k === 'positive' ? s.positivePct : k === 'neutral' ? s.neutralPct : s.negativePct;
+                if (pct <= 0) return null;
+                return (
+                  <div
+                    key={k}
+                    title={`${SENT_LABEL[k]}: ${formatPercent(pct, 1)}`}
+                    style={{ width: `${pct * 100}%`, background: SENT[k] }}
+                  />
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap' }}>
+              {(['positive', 'neutral', 'negative'] as Sentiment[]).map((k) => (
+                <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--mu)' }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: SENT[k] }} />
+                  {SENT_LABEL[k]}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Toolbar: búsqueda + filtro por anuncio + conteo */}
+          <SectionLabel style={{ marginTop: 22 }}>Comentarios</SectionLabel>
+          <div style={toolbarStyle}>
+            <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 360 }}>
+              <span style={searchIconStyle}>⌕</span>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar en comentarios o autor…"
+                style={searchInputStyle}
+              />
+              {query && (
+                <button style={searchClearStyle} onClick={() => setQuery('')} aria-label="Limpiar">
+                  ×
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <select value={adFilter} onChange={(e) => setAdFilter(e.target.value)} style={selectStyle}>
+                <option value="all">Todos los anuncios ({data.ads.length})</option>
+                {data.ads.map((a) => (
+                  <option key={a.adId} value={a.adId}>
+                    {a.adName.length > 40 ? a.adName.slice(0, 40) + '…' : a.adName} ({a.count})
+                  </option>
+                ))}
+              </select>
+              <span style={{ fontSize: 11, color: 'var(--mu)', whiteSpace: 'nowrap' }}>
+                {formatInt(filtered.length)} comentarios
+              </span>
+            </div>
+          </div>
+
+          {/* Chips de sentiment */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 12px' }}>
+            <button style={chipStyle(sentFilter === 'all')} onClick={() => setSentFilter('all')}>
+              Todos
+            </button>
+            {(['positive', 'neutral', 'negative'] as Sentiment[]).map((k) => (
+              <button key={k} style={chipStyle(sentFilter === k)} onClick={() => setSentFilter(k)}>
+                {SENT_LABEL[k]}
+              </button>
+            ))}
+          </div>
+
+          {/* Lista de comentarios */}
+          {pageItems.length === 0 ? (
+            <div className="card" style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--mu)' }}>
+              Ningún comentario coincide con el filtro.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {pageItems.map((c) => (
+                <CommentCard key={c.commentId} c={c} />
+              ))}
+            </div>
+          )}
+
+          {/* Paginación */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 16 }}>
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                style={pagerStyle(safePage <= 1)}
+              >
+                ← Anterior
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--mu)' }}>
+                Página {safePage} de {totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                style={pagerStyle(safePage >= totalPages)}
+              >
+                Siguiente →
+              </button>
+            </div>
+          )}
+
+          {/* Nota honesta sobre el sentiment */}
+          <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 18, lineHeight: 1.6 }}>
+            El <b>sentiment</b> (positivo / neutral / negativo) lo calcula el ETL con una heurística
+            de léxico en español, no es una métrica oficial de TikTok. Sirve como guía de la reacción
+            general; cada comentario se muestra tal cual lo escribió la audiencia.
+          </div>
+        </>
+      )}
+
+      <BackToTop />
+    </div>
+  );
+}
+
+// ── Tarjeta de un comentario ─────────────────────────────────────────────────
+function CommentCard({ c }: { c: TikTokCommentItem }) {
+  const dateLabel = c.createdAt
+    ? new Date(c.createdAt).toLocaleDateString('es', { day: 'numeric', month: 'short' })
+    : '';
+  const initial = (c.author || '?').trim().charAt(0).toUpperCase() || '?';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 12,
+        padding: '12px 14px',
+        borderRadius: 10,
+        background: 'var(--bg3)',
+        border: '1px solid var(--b2)',
+      }}
+    >
+      {/* Avatar (o inicial honesta si no hay) */}
+      {c.authorAvatar ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={c.authorAvatar}
+          alt={c.author}
+          loading="lazy"
+          style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' }}
+        />
+      ) : (
+        <span
+          aria-hidden
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: '50%',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 14,
+            fontWeight: 700,
+            color: 'var(--t1)',
+            background: `linear-gradient(150deg, ${TT_PINK}22, ${TT_CYAN}22)`,
+          }}
+        >
+          {initial}
+        </span>
+      )}
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--t1)' }}>{c.author}</span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 10,
+              color: SENT[c.sentiment],
+            }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: SENT[c.sentiment] }} />
+            {SENT_LABEL[c.sentiment]}
+          </span>
+          {dateLabel && <span style={{ fontSize: 10, color: 'var(--mu)' }}>· {dateLabel}</span>}
+        </div>
+
+        <div style={{ fontSize: 13, color: 'var(--t2)', lineHeight: 1.5, wordBreak: 'break-word' }}>
+          {c.content || <span style={{ color: 'var(--mu)', fontStyle: 'italic' }}>(comentario sin texto)</span>}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 7, fontSize: 11, color: 'var(--mu)' }}>
+          <span title="Likes">♥ {formatInt(c.likes)}</span>
+          {c.replies > 0 && <span title="Respuestas">💬 {formatInt(c.replies)}</span>}
+          {c.adName && (
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }} title={c.adName}>
+              · {c.adName}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Tarjeta de resumen de sentiment ──────────────────────────────────────────
+function SentimentStat({
+  label,
+  big,
+  hint,
+  color,
+}: {
+  label: string;
+  big: string;
+  hint: string;
+  color: string;
+}) {
+  return (
+    <div
+      style={{
+        background: 'var(--bg3)',
+        border: '1px solid var(--b2)',
+        borderRadius: 10,
+        padding: '11px 13px 9px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+      }}
+    >
+      <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 700, color, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+        {big}
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--mu)' }}>{hint}</div>
+    </div>
+  );
+}
+
+function pagerStyle(disabled: boolean): React.CSSProperties {
+  return {
+    fontSize: 11,
+    padding: '5px 11px',
+    borderRadius: 7,
+    border: '1px solid var(--b2)',
+    background: 'transparent',
+    color: disabled ? 'var(--b2)' : 'var(--t2)',
+    cursor: disabled ? 'default' : 'pointer',
+  };
+}
+
+// ── Estado honesto: la fuente de comentarios aún no está conectada ───────────
+function EsperandoConexion({ rangeLabel, clientName }: { rangeLabel: string; clientName: string }) {
+  return (
+    <div className="view on">
+      <TikTokHero
+        title="TikTok Ads · Comentarios"
+        sub={
+          <>
+            {rangeLabel} · {clientName} · función en preparación
+          </>
+        }
+      />
+
       <div
         className="card"
         style={{
@@ -75,132 +441,34 @@ export function TikTokComments() {
             <div style={{ fontSize: 13, color: 'var(--mu)', lineHeight: 1.6, maxWidth: 640 }}>
               Esta hoja monitoreará los <b>comentarios de tus anuncios</b> y su <b>sentiment</b>{' '}
               (positivo / neutral / negativo) para entender cómo reacciona la audiencia a cada
-              creativo. Todavía <b>no hay datos reales que mostrar</b>: la sincronización de
-              comentarios aún no está conectada, así que preferimos decirlo con honestidad antes que
-              inventar comentarios. En cuanto el ETL escriba los comentarios en{' '}
-              <code>tiktok_comments</code>, esta vista se encenderá automáticamente con datos en
-              vivo.
+              creativo. Todavía <b>no hay datos reales que mostrar</b>: el ETL de comentarios ya está
+              construido, pero aún no ha escrito filas en <code>tiktok_comments</code> (falta aplicar
+              la migración y/o la primera corrida con permiso de comentarios). En cuanto lleguen, esta
+              vista se encenderá automáticamente con datos en vivo.
             </div>
           </div>
         </div>
       </div>
 
-      {/* Preview de cómo se verá (claramente marcado como maqueta, sin datos) */}
-      <SectionLabel style={{ marginTop: 22 }}>
-        Así se verá cuando lleguen los datos reales · vista previa
-      </SectionLabel>
-
-      {/* Resumen de sentiment (placeholder) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 10,
-          opacity: 0.55,
-        }}
-      >
-        <SentimentPreview label="Comentarios" value="—" color="var(--t1)" hint="total del período" />
-        <SentimentPreview label="Positivos" value="—" color={SENT.pos} hint="% sobre el total" />
-        <SentimentPreview label="Neutrales" value="—" color={SENT.neu} hint="% sobre el total" />
-        <SentimentPreview label="Negativos" value="—" color={SENT.neg} hint="% sobre el total" />
-      </div>
-
-      {/* Lista de comentarios (skeleton) */}
-      <div className="card" style={{ marginTop: 12, opacity: 0.55 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginBottom: 4 }}>
-          Comentarios destacados
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--mu)', marginBottom: 14 }}>
-          Cada comentario aparecerá con su autor, el anuncio al que pertenece, sus likes y su
-          sentiment. Por ahora es solo una maqueta.
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <CommentSkeleton dot={SENT.pos} w="82%" />
-          <CommentSkeleton dot={SENT.neu} w="68%" />
-          <CommentSkeleton dot={SENT.neg} w="74%" />
-        </div>
-      </div>
-
-      {/* Qué se necesita para encender la hoja (documentación honesta) */}
       <SectionLabel style={{ marginTop: 22 }}>Qué se necesita para encender esta hoja</SectionLabel>
       <div className="card">
         <div style={{ fontSize: 13, color: 'var(--mu)', lineHeight: 1.7 }}>
           <div style={{ marginBottom: 10 }}>
-            Para mostrar datos reales hacen falta dos piezas, en orden:
+            El <b style={{ color: 'var(--t1)' }}>ETL ya existe</b> (
+            <code>etl/extractors/tiktok_comments.py</code>): pide los comentarios a la TikTok
+            Marketing API y deriva el sentiment con una heurística de léxico en español. Para que
+            empiecen a aparecer datos faltan dos pasos:
           </div>
-          <div style={{ marginBottom: 12 }}>
-            <b style={{ color: 'var(--t1)' }}>1. Origen de datos (backend / ETL).</b> Un proceso que
-            traiga los comentarios desde la API de TikTok y los guarde en una tabla nueva en Supabase
-            (p. ej. <code>tiktok_comments</code>) con, al menos:
-            <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'var(--t2)' }}>
-              <li><code>comment_id</code> · <code>ad_id</code> (a qué anuncio pertenece)</li>
-              <li><code>author</code> · <code>text</code> · <code>likes</code> · <code>created_at</code></li>
-              <li><code>sentiment</code> (positivo / neutral / negativo) y un puntaje opcional</li>
-            </ul>
-          </div>
-          <div>
-            <b style={{ color: 'var(--t1)' }}>2. La hoja (frontend).</b> Una vez exista esa tabla con
-            datos reales, conectamos esta vista al mismo hook de TikTok y reemplazamos el preview por:
-            resumen de sentiment, filtro por anuncio, búsqueda, y los comentarios destacados — con la
-            misma estética de Campañas y Retención.
-          </div>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'var(--t2)' }}>
+            <li>
+              Aplicar la migración <code>0010_tiktok_comments.sql</code> en Supabase (crea la tabla).
+            </li>
+            <li>
+              Que el token de TikTok tenga permiso de <b>gestión de comentarios</b> y corra el ETL
+              (cron diario o disparo manual).
+            </li>
+          </ul>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// Tarjeta de resumen de sentiment (maqueta, sin dato real).
-function SentimentPreview({
-  label,
-  value,
-  color,
-  hint,
-}: {
-  label: string;
-  value: string;
-  color: string;
-  hint: string;
-}) {
-  return (
-    <div
-      style={{
-        background: 'var(--bg3)',
-        border: '1px solid var(--b2)',
-        borderRadius: 10,
-        padding: '11px 13px 9px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 3,
-      }}
-    >
-      <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 20, fontWeight: 700, color, lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 10, color: 'var(--mu)' }}>{hint}</div>
-    </div>
-  );
-}
-
-// Fila vacía estilo "skeleton" de un comentario (maqueta).
-function CommentSkeleton({ dot, w }: { dot: string; w: string }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        padding: '10px 12px',
-        borderRadius: 8,
-        background: 'var(--bg3)',
-        border: '1px solid var(--b2)',
-      }}
-    >
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span style={{ height: 8, width: '34%', borderRadius: 4, background: 'var(--b2)' }} />
-        <span style={{ height: 8, width: w, borderRadius: 4, background: 'var(--b1, var(--b2))' }} />
       </div>
     </div>
   );

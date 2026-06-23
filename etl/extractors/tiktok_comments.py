@@ -46,8 +46,16 @@ MAX_PAGES_PER_GROUP = 50 # tope defensivo (5.000 comentarios por grupo)
 # 51010 = "Internal Time out" → el backend de TikTok tardó demasiado y cortó.
 # Es transitorio y suele resolverse al reintentar con una pequeña espera.
 RETRYABLE_CODES = {51010}
-MAX_RETRIES = 4          # 1 intento + 3 reintentos por petición
-RETRY_BACKOFF = 1.5      # segundos base; crece exponencial (1.5, 3, 6…)
+MAX_RETRIES = 2          # 1 intento + 1 reintento por petición (el cortacircuitos
+                         # de abajo se encarga del caso "endpoint caído")
+RETRY_BACKOFF = 1.5      # segundos base; crece exponencial (1.5, 3…)
+
+# Cortacircuitos: si el endpoint de comentarios no responde (timeout 51010) en
+# varias consultas seguidas, asumimos que el servicio de TikTok está caído y
+# abortamos la extracción de comentarios de una vez, en vez de gastar minutos
+# golpeando un endpoint muerto. La hoja mantiene su marcador y la próxima corrida
+# lo reintenta solo.
+ABORT_AFTER_FAILS = 3
 
 # El backend de TikTok hace timeout (51010) si se le pide una ventana de 30 días
 # por grupo de anuncios. Partimos el rango en trozos pequeños: cada consulta
@@ -280,9 +288,15 @@ def extract_tiktok_comments(
     windows = _date_windows(date_from, date_to)
 
     by_id: dict[str, dict] = {}   # comment_id → fila (dedup entre grupos/páginas)
+    fails = 0          # timeouts seguidos (para el cortacircuitos)
+    aborted = False    # ¿se abortó por endpoint caído?
 
     for adgroup_id in uniq:
+        if aborted:
+            break
         for win_from, win_to in windows:
+            if aborted:
+                break
             # La API espera 'YYYY-MM-DD HH:MM:SS'. Cada sub-ventana es chica
             # (WINDOW_DAYS) para no disparar el timeout 51010 de TikTok.
             start_time = f"{win_from.isoformat()} 00:00:00"
@@ -306,7 +320,19 @@ def extract_tiktok_comments(
                     "page_size":     PAGE_SIZE,
                 })
                 if data is None:
-                    break  # esta ventana no resolvió → siguiente ventana/grupo
+                    # Esta ventana no resolvió (timeout/red). Subimos el contador
+                    # del cortacircuitos; si se acumulan demasiados, abortamos.
+                    fails += 1
+                    if fails >= ABORT_AFTER_FAILS:
+                        log.warning(
+                            f"   TikTok comentarios: el endpoint no responde "
+                            f"({fails} consultas con timeout seguidas) → se omite "
+                            f"esta corrida; se reintentará en la próxima."
+                        )
+                        aborted = True
+                    break  # siguiente ventana/grupo (o fin, si se abortó)
+
+                fails = 0  # una respuesta buena reinicia el cortacircuitos
 
                 page_info = data.get("page_info", {}) or {}
                 total_pages = int(page_info.get("total_page", 1) or 1)
@@ -350,8 +376,10 @@ def extract_tiktok_comments(
     rows = list(by_id.values())
     pos = sum(1 for r in rows if r["sentiment"] == "positive")
     neg = sum(1 for r in rows if r["sentiment"] == "negative")
+    estado = " (abortado: endpoint sin responder)" if aborted else ""
     log.info(
         f"   TikTok comentarios: {len(rows)} comentarios de {len(uniq)} grupos "
         f"(+{pos} positivos / -{neg} negativos / {len(rows)-pos-neg} neutrales)"
+        f"{estado}"
     )
     return rows

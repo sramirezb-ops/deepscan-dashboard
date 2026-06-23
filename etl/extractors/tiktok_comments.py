@@ -30,7 +30,7 @@ import json
 import logging
 import time
 import unicodedata
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import requests
 
 log = logging.getLogger(__name__)
@@ -48,6 +48,11 @@ MAX_PAGES_PER_GROUP = 50 # tope defensivo (5.000 comentarios por grupo)
 RETRYABLE_CODES = {51010}
 MAX_RETRIES = 4          # 1 intento + 3 reintentos por petición
 RETRY_BACKOFF = 1.5      # segundos base; crece exponencial (1.5, 3, 6…)
+
+# El backend de TikTok hace timeout (51010) si se le pide una ventana de 30 días
+# por grupo de anuncios. Partimos el rango en trozos pequeños: cada consulta
+# abarca menos comentarios y responde sin ahogarse.
+WINDOW_DAYS = 7          # tamaño de cada sub-ventana de fechas
 
 # search_field=ADGROUP_ID se codifica como "2" en la API (ver comment_list.yml).
 SEARCH_FIELD_ADGROUP = "ADGROUP_ID"
@@ -191,6 +196,23 @@ def _created_at(v) -> str | None:
     return None
 
 
+def _date_windows(date_from: date, date_to: date, days: int = WINDOW_DAYS):
+    """Parte [date_from, date_to] en sub-ventanas de a lo sumo `days` días.
+
+    Ventanas chicas evitan el timeout interno de TikTok (code 51010): cada
+    consulta abarca menos comentarios y el backend alcanza a responder. Devuelve
+    una lista de tuplas (inicio, fin) que cubren el rango completo sin solaparse."""
+    if date_to < date_from:
+        return []
+    windows = []
+    cur = date_from
+    while cur <= date_to:
+        end = min(cur + timedelta(days=days - 1), date_to)
+        windows.append((cur, end))
+        cur = end + timedelta(days=1)
+    return windows
+
+
 def _api_get(url: str, headers: dict, params: dict) -> dict | None:
     """GET tolerante con reintentos: devuelve data dict, o None si tras agotar
     los reintentos la API sigue en error (permiso, parámetro o red).
@@ -255,71 +277,74 @@ def extract_tiktok_comments(
         return []
 
     url = f"{BASE_URL}/comment/list/"
-    # La API espera 'YYYY-MM-DD HH:MM:SS' (convención de la Ads Management API).
-    start_time = f"{date_from.isoformat()} 00:00:00"
-    end_time = f"{date_to.isoformat()} 23:59:59"
+    windows = _date_windows(date_from, date_to)
 
     by_id: dict[str, dict] = {}   # comment_id → fila (dedup entre grupos/páginas)
 
     for adgroup_id in uniq:
-        page = 1
-        total_pages = 1
-        while page <= total_pages and page <= MAX_PAGES_PER_GROUP:
-            # NO pedimos sort_field=LIKES: ordenar todos los comentarios por
-            # likes en una ventana de 30 días hace que el backend de TikTok se
-            # quede sin tiempo (code 51010). Usamos su orden por defecto (más
-            # barato) y reordenamos por likes en la hoja del dashboard.
-            data = _api_get(url, headers, {
-                "advertiser_id": advertiser_id,
-                "start_time":    start_time,
-                "end_time":      end_time,
-                "search_field":  SEARCH_FIELD_ADGROUP,
-                "search_value":  adgroup_id,
-                "comment_type":  json.dumps(["ALL"]),
-                "comment_status": json.dumps(["ALL"]),
-                "page":          page,
-                "page_size":     PAGE_SIZE,
-            })
-            if data is None:
-                break  # este grupo no resolvió (permiso/red) → siguiente
+        for win_from, win_to in windows:
+            # La API espera 'YYYY-MM-DD HH:MM:SS'. Cada sub-ventana es chica
+            # (WINDOW_DAYS) para no disparar el timeout 51010 de TikTok.
+            start_time = f"{win_from.isoformat()} 00:00:00"
+            end_time = f"{win_to.isoformat()} 23:59:59"
 
-            page_info = data.get("page_info", {}) or {}
-            total_pages = int(page_info.get("total_page", 1) or 1)
+            page = 1
+            total_pages = 1
+            while page <= total_pages and page <= MAX_PAGES_PER_GROUP:
+                # NO pedimos sort_field=LIKES: ordenar todos los comentarios por
+                # likes hace que el backend de TikTok se quede sin tiempo. Usamos
+                # su orden por defecto (más barato) y reordenamos en la hoja.
+                data = _api_get(url, headers, {
+                    "advertiser_id": advertiser_id,
+                    "start_time":    start_time,
+                    "end_time":      end_time,
+                    "search_field":  SEARCH_FIELD_ADGROUP,
+                    "search_value":  adgroup_id,
+                    "comment_type":  json.dumps(["ALL"]),
+                    "comment_status": json.dumps(["ALL"]),
+                    "page":          page,
+                    "page_size":     PAGE_SIZE,
+                })
+                if data is None:
+                    break  # esta ventana no resolvió → siguiente ventana/grupo
 
-            # La API puede entregar la lista como 'comments' o 'comment_list'.
-            items = data.get("comments")
-            if items is None:
-                items = data.get("comment_list", [])
+                page_info = data.get("page_info", {}) or {}
+                total_pages = int(page_info.get("total_page", 1) or 1)
 
-            for it in items or []:
-                cid = _str(it.get("comment_id"))
-                if not cid:
-                    continue
-                content = _str(it.get("content"))
-                sentiment, score = score_sentiment(content)
-                by_id[cid] = {
-                    "comment_id":     cid,
-                    "ad_id":          _str(it.get("ad_id")),
-                    "ad_name":        _str(it.get("ad_name")),
-                    "adgroup_id":     _str(it.get("adgroup_id")) or adgroup_id,
-                    "adgroup_name":   _str(it.get("adgroup_name")),
-                    "campaign_id":    _str(it.get("campaign_id")),
-                    "campaign_name":  _str(it.get("campaign_name")),
-                    "author":         _str(it.get("user_name")),
-                    "author_avatar":  _str(it.get("user_avatar_url")),
-                    "content":        content,
-                    "likes":          _int(it.get("likes")),
-                    "replies":        _int(it.get("replies")),
-                    "comment_type":   _str(it.get("comment_type")),
-                    "comment_status": _str(it.get("comment_status")),
-                    "created_at":     _created_at(it.get("create_time")),
-                    "sentiment":      sentiment,
-                    "sentiment_score": score,
-                }
+                # La API puede entregar la lista como 'comments' o 'comment_list'.
+                items = data.get("comments")
+                if items is None:
+                    items = data.get("comment_list", [])
 
-            page += 1
-            if page <= total_pages and page <= MAX_PAGES_PER_GROUP:
-                time.sleep(PAGE_PAUSE)
+                for it in items or []:
+                    cid = _str(it.get("comment_id"))
+                    if not cid:
+                        continue
+                    content = _str(it.get("content"))
+                    sentiment, score = score_sentiment(content)
+                    by_id[cid] = {
+                        "comment_id":     cid,
+                        "ad_id":          _str(it.get("ad_id")),
+                        "ad_name":        _str(it.get("ad_name")),
+                        "adgroup_id":     _str(it.get("adgroup_id")) or adgroup_id,
+                        "adgroup_name":   _str(it.get("adgroup_name")),
+                        "campaign_id":    _str(it.get("campaign_id")),
+                        "campaign_name":  _str(it.get("campaign_name")),
+                        "author":         _str(it.get("user_name")),
+                        "author_avatar":  _str(it.get("user_avatar_url")),
+                        "content":        content,
+                        "likes":          _int(it.get("likes")),
+                        "replies":        _int(it.get("replies")),
+                        "comment_type":   _str(it.get("comment_type")),
+                        "comment_status": _str(it.get("comment_status")),
+                        "created_at":     _created_at(it.get("create_time")),
+                        "sentiment":      sentiment,
+                        "sentiment_score": score,
+                    }
+
+                page += 1
+                if page <= total_pages and page <= MAX_PAGES_PER_GROUP:
+                    time.sleep(PAGE_PAUSE)
         time.sleep(ADGROUP_PAUSE)
 
     rows = list(by_id.values())

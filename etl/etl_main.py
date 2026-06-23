@@ -19,6 +19,7 @@ from extractors.google_sheets   import (
 )
 from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
 from extractors.tiktok_ads        import extract_tiktok_ads, extract_tiktok_creatives
+from extractors.tiktok_comments   import extract_tiktok_comments
 from extractors.instagram_organic import extract_instagram_organic
 from extractors.ga4             import (
     extract_ga4,
@@ -225,6 +226,26 @@ def run_etl(client_id: str, days_back: int = 30):
                 log.info(f"   ✓ TikTok creativos: {len(creatives)} anuncios con portada")
             except Exception as e:
                 log.error(f"   ✗ TikTok creativos error: {e}")
+
+            # Comentarios de los anuncios (con sentiment derivado). Best-effort:
+            # la API busca por grupo de anuncios, así que reusamos los adgroup_ids
+            # del reporte. Si la app no tiene permiso de gestión de comentarios,
+            # devuelve [] y la hoja mantiene su marcador honesto.
+            try:
+                adgroup_ids = sorted({
+                    r["adgroup_id"] for r in tiktok_rows if r.get("adgroup_id")
+                })
+                comments = extract_tiktok_comments(
+                    access_token=tiktok_token,
+                    advertiser_id=tiktok_advertiser,
+                    adgroup_ids=adgroup_ids,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+                loader.upsert("tiktok_comments", comments, client_id)
+                log.info(f"   ✓ TikTok comentarios: {len(comments)} comentarios")
+            except Exception as e:
+                log.error(f"   ✗ TikTok comentarios error: {e}")
         except Exception as e:
             log.error(f"   ✗ TikTok Ads error: {e}")
     else:

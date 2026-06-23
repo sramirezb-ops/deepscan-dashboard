@@ -42,6 +42,13 @@ ADGROUP_PAUSE = 0.2      # pausa entre grupos para no saturar la API
 PAGE_PAUSE = 0.15        # pausa entre páginas del mismo grupo
 MAX_PAGES_PER_GROUP = 50 # tope defensivo (5.000 comentarios por grupo)
 
+# Códigos del lado de TikTok (510xx) que conviene REINTENTAR, no abandonar:
+# 51010 = "Internal Time out" → el backend de TikTok tardó demasiado y cortó.
+# Es transitorio y suele resolverse al reintentar con una pequeña espera.
+RETRYABLE_CODES = {51010}
+MAX_RETRIES = 4          # 1 intento + 3 reintentos por petición
+RETRY_BACKOFF = 1.5      # segundos base; crece exponencial (1.5, 3, 6…)
+
 # search_field=ADGROUP_ID se codifica como "2" en la API (ver comment_list.yml).
 SEARCH_FIELD_ADGROUP = "ADGROUP_ID"
 
@@ -185,21 +192,47 @@ def _created_at(v) -> str | None:
 
 
 def _api_get(url: str, headers: dict, params: dict) -> dict | None:
-    """GET tolerante: devuelve data dict o None si la API responde error/red."""
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=60)
-        resp.raise_for_status()
-        payload = resp.json()
-    except Exception as e:
-        log.warning(f"   TikTok comentarios: fallo de red en {url}: {e}")
-        return None
-    if payload.get("code") != 0:
+    """GET tolerante con reintentos: devuelve data dict, o None si tras agotar
+    los reintentos la API sigue en error (permiso, parámetro o red).
+
+    Los timeouts internos de TikTok (code 51010) y los fallos de red se
+    reintentan con backoff exponencial; los errores no recuperables (p.ej. falta
+    de permiso) se devuelven como None de una vez, sin gastar reintentos."""
+    last = "sin detalle"
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=60)
+            resp.raise_for_status()
+            payload = resp.json()
+        except Exception as e:
+            last = f"red: {e}"
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_BACKOFF * (2 ** attempt))
+                continue
+            break
+
+        code = payload.get("code")
+        if code == 0:
+            return payload.get("data", {}) or {}
+
+        # Error transitorio del lado de TikTok → reintentar con espera creciente.
+        if code in RETRYABLE_CODES and attempt < MAX_RETRIES - 1:
+            log.warning(
+                f"   TikTok comentarios: code={code} msg={payload.get('message')} "
+                f"→ reintento {attempt + 1}/{MAX_RETRIES - 1}"
+            )
+            time.sleep(RETRY_BACKOFF * (2 ** attempt))
+            last = f"code={code} msg={payload.get('message')}"
+            continue
+
+        # Error no recuperable (o ya agotados los reintentos del 51010).
         log.warning(
-            f"   TikTok comentarios: {url} code={payload.get('code')} "
-            f"msg={payload.get('message')}"
+            f"   TikTok comentarios: {url} code={code} msg={payload.get('message')}"
         )
         return None
-    return payload.get("data", {}) or {}
+
+    log.warning(f"   TikTok comentarios: agotados los reintentos en {url} ({last})")
+    return None
 
 
 def extract_tiktok_comments(
@@ -232,14 +265,16 @@ def extract_tiktok_comments(
         page = 1
         total_pages = 1
         while page <= total_pages and page <= MAX_PAGES_PER_GROUP:
+            # NO pedimos sort_field=LIKES: ordenar todos los comentarios por
+            # likes en una ventana de 30 días hace que el backend de TikTok se
+            # quede sin tiempo (code 51010). Usamos su orden por defecto (más
+            # barato) y reordenamos por likes en la hoja del dashboard.
             data = _api_get(url, headers, {
                 "advertiser_id": advertiser_id,
                 "start_time":    start_time,
                 "end_time":      end_time,
                 "search_field":  SEARCH_FIELD_ADGROUP,
                 "search_value":  adgroup_id,
-                "sort_field":    "LIKES",     # los más relevantes primero
-                "sort_type":     "DESC",
                 "comment_type":  json.dumps(["ALL"]),
                 "comment_status": json.dumps(["ALL"]),
                 "page":          page,

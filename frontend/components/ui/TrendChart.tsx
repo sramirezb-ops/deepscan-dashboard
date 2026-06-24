@@ -26,8 +26,10 @@ interface TrendChartProps {
   goalLabel?: string;
   // Marcadores verticales (ej. implementaciones de la bitácora): cada uno se
   // ancla a un índice de la serie y muestra un número en un pin arriba. El
-  // detalle (qué se hizo) se lista aparte, fuera del gráfico.
-  markers?: { index: number; n: number }[];
+  // detalle (qué se hizo) se lista aparte, fuera del gráfico. `color` es
+  // opcional: si no se pasa, el pin es morado (default). Permite colorear el
+  // marcador por canal (ej. Google vs TikTok) en el overview consolidado.
+  markers?: { index: number; n: number; color?: string }[];
 }
 
 const VB_W = 320;
@@ -135,13 +137,16 @@ export function TrendChart({ title, headline, sub, points, labels, color, format
             </>
           )}
 
-          {/* Marcadores de implementaciones: línea guía + pin numerado. */}
+          {/* Marcadores de implementaciones: línea guía + pin numerado.
+              El color por marcador permite distinguir el canal (ej. Google /
+              TikTok / global) en el overview consolidado. */}
           {markers && markers.map((m, k) => {
             const mx = xAt(m.index);
+            const mc = m.color ?? '#a78bfa';
             return (
               <g key={k}>
-                <line x1={mx} y1={Y_TOP} x2={mx} y2={Y_BOT} stroke="#a78bfa" strokeWidth="1" strokeDasharray="2 2" opacity="0.55" />
-                <circle cx={mx} cy={Y_TOP - 8} r="6.5" fill="#a78bfa" />
+                <line x1={mx} y1={Y_TOP} x2={mx} y2={Y_BOT} stroke={mc} strokeWidth="1" strokeDasharray="2 2" opacity="0.55" />
+                <circle cx={mx} cy={Y_TOP - 8} r="6.5" fill={mc} />
                 <text x={mx} y={Y_TOP - 8} textAnchor="middle" dominantBaseline="central" fontSize="8" fontWeight="700" fill="#0b0b12">
                   {m.n}
                 </text>

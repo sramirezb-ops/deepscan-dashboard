@@ -1,5 +1,5 @@
-import { Overview } from '@/components/views/Overview';
+import { OverviewSwitch } from '@/components/views/Overview';
 
 export default function OverviewPage() {
-  return <Overview />;
+  return <OverviewSwitch />;
 }

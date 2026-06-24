@@ -4,6 +4,7 @@ import { Hero, Card } from '@/components/ui/Card';
 import { HeroStat } from '@/components/ui/KpiCard';
 import { Agent } from '@/components/ui/Agent';
 import { RevenueEvolutionChart } from './RevenueEvolutionChart';
+import { LeadsOverview } from './LeadsOverview';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -16,6 +17,18 @@ import {
   formatPercent,
   deltaDirection,
 } from '@/lib/utils';
+
+// ── Router del Overview ejecutivo ────────────────────────────
+// Un cliente "modelo de leads puro" (objetivo 'leads' y SIN 'ventas'/ecommerce,
+// ej. Ofero) ve el overview consolidado de leads, sin ROAS/revenue. El resto
+// sigue con el overview ecommerce. Branch por COMPONENTE (no por hook): este
+// router solo llama useClient, así el orden de hooks es estable.
+export function OverviewSwitch() {
+  const client = useClient();
+  const isLeadsModel =
+    client.objectives.includes('leads') && !client.objectives.includes('ventas');
+  return isLeadsModel ? <LeadsOverview /> : <Overview />;
+}
 
 export function Overview() {
   const client = useClient();

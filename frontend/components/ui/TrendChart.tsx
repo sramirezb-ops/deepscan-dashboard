@@ -24,6 +24,10 @@ interface TrendChartProps {
   // incluye para que la meta siempre quede visible aunque supere a los puntos.
   goal?: number;
   goalLabel?: string;
+  // Marcadores verticales (ej. implementaciones de la bitácora): cada uno se
+  // ancla a un índice de la serie y muestra un número en un pin arriba. El
+  // detalle (qué se hizo) se lista aparte, fuera del gráfico.
+  markers?: { index: number; n: number }[];
 }
 
 const VB_W = 320;
@@ -33,7 +37,7 @@ const X1 = 310;
 const Y_TOP = 16;
 const Y_BOT = 98;
 
-export function TrendChart({ title, headline, sub, points, labels, color, format, goal, goalLabel }: TrendChartProps) {
+export function TrendChart({ title, headline, sub, points, labels, color, format, goal, goalLabel, markers }: TrendChartProps) {
   const uid = useId().replace(/:/g, '');
   const gradId = `trend-grad-${uid}`;
   const n = points.length;
@@ -130,6 +134,20 @@ export function TrendChart({ title, headline, sub, points, labels, color, format
               )}
             </>
           )}
+
+          {/* Marcadores de implementaciones: línea guía + pin numerado. */}
+          {markers && markers.map((m, k) => {
+            const mx = xAt(m.index);
+            return (
+              <g key={k}>
+                <line x1={mx} y1={Y_TOP} x2={mx} y2={Y_BOT} stroke="#a78bfa" strokeWidth="1" strokeDasharray="2 2" opacity="0.55" />
+                <circle cx={mx} cy={Y_TOP - 8} r="6.5" fill="#a78bfa" />
+                <text x={mx} y={Y_TOP - 8} textAnchor="middle" dominantBaseline="central" fontSize="8" fontWeight="700" fill="#0b0b12">
+                  {m.n}
+                </text>
+              </g>
+            );
+          })}
 
           <line className="chart-cursor" x1={0} y1={Y_TOP} x2={0} y2={Y_BOT} />
           <circle className="chart-point" cx={0} cy={0} />

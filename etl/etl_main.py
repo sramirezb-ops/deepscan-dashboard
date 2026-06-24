@@ -17,6 +17,7 @@ from extractors.google_sheets   import (
     extract_pmax_search_terms,
     extract_flowboost,
 )
+from extractors.implementations   import extract_implementations
 from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
 from extractors.tiktok_ads        import extract_tiktok_ads, extract_tiktok_creatives
 from extractors.tiktok_comments   import extract_tiktok_comments
@@ -153,6 +154,24 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Flowboost productos: {len(fb_data['products'])} filas")
     else:
         log.warning("   ⚠ FLOWBOOST_SHEET_ID no configurado")
+
+    # ── 4b. BITÁCORA DE IMPLEMENTACIONES ────────────────────────
+    # Google Sheet que la agencia llena a mano con lo que fue haciendo en las
+    # cuentas (subir creativos, pausar campañas, mover presupuesto). El
+    # dashboard cruza estas filas con la tendencia diaria y dibuja marcadores.
+    # Opcional: sin IMPLEMENTATIONS_SHEET_ID se salta (no rompe a nadie).
+    log.info("── Bitácora de implementaciones")
+    impl_sheet_id = os.environ.get("IMPLEMENTATIONS_SHEET_ID", "")
+    if impl_sheet_id:
+        try:
+            impl_tab = os.environ.get("IMPLEMENTATIONS_SHEET_TAB", "Bitacora")
+            implementations = extract_implementations(impl_sheet_id, impl_tab)
+            loader.upsert("implementations", implementations, client_id)
+            log.info(f"   ✓ Bitácora: {len(implementations)} implementaciones")
+        except Exception as e:
+            log.error(f"   ✗ Bitácora error: {e}")
+    else:
+        log.warning("   ⚠ Bitácora sin IMPLEMENTATIONS_SHEET_ID — saltando")
 
     # ── 5. META ADS API ─────────────────────────────────────────
     log.info("── Meta Ads API")

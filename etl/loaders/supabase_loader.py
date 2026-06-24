@@ -97,6 +97,7 @@ class SupabaseLoader:
             "tiktok_campaigns":         "client_id,date,ad_id",
             "tiktok_creatives":         "client_id,ad_id",
             "tiktok_comments":          "client_id,comment_id",
+            "implementations":          "client_id,channel,date,title",
             "meta_platform":            "client_id,date,publisher_platform,campaign_name",
             "meta_messaging":           "client_id,date,campaign_name,adset_name",
             "ig_account_daily":         "client_id,date",

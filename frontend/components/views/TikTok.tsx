@@ -6,6 +6,7 @@ import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useTikTok } from '@/lib/hooks/useTikTok';
 import type { TikTokCampaignRow, TikTokDailyPoint } from '@/lib/hooks/useTikTok';
+import { useImplementations } from '@/lib/hooks/useImplementations';
 import {
   formatCurrency,
   formatInt,
@@ -126,6 +127,8 @@ export function TikTok() {
   const client = useClient();
   const { range, previous } = usePeriod();
   const { data, loading, error } = useTikTok(client.id, range, previous);
+  // Bitácora: implementaciones de TikTok + las globales (valen para todo canal).
+  const { items: implementations } = useImplementations(client.id, range, ['tiktok', 'global']);
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);
@@ -209,6 +212,26 @@ export function TikTok() {
   const cplSeries = daily.map((d) => d.cpl);
   const spendSeries = daily.map((d) => d.spend);
   const subWith = (base: string, dir: string) => (dir ? `${base} · ${dir}` : base);
+
+  // ── Marcadores de la bitácora alineados a la tendencia ──
+  // Cada implementación se ancla al día exacto de la serie o, si ese día no
+  // tuvo actividad, al último día con datos anterior. Se numeran en orden
+  // cronológico (el hook ya las devuelve por fecha ascendente).
+  const dailyDates = daily.map((d) => d.date);
+  const markedImpls = implementations.map((it, i) => {
+    let idx = dailyDates.indexOf(it.date);
+    if (idx < 0) {
+      for (let k = dailyDates.length - 1; k >= 0; k--) {
+        if (dailyDates[k] <= it.date) {
+          idx = k;
+          break;
+        }
+      }
+    }
+    if (idx < 0) idx = 0;
+    return { it, index: idx, n: i + 1 };
+  });
+  const chartMarkers = daily.length >= 2 ? markedImpls.map((m) => ({ index: m.index, n: m.n })) : undefined;
 
   // ── Top movimientos: campañas con mayor cambio de leads vs. período anterior ──
   const movers = hasPrev
@@ -450,6 +473,7 @@ export function TikTok() {
           labels={labels}
           color={TT_CYAN}
           format={(n) => formatInt(n)}
+          markers={chartMarkers}
         />
         <TrendChart
           title="CPL por día"
@@ -461,6 +485,7 @@ export function TikTok() {
           format={(n) => formatCurrency(n, cur)}
           goal={hasTarget ? cplTarget! : undefined}
           goalLabel={hasTarget ? `Meta ${formatCurrency(cplTarget!, cur)}` : undefined}
+          markers={chartMarkers}
         />
         <TrendChart
           title="Inversión por día"
@@ -470,8 +495,73 @@ export function TikTok() {
           labels={labels}
           color="#a78bfa"
           format={(n) => formatCurrency(n, cur)}
+          markers={chartMarkers}
         />
       </div>
+
+      {/* 5b · Bitácora de implementaciones (leyenda de los marcadores) ──────── */}
+      {markedImpls.length > 0 && (
+        <div className="card" style={{ marginTop: 12, padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: '11px 14px', borderBottom: '1px solid var(--b2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: '#a78bfa' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--t1)' }}>
+              Implementaciones del período
+            </span>
+            <span style={{ fontSize: 11, color: MUTED }}>
+              · lo que hicimos, marcado sobre la tendencia
+            </span>
+          </div>
+          {markedImpls.map(({ it, n }) => (
+            <div
+              key={`${it.date}-${n}`}
+              style={{ padding: '10px 14px', borderTop: n === 1 ? 'none' : '1px solid var(--b2)', display: 'flex', gap: 11, alignItems: 'flex-start' }}
+            >
+              <span
+                style={{
+                  flex: '0 0 auto',
+                  width: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  background: '#a78bfa',
+                  color: '#0b0b12',
+                  fontSize: 10,
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 1,
+                }}
+              >
+                {n}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, color: 'var(--t1)' }}>
+                  <b style={{ color: MUTED, fontWeight: 600 }}>{dayLabel(it.date)}</b> · {it.title}
+                  {it.kind && it.kind !== 'otro' && (
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        fontSize: 10,
+                        color: '#c4b5fd',
+                        border: '1px solid rgba(167,139,250,0.4)',
+                        borderRadius: 4,
+                        padding: '1px 5px',
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {it.kind}
+                    </span>
+                  )}
+                </div>
+                {it.detail && (
+                  <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2, lineHeight: 1.5 }}>{it.detail}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 6 · Top movimientos por campaña (con barra de magnitud) ──────────── */}
       <SectionLabel style={{ margin: '24px 0 10px' }}>Top movimientos por campaña</SectionLabel>

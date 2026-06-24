@@ -35,6 +35,7 @@ jobs:
           DEFAULT_CLIENT_ID:       ${{ secrets.OFERO_CLIENT_ID }}
           GA4_PROPERTY_IDS:        "485875757"
           PMAX_CHANNELS_SHEET_ID:  "1Ws08gm5Cppaw00jgqWsm4bGM0k1u5fdnQPUN_5T9_wo"
+          IMPLEMENTATIONS_SHEET_ID: "1tw34V5T1rITKPhXneiUoQJcfh4YB2A3MpTxz7oxirZ0"
           CLARITY_API_TOKEN:       ${{ secrets.OFERO_CLARITY_API_TOKEN }}
           TIKTOK_ACCESS_TOKEN:     ${{ secrets.OFERO_TIKTOK_ACCESS_TOKEN }}
           TIKTOK_ADVERTISER_ID:    ${{ secrets.OFERO_TIKTOK_ADVERTISER_ID }}

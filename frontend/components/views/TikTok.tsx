@@ -148,6 +148,13 @@ export function TikTok() {
   const cplCheaper = data.cplDelta < 0;
   const cplPricier = data.cplDelta > 0;
 
+  // ── Meta de CPL acordada con el cliente (objetivo de negocio, no dato de la
+  //    plataforma). Solo aplica si hay leads reales con los que calcular el CPL. ──
+  const cplTarget = client.cplTarget;
+  const hasTarget = typeof cplTarget === 'number' && cplTarget > 0 && t.conversions > 0;
+  const overTarget = hasTarget && t.cpl > cplTarget!;
+  const targetGapPct = hasTarget ? Math.round(((t.cpl - cplTarget!) / cplTarget!) * 100) : 0;
+
   // ── Veredicto (la conclusión más visible de la página) ──
   const positives = (leadsUp ? 1 : 0) + (cplCheaper ? 1 : 0);
   const negatives = (leadsDown ? 1 : 0) + (cplPricier ? 1 : 0);
@@ -221,6 +228,19 @@ export function TikTok() {
 
   // ── Retos detectados (solo del dato real), ordenados por gravedad ──
   const challenges: { title: string; detail: ReactNode; weight: number }[] = [];
+  if (overTarget) {
+    challenges.push({
+      weight: 4,
+      title: 'CPL por encima de la meta',
+      detail: (
+        <>
+          El costo por lead (<b>{formatCurrency(t.cpl, cur)}</b>) está <b>{targetGapPct}%</b> por encima
+          de la meta de <b>{formatCurrency(cplTarget!, cur)}</b> acordada con el cliente. Es la prioridad:
+          revisa qué campañas tienen el CPL más alto y reasigna presupuesto hacia las más eficientes.
+        </>
+      ),
+    });
+  }
   if (hasPrev && cplPricier) {
     challenges.push({
       weight: 3,
@@ -320,6 +340,16 @@ export function TikTok() {
   );
   const ctx = (txt: string): ReactNode => <span style={{ color: MUTED }}>{txt}</span>;
 
+  // Pie de meta para el KPI de CPL: «Meta $2.800 · 31% por encima / dentro de meta».
+  const cplMetaNode: ReactNode = hasTarget ? (
+    <span style={{ color: overTarget ? RED : GREEN }}>
+      {overTarget ? '✗' : '✓'} Meta {formatCurrency(cplTarget!, cur)} ·{' '}
+      {overTarget
+        ? `${targetGapPct}% por encima`
+        : `dentro de meta (${Math.abs(targetGapPct)}% por debajo)`}
+    </span>
+  ) : null;
+
   return (
     <div className="view on">
       <TikTokHero
@@ -371,6 +401,7 @@ export function TikTok() {
           accent={TT_PINK}
           deltaText={hasPrev ? `${cplDeltaLabel} ${cplCheaper ? '(más barato)' : cplPricier ? '(más caro)' : ''}`.trim() : 'sin período anterior'}
           deltaColor={!hasPrev ? MUTED : cplCheaper ? GREEN : cplPricier ? RED : MUTED}
+          meta={cplMetaNode}
         />
       </div>
 
@@ -428,6 +459,8 @@ export function TikTok() {
           labels={labels}
           color={TT_PINK}
           format={(n) => formatCurrency(n, cur)}
+          goal={hasTarget ? cplTarget! : undefined}
+          goalLabel={hasTarget ? `Meta ${formatCurrency(cplTarget!, cur)}` : undefined}
         />
         <TrendChart
           title="Inversión por día"
@@ -667,12 +700,14 @@ function BigKpi({
   accent,
   deltaText,
   deltaColor,
+  meta,
 }: {
   label: string;
   value: string;
   accent: string;
   deltaText: string;
   deltaColor: string;
+  meta?: ReactNode; // pie opcional de meta (objetivo de negocio)
 }) {
   return (
     <div className="card" style={{ borderTop: `3px solid ${accent}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -683,6 +718,7 @@ function BigKpi({
       <div style={{ fontSize: 12, fontWeight: 600, color: deltaColor, fontVariantNumeric: 'tabular-nums' }}>
         {deltaText}
       </div>
+      {meta && <div style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{meta}</div>}
     </div>
   );
 }

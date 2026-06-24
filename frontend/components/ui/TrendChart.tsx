@@ -19,6 +19,11 @@ interface TrendChartProps {
   labels: string[]; // etiquetas de fecha (para el tooltip)
   color: string;
   format: (n: number) => string; // formateo del valor en el tooltip
+  // Línea de meta opcional (ej. CPL objetivo). Si se pasa, se dibuja una línea
+  // horizontal punteada a esa altura con su etiqueta. La escala del gráfico la
+  // incluye para que la meta siempre quede visible aunque supere a los puntos.
+  goal?: number;
+  goalLabel?: string;
 }
 
 const VB_W = 320;
@@ -28,11 +33,13 @@ const X1 = 310;
 const Y_TOP = 16;
 const Y_BOT = 98;
 
-export function TrendChart({ title, headline, sub, points, labels, color, format }: TrendChartProps) {
+export function TrendChart({ title, headline, sub, points, labels, color, format, goal, goalLabel }: TrendChartProps) {
   const uid = useId().replace(/:/g, '');
   const gradId = `trend-grad-${uid}`;
   const n = points.length;
-  const max = Math.max(...points, 0.0001);
+  const hasGoal = typeof goal === 'number' && goal > 0;
+  // La meta entra en la escala para que su línea nunca quede fuera del lienzo.
+  const max = Math.max(...points, hasGoal ? goal! : 0, 0.0001);
 
   const xAt = (i: number) => (n > 1 ? X0 + ((X1 - X0) * i) / (n - 1) : (X0 + X1) / 2);
   const yAt = (v: number) => Y_BOT - (v / max) * (Y_BOT - Y_TOP);
@@ -102,6 +109,27 @@ export function TrendChart({ title, headline, sub, points, labels, color, format
           <polygon points={areaPts} fill={`url(#${gradId})`} />
           <polyline points={linePts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
           {last && <circle cx={last.x} cy={last.y} r="4" fill={color} />}
+
+          {/* Línea de meta (objetivo de negocio): punteada + etiqueta. */}
+          {hasGoal && (
+            <>
+              <line
+                x1={X0}
+                y1={yAt(goal!)}
+                x2={X1}
+                y2={yAt(goal!)}
+                stroke="#fbbf24"
+                strokeWidth="1.25"
+                strokeDasharray="4 3"
+                opacity="0.85"
+              />
+              {goalLabel && (
+                <text x={X1} y={yAt(goal!) - 4} textAnchor="end" fontSize="9" fill="#fbbf24" opacity="0.9">
+                  {goalLabel}
+                </text>
+              )}
+            </>
+          )}
 
           <line className="chart-cursor" x1={0} y1={Y_TOP} x2={0} y2={Y_BOT} />
           <circle className="chart-point" cx={0} cy={0} />

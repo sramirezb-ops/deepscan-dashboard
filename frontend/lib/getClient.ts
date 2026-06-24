@@ -34,7 +34,16 @@ const CLIENT_LOGOS: Record<string, string> = {
   'ofero-colombia': '/logos/OFERO.jpg',
 };
 
+// Metas de negocio por cliente (slug → objetivos acordados). A diferencia de
+// las métricas, una meta NO la entrega ninguna plataforma: la define la agencia
+// con el cliente. Por eso vive aquí, en config, y no en una tabla de datos.
+// Mientras no exista un editor en el tablero, este mapa es la fuente de verdad.
+const CLIENT_TARGETS: Record<string, { cplTarget?: number }> = {
+  'ofero-colombia': { cplTarget: 2800 },
+};
+
 function rowToClient(row: ClientRow): Client {
+  const targets = CLIENT_TARGETS[row.slug] || {};
   return {
     id: row.id,
     name: row.name,
@@ -43,6 +52,7 @@ function rowToClient(row: ClientRow): Client {
     logoUrl: CLIENT_LOGOS[row.slug] || undefined,
     activeChannels: (Array.isArray(row.enabled_channels) ? row.enabled_channels : []) as ChannelId[],
     objectives: (Array.isArray(row.objectives) ? row.objectives : []) as ObjectiveId[],
+    cplTarget: targets.cplTarget,
   };
 }
 

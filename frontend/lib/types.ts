@@ -12,6 +12,11 @@ export interface Client {
   // La "receta" del cliente: qué piezas lleva su tablero
   activeChannels: ChannelId[]; // canales (Meta, TikTok, GA4, ...)
   objectives: ObjectiveId[]; // objetivos (ventas, leads, ...) — uno o varios
+  // Meta de CPL acordada con el cliente (en su moneda). Es un objetivo de
+  // negocio definido por la agencia, NO un dato de la plataforma: por eso vive
+  // en config de cliente y no en las tablas de métricas. Si no está definida,
+  // el tablero simplemente no muestra línea de meta.
+  cplTarget?: number;
 }
 
 export interface KpiData {

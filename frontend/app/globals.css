@@ -668,6 +668,14 @@ body{
 
   /* Filas con jerarquía (campaña expandible): menos sangría */
   .t-hier tr.t-row-child td{padding-left:14px}
+
+  /* Tablas: scroll horizontal propio en vez de romper la página.
+     display:block convierte la tabla en su propio contenedor scrolleable
+     (thead/tbody siguen alineados al compartir la tabla anónima interna). */
+  .t{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .t::-webkit-scrollbar{height:6px}
+  .t::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
+  .t td.num,.t td.hero-num,.t td.strong{white-space:nowrap}
 }
 @media(max-width:480px){
   .ct{padding:14px 12px 28px}

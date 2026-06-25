@@ -418,9 +418,21 @@ export function LeadsOverview() {
 // ── Mini-estadística compacta (bloque Propietarios) ──────────
 function MiniStat({ label, value, delta, deltaColor }: { label: string; value: string; delta: string; deltaColor: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
       <div style={{ fontSize: 10.5, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--t1)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>
+      <div
+        style={{
+          fontSize: 'clamp(15px, 4.6vw, 20px)',
+          fontWeight: 700,
+          color: 'var(--t1)',
+          lineHeight: 1.1,
+          fontVariantNumeric: 'tabular-nums',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+        title={value}
+      >
         {value}
       </div>
       <div style={{ fontSize: 10.5, color: deltaColor, fontVariantNumeric: 'tabular-nums' }}>{delta}</div>
@@ -517,7 +529,7 @@ function BigKpi({
   return (
     <div className="card" style={{ borderTop: `3px solid ${accent}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ fontSize: 12, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--t1)', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ fontSize: 'clamp(24px, 6vw, 32px)', fontWeight: 800, color: 'var(--t1)', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </div>
       <div style={{ fontSize: 12, fontWeight: 600, color: deltaColor, fontVariantNumeric: 'tabular-nums' }}>{deltaText}</div>

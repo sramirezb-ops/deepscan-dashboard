@@ -660,6 +660,14 @@ body{
 
   /* Contenido con respiro táctil pero sin desperdiciar ancho */
   .ct{padding:16px 14px 32px}
+
+  /* Accionables (bandeja): apilar en vez de aplastar columnas */
+  .act-row{display:flex;flex-direction:column;align-items:stretch;gap:10px;padding:16px}
+  .act-impact{text-align:left}
+  .act-btn{align-self:flex-start}
+
+  /* Filas con jerarquía (campaña expandible): menos sangría */
+  .t-hier tr.t-row-child td{padding-left:14px}
 }
 @media(max-width:480px){
   .ct{padding:14px 12px 28px}

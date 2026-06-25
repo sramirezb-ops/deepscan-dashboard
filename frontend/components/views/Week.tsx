@@ -327,7 +327,7 @@ function PulseCard({
         <div style={{ fontSize: 11.5, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
         <Sparkline points={series} color={seriesColor} />
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--t1)', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ fontSize: 'clamp(22px, 5.5vw, 28px)', fontWeight: 800, color: 'var(--t1)', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </div>
       <div style={{ fontSize: 12, fontWeight: 600, color: deltaColor, fontVariantNumeric: 'tabular-nums' }}>

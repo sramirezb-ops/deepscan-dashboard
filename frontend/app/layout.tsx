@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ClientProvider } from '@/lib/useClient';
 import { getClientBySlug } from '@/lib/getClient';
@@ -7,10 +7,18 @@ import { PeriodProvider } from '@/lib/usePeriod';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
 import { ChannelModal } from '@/components/layout/ChannelModal';
+import { MobileOverlay } from '@/components/layout/MobileOverlay';
 
 export const metadata: Metadata = {
   title: 'DEEPSCAN · Dashboard',
   description: 'Performance marketing dashboard para agencias',
+};
+
+// Escalado móvil correcto + color de barra del navegador acorde al tema oscuro.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#0a0a0f',
 };
 
 // Cliente que se carga por defecto (hasta activar el ruteo por URL /[clientId]).
@@ -28,7 +36,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <PeriodProvider>
             <ChannelModalProvider>
               <div className="app" id="app">
-                <div className="ov" id="ov" />
+                <MobileOverlay />
                 <Sidebar />
                 <main className="mn">
                   <Topbar />

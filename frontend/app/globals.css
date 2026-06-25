@@ -92,7 +92,7 @@ body{
   overflow:hidden;
 }
 
-.app{display:flex;height:100vh;min-height:640px;background:var(--bg0)}
+.app{display:flex;height:100vh;height:100dvh;min-height:640px;background:var(--bg0)}
 
 /* ================= SIDEBAR ================= */
 .sb{
@@ -189,7 +189,8 @@ body{
   display:flex;align-items:center;justify-content:center;
   background:var(--bg2);border:1px solid var(--b1);
 }
-.bmob{display:none;width:32px;height:32px;align-items:center;justify-content:center;font-size:16px;border-radius:var(--r-sm);border:1px solid var(--b1);background:var(--bg2);cursor:pointer;color:var(--t2)}
+.bmob{display:none;width:40px;height:40px;align-items:center;justify-content:center;font-size:18px;border-radius:var(--r-sm);border:1px solid var(--b1);background:var(--bg2);cursor:pointer;color:var(--t2);flex-shrink:0}
+.bmob:active{background:var(--bg3)}
 .tb-title-wrap{display:flex;flex-direction:column;gap:3px}
 .tb-crumb{font-size:11px;color:var(--t3);display:flex;align-items:center;gap:6px}
 .tb-crumb .sep{color:var(--t4)}
@@ -597,8 +598,16 @@ body{
 .cmp-bar-fill{height:100%;border-radius:var(--r-sm);display:flex;align-items:center;padding:0 6px;font-weight:600;color:#0a0a0f;font-size:10px;transition:width .5s ease}
 
 /* Mobile overlay */
-.ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;backdrop-filter:blur(4px)}
+.ov{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99;backdrop-filter:blur(4px);cursor:pointer}
 .ov.on{display:block}
+
+/* Utilidad: tabla con scroll horizontal en pantallas chicas.
+   Envolver <table class="t"> en <div class="tw"> para que la tabla
+   desborde DENTRO de su tarjeta en vez de romper el layout de la página. */
+.tw{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tw::-webkit-scrollbar{height:6px}
+.tw::-webkit-scrollbar-thumb{background:var(--b2);border-radius:3px}
+.tw>.t{min-width:520px}
 
 /* Video card (YouTube / TikTok) */
 .vcard{
@@ -629,7 +638,8 @@ body{
   .ct{padding:20px}
 }
 @media(max-width:700px){
-  .sb{position:fixed;top:0;left:0;bottom:0;transform:translateX(-105%)}
+  .app{min-height:0}
+  .sb{position:fixed;top:0;left:0;bottom:0;transform:translateX(-105%);box-shadow:var(--sh-lg)}
   .sb.open{transform:translateX(0)}
   .bmob{display:flex}
   .hidm{display:none}
@@ -637,6 +647,31 @@ body{
   .r3,.r4{grid-template-columns:1fr}
   .hero{padding:22px}
   .hero-stats{grid-template-columns:1fr 1fr}
+
+  /* Topbar compacto: hamburguesa + título + controles esenciales */
+  .tb{padding:10px 14px;min-height:56px;gap:10px}
+  .tbl{gap:10px;min-width:0}
+  .tb-brand{display:none}
+  .tb-crumb{display:none}
+  .tb-title-wrap{min-width:0}
+  .tbtitle{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tbadge{display:none}
+  .tbr{gap:6px;flex-shrink:0}
+
+  /* Contenido con respiro táctil pero sin desperdiciar ancho */
+  .ct{padding:16px 14px 32px}
+}
+@media(max-width:480px){
+  .ct{padding:14px 12px 28px}
+  .tbtitle{font-size:16px}
+  /* En teléfono priorizamos período + tema; ocultamos el CTA de Insight */
+  .tb-insight{display:none}
+  .hero{padding:18px 16px;border-radius:var(--r-lg)}
+  .hero-title{font-size:21px;margin-bottom:14px}
+  .hero-stats{grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;padding-top:18px}
+  .hero-stat-val{font-size:23px}
+  .card{padding:18px 16px}
+  .kpi{padding:16px 16px}
 }
 
 /* ================= FIX MODO CLARO ================= */

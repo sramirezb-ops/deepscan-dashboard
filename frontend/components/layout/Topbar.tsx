@@ -58,7 +58,7 @@ export function Topbar() {
         <div className="btn hidm" suppressHydrationWarning title="Período anterior comparable">
           vs {formatRangeLabel(previous)}
         </div>
-        <div className="btn btna">✦ Insight IA</div>
+        <div className="btn btna tb-insight">✦ Insight IA</div>
         <div
           className="btnm"
           id="mbtn"

@@ -59,7 +59,7 @@ export function PeriodPicker() {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <div
-        className="btn hidm"
+        className="btn"
         role="button"
         onClick={() => setOpen((o) => !o)}
         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
@@ -83,6 +83,7 @@ export function PeriodPicker() {
             boxShadow: 'var(--sh-lg, 0 12px 40px rgba(0,0,0,0.4))',
             padding: 8,
             minWidth: 230,
+            maxWidth: 'calc(100vw - 24px)',
           }}
         >
           {/* Presets */}

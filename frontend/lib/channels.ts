@@ -160,7 +160,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'General',
     items: [
       { id: 'ov2', label: 'Overview', icon: '▣', href: '/overview', crumb1: 'General', crumb2: 'Overview' },
-      { id: 'week', label: 'Esta semana', icon: '⚡', href: '/week', crumb1: 'General', crumb2: 'Accionables', badge: 5 },
+      { id: 'week', label: 'Esta semana', icon: '⚡', href: '/week', crumb1: 'General', crumb2: 'Accionables' },
     ],
   },
   {

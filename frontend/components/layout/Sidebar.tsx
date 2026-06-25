@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { NAV_SECTIONS, CHANNEL_META, type NavItem } from '@/lib/channels';
 import { useClient } from '@/lib/useClient';
 import { useChannelModal } from '@/lib/useChannelModal';
+import { useWeekActionablesCount } from '@/lib/hooks/useWeekActions';
 import { BrandLogo } from '@/components/ui/BrandLogo';
 import type { MouseEvent } from 'react';
 
@@ -74,7 +75,11 @@ export function Sidebar() {
                   >
                     {item.icon && <span className="ni-ic">{item.icon}</span>}
                     <span className="ni-label">{item.label}</span>
-                    {item.badge !== undefined && <span className="ni-badge">{item.badge}</span>}
+                    {item.id === 'week' ? (
+                      <WeekNavBadge />
+                    ) : (
+                      item.badge !== undefined && <span className="ni-badge">{item.badge}</span>
+                    )}
                     {item.dotColor && <span className={`ni-dot ${item.dotColor}`} />}
                   </Link>
                 );
@@ -90,6 +95,14 @@ export function Sidebar() {
       </div>
     </aside>
   );
+}
+
+// Badge dinámico de "Esta semana": muestra el nº REAL de accionables abiertos.
+// Si es 0 (o aún cargando) no se pinta nada → cero ruido, honesto.
+function WeekNavBadge() {
+  const { count } = useWeekActionablesCount();
+  if (count <= 0) return null;
+  return <span className="ni-badge">{count}</span>;
 }
 
 // Iniciales del cliente a partir del nombre real (nunca inventadas).

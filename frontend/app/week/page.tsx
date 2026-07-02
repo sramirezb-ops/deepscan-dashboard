@@ -1,2 +1,2 @@
-import { Week } from '@/components/views/Week';
-export default function Page() { return <Week />; }
+import { WeekSwitch } from '@/components/views/WeekSwitch';
+export default function Page() { return <WeekSwitch />; }

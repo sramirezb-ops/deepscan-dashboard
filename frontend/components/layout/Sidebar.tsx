@@ -50,11 +50,13 @@ export function Sidebar() {
 
       <div className="sb-scroll">
         {NAV_SECTIONS.map((section) => {
-          // Solo mostramos las visuales que el cliente tiene habilitadas
-          // (clients.enabled_channels en Supabase). Si una sección entera
-          // se queda sin items visibles, no la dibujamos.
+          // Regla id-only: un ítem se muestra si y solo si SU PROPIO id está en
+          // enabled_channels de este cliente (fuente de verdad única y por
+          // cliente, sin herencia de canal padre). Así prender/apagar algo en un
+          // cliente jamás afecta a otro. Si una sección se queda sin items, no
+          // se dibuja.
           const visibleItems = section.items.filter((item) =>
-            client.activeChannels.includes(item.requiresChannel ?? item.id)
+            client.activeChannels.includes(item.id)
           );
           if (visibleItems.length === 0) return null;
 

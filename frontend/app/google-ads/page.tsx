@@ -1,2 +1,2 @@
-import { GoogleAdsOverview } from '@/components/views/GoogleAdsOverview';
-export default function Page() { return <GoogleAdsOverview />; }
+import { GoogleAdsOverviewSwitch } from '@/components/views/GoogleAdsOverview';
+export default function Page() { return <GoogleAdsOverviewSwitch />; }

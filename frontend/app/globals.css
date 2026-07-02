@@ -274,6 +274,16 @@ body{
 .hero-stat-delta.up{color:var(--up)}
 .hero-stat-delta.dn{color:var(--dn)}
 
+/* Hero north-star: métrica dominante (Revenue) + fila de soporte */
+.hero-northstar{margin-top:24px;padding-top:24px;border-top:1px solid var(--b1);display:flex;align-items:flex-end;justify-content:space-between;gap:28px;flex-wrap:wrap}
+.hero-northstar-main{min-width:0}
+.hero-northstar-lbl{font-size:11px;color:var(--t3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+.hero-northstar-val{font-family:'Space Grotesk',sans-serif;font-size:46px;font-weight:700;color:var(--t1);letter-spacing:-0.03em;line-height:1;display:flex;align-items:baseline;gap:8px}
+.hero-northstar-cur{font-size:18px;font-weight:600;color:var(--t3);letter-spacing:0}
+.hero-northstar-sub{font-size:13px;margin-top:10px;display:flex;align-items:center;gap:8px}
+.hero-northstar .spark{height:44px;width:140px;flex-shrink:0}
+.hero-stats-support{display:grid;grid-template-columns:repeat(5,1fr);gap:24px;margin-top:20px;padding-top:20px;border-top:1px solid var(--b1)}
+
 /* KPI cards (standard) */
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 .kpis-3{grid-template-columns:repeat(3,1fr)}
@@ -634,6 +644,7 @@ body{
   .r2,.r22,.r-main{grid-template-columns:1fr}
   .r3{grid-template-columns:1fr 1fr}
   .r4,.hero-stats,.pg{grid-template-columns:1fr 1fr}
+  .hero-stats-support{grid-template-columns:repeat(3,1fr)}
   .hero-title{font-size:24px}
   .ct{padding:20px}
 }
@@ -647,6 +658,9 @@ body{
   .r3,.r4{grid-template-columns:1fr}
   .hero{padding:22px}
   .hero-stats{grid-template-columns:1fr 1fr}
+  .hero-stats-support{grid-template-columns:repeat(2,1fr);gap:18px}
+  .hero-northstar-val{font-size:38px}
+  .hero-northstar .spark{width:110px}
 
   /* Topbar compacto: hamburguesa + título + controles esenciales */
   .tb{padding:10px 14px;min-height:56px;gap:10px}
@@ -685,7 +699,10 @@ body{
   .hero{padding:18px 16px;border-radius:var(--r-lg)}
   .hero-title{font-size:21px;margin-bottom:14px}
   .hero-stats{grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;padding-top:18px}
+  .hero-stats-support{grid-template-columns:repeat(2,1fr);gap:16px;margin-top:16px;padding-top:16px}
   .hero-stat-val{font-size:23px}
+  .hero-northstar-val{font-size:32px}
+  .hero-northstar .spark{display:none}
   .card{padding:18px 16px}
   .kpi{padding:16px 16px}
 }

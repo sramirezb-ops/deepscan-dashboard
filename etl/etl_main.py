@@ -28,7 +28,7 @@ from extractors.ga4             import (
     extract_ga4_events,
     extract_ga4_pages,
 )
-from extractors.shopify         import extract_shopify
+from extractors.shopify         import extract_shopify, extract_shopify_abandoned
 from extractors.clarity         import extract_clarity
 from extractors.gmc             import extract_gmc
 # OJO: extractors.google_ads_api lee credenciales de la agencia (MCC) a nivel
@@ -442,6 +442,21 @@ def run_etl(client_id: str, days_back: int = 30):
             loader.upsert("shopify_products", shop_products, client_id)
             loader.upsert("shopify_funnel",   shop_funnel,   client_id)
             log.info(f"   ✓ Shopify: {len(shop_orders)} días")
+
+            # Checkouts abandonados (requiere scope read_checkouts). Best-effort:
+            # si la app no tiene el permiso, la API responde 403 y se registra
+            # como error SIN tumbar el resto de Shopify ni inventar filas.
+            try:
+                shop_abandoned = extract_shopify_abandoned(
+                    shop_url=shopify_shop_url,
+                    access_token=shopify_token,
+                    date_from=date_from,
+                    date_to=date_to
+                )
+                loader.upsert("shopify_abandoned_checkouts", shop_abandoned, client_id)
+                log.info(f"   ✓ Shopify abandonados: {len(shop_abandoned)} días")
+            except Exception as e:
+                log.error(f"   ✗ Shopify abandonados error: {e}")
         except Exception as e:
             log.error(f"   ✗ Shopify error: {e}")
     else:

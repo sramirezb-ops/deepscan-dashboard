@@ -364,6 +364,20 @@ create table if not exists shopify_funnel (
   unique (client_id, date)
 );
 
+-- Checkouts abandonados Shopify (fuente: Admin API /checkouts.json, scope
+-- read_checkouts). Una fila por día de creación del checkout.
+create table if not exists shopify_abandoned_checkouts (
+  id              uuid primary key default uuid_generate_v4(),
+  client_id       uuid references clients(id) on delete cascade,
+  date            date not null,
+  abandoned_count bigint default 0,        -- checkouts abandonados ese día
+  abandoned_value numeric(14,2) default 0, -- valor total de esos checkouts
+  recovered_count bigint default 0,        -- de esos, cuántos se completaron luego
+  currency        text,
+  inserted_at     timestamptz default now(),
+  unique (client_id, date)
+);
+
 -- ── MICROSOFT CLARITY ────────────────────────────────────────
 create table if not exists clarity_metrics (
   id              uuid primary key default uuid_generate_v4(),
@@ -452,6 +466,7 @@ alter table gmc_products       enable row level security;
 alter table shopify_orders     enable row level security;
 alter table shopify_products   enable row level security;
 alter table shopify_funnel     enable row level security;
+alter table shopify_abandoned_checkouts enable row level security;
 alter table clarity_metrics    enable row level security;
 alter table clarity_pages      enable row level security;
 
@@ -493,6 +508,8 @@ create policy "service_role_all" on shopify_orders
 create policy "service_role_all" on shopify_products
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on shopify_funnel
+  for all using (auth.role() = 'service_role');
+create policy "service_role_all" on shopify_abandoned_checkouts
   for all using (auth.role() = 'service_role');
 create policy "service_role_all" on clarity_metrics
   for all using (auth.role() = 'service_role');
@@ -536,6 +553,8 @@ create policy "anon_read_own" on shopify_products
   for select using (true);
 create policy "anon_read_own" on shopify_funnel
   for select using (true);
+create policy "anon_read_own" on shopify_abandoned_checkouts
+  for select using (true);
 create policy "anon_read_own" on clarity_metrics
   for select using (true);
 create policy "anon_read_own" on clarity_pages
@@ -555,6 +574,7 @@ create index if not exists idx_ga4_pages_client_date   on ga4_pages(client_id, d
 create index if not exists idx_ga4_landing_client_date on ga4_landing(client_id, date desc);
 create index if not exists idx_shopify_orders_date     on shopify_orders(client_id, date desc);
 create index if not exists idx_shopify_funnel_date     on shopify_funnel(client_id, date desc);
+create index if not exists idx_shopify_abandoned_date  on shopify_abandoned_checkouts(client_id, date desc);
 create index if not exists idx_clarity_client_date     on clarity_metrics(client_id, date desc);
 create index if not exists idx_clarity_pages_date      on clarity_pages(client_id, date desc);
 create index if not exists idx_gmc_client_status       on gmc_products(client_id, status);

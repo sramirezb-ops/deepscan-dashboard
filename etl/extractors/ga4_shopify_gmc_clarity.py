@@ -584,12 +584,16 @@ def extract_shopify(
         d = order["created_at"][:10]   # YYYY-MM-DD
         price = float(order.get("total_price", 0) or 0)
         is_new = not order.get("customer", {}).get("orders_count", 0) > 1
+        status = (order.get("financial_status") or "").lower()  # paid/pending/voided/...
 
         if d not in orders_by_date:
             orders_by_date[d] = {
                 "orders": 0, "revenue": 0,
                 "new_customers": 0, "returning_customers": 0,
-                "units_sold": 0, "refunds": 0
+                "units_sold": 0, "refunds": 0,
+                # desglose por estado de pago (Opción A — migración 0012)
+                "orders_paid": 0, "orders_pending": 0, "orders_authorized": 0,
+                "orders_refunded": 0, "orders_voided": 0, "revenue_pending": 0,
             }
         orders_by_date[d]["orders"]   += 1
         orders_by_date[d]["revenue"]  += price
@@ -597,6 +601,20 @@ def extract_shopify(
             orders_by_date[d]["new_customers"] += 1
         else:
             orders_by_date[d]["returning_customers"] += 1
+
+        # Estado de pago: conteos exactos. 'pending' además acumula su valor
+        # (dinero en el aire). No inventamos monto de reembolso parcial aquí.
+        if status == "paid":
+            orders_by_date[d]["orders_paid"] += 1
+        elif status == "pending":
+            orders_by_date[d]["orders_pending"]  += 1
+            orders_by_date[d]["revenue_pending"] += price
+        elif status in ("authorized", "partially_paid"):
+            orders_by_date[d]["orders_authorized"] += 1
+        elif status in ("refunded", "partially_refunded"):
+            orders_by_date[d]["orders_refunded"] += 1
+        elif status == "voided":
+            orders_by_date[d]["orders_voided"] += 1
 
         for item in order.get("line_items", []):
             pid = str(item.get("product_id", ""))
@@ -629,6 +647,13 @@ def extract_shopify(
             "returning_customers": v["returning_customers"],
             "units_sold":          v["units_sold"],
             "refunds":             v["refunds"],
+            # desglose por estado de pago (Opción A — migración 0012)
+            "orders_paid":         v["orders_paid"],
+            "orders_pending":      v["orders_pending"],
+            "orders_authorized":   v["orders_authorized"],
+            "orders_refunded":     v["orders_refunded"],
+            "orders_voided":       v["orders_voided"],
+            "revenue_pending":     round(v["revenue_pending"], 2),
         })
 
     # Productos top (período completo)
@@ -669,6 +694,99 @@ def extract_shopify(
 
     log.info(f"   Shopify: {len(orders_rows)} días, {len(product_rows)} productos")
     return orders_rows, product_rows, funnel_rows
+
+
+def extract_shopify_abandoned(
+    shop_url: str,
+    access_token: str,
+    date_from: date,
+    date_to: date,
+) -> list[dict]:
+    """
+    Extrae checkouts ABANDONADOS desde Shopify Admin API (REST).
+    Endpoint: GET /admin/api/2024-01/checkouts.json  (requiere scope read_checkouts).
+
+    Shopify considera "abandonado" un checkout que el cliente inició (dejó
+    email/carrito) pero no terminó de pagar. El endpoint los lista con su
+    created_at, total_price, currency y completed_at. Cuando completed_at no
+    es nulo, ese checkout se recuperó después (se convirtió en orden).
+
+    Agrega por día de creación:
+      · abandoned_count  — cuántos checkouts se abandonaron ese día
+      · abandoned_value  — valor total de esos checkouts (dinero que quedó en el aire)
+      · recovered_count  — de esos, cuántos se completaron luego
+      · currency         — moneda de la tienda
+
+    100% dato real de Shopify. Nada estimado. Si la app no tiene el scope
+    read_checkouts, la API responde 403 y el ETL lo registra como error (no
+    inventa filas).
+    """
+    import requests as req
+
+    headers = {
+        "X-Shopify-Access-Token": access_token,
+        "Content-Type": "application/json",
+    }
+    base = f"https://{shop_url}/admin/api/2024-01"
+
+    checkouts_raw = []
+    url = f"{base}/checkouts.json"
+    params = {
+        "created_at_min": f"{date_from}T00:00:00-05:00",
+        "created_at_max": f"{date_to}T23:59:59-05:00",
+        "limit":          250,
+    }
+
+    while url:
+        r = req.get(url, headers=headers, params=params)
+        r.raise_for_status()
+        data = r.json()
+        checkouts_raw.extend(data.get("checkouts", []))
+
+        # Paginación via Link header (igual patrón que las órdenes)
+        link = r.headers.get("Link", "")
+        if 'rel="next"' in link:
+            next_url = [p.split(";")[0].strip(" <>") for p in link.split(",") if 'rel="next"' in p]
+            url = next_url[0] if next_url else None
+            params = {}
+        else:
+            url = None
+        time.sleep(0.3)
+
+    by_date: dict[str, dict] = {}
+    for c in checkouts_raw:
+        d = (c.get("created_at") or "")[:10]   # YYYY-MM-DD
+        if not d:
+            continue
+        price     = float(c.get("total_price", 0) or 0)
+        recovered = 1 if c.get("completed_at") else 0
+        currency  = c.get("currency") or c.get("presentment_currency") or ""
+
+        g = by_date.get(d)
+        if g is None:
+            g = {
+                "date": d, "abandoned_count": 0, "abandoned_value": 0.0,
+                "recovered_count": 0, "currency": currency,
+            }
+            by_date[d] = g
+        g["abandoned_count"] += 1
+        g["abandoned_value"] += price
+        g["recovered_count"] += recovered
+        if not g["currency"] and currency:
+            g["currency"] = currency
+
+    rows = []
+    for d, v in sorted(by_date.items()):
+        rows.append({
+            "date":            v["date"],
+            "abandoned_count": v["abandoned_count"],
+            "abandoned_value": round(v["abandoned_value"], 2),
+            "recovered_count": v["recovered_count"],
+            "currency":        v["currency"],
+        })
+
+    log.info(f"   Shopify abandonados: {len(rows)} días, {len(checkouts_raw)} checkouts")
+    return rows
 
 
 # ════════════════════════════════════════════════════════════════

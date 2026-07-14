@@ -21,6 +21,28 @@ export interface ShopifyOrderRow {
   returningCustomers: number;
   unitsSold: number;
   refunds: number;
+  // Migración 0012 — desglose por financial_status de Shopify
+  ordersPaid: number; // pagos finalizados (paid)
+  ordersPending: number; // pendientes de captura (OXXO/SPEI/transferencia)
+  ordersAuthorized: number; // authorized / partially_paid
+  ordersRefunded: number; // refunded / partially_refunded
+  ordersVoided: number; // cancelados
+  revenuePending: number; // total en el aire de los pedidos pending
+}
+
+/** Checkouts abandonados por día (shopify_abandoned_checkouts). */
+export interface ShopifyAbandonedRow {
+  date: string;
+  abandonedCount: number;
+  abandonedValue: number;
+  recoveredCount: number;
+  currency: string | null;
+}
+
+export interface ShopifyAbandonedTotals {
+  count: number;
+  value: number;
+  recovered: number;
 }
 
 export interface ShopifyProductRow {
@@ -41,12 +63,22 @@ export interface ShopifyTotals {
   newCustomers: number;
   returningCustomers: number;
   refunds: number;
+  // Desglose por estado de pago (migración 0012)
+  ordersPaid: number;
+  ordersPending: number;
+  ordersAuthorized: number;
+  ordersRefunded: number;
+  ordersVoided: number;
+  revenuePending: number;
+  revenueCollected: number; // revenue - revenuePending (dinero realmente cobrado, aprox.)
 }
 
 export interface ShopifyData {
   daily: ShopifyOrderRow[]; // ordenadas por fecha asc
   products: ShopifyProductRow[]; // ordenadas por ingresos desc (último período)
   totals: ShopifyTotals;
+  abandoned: ShopifyAbandonedRow[]; // ordenadas por fecha asc
+  abandonedTotals: ShopifyAbandonedTotals;
   productPeriod: { start: string; end: string } | null;
   from: string;
   to: string;
@@ -68,6 +100,20 @@ interface RawOrder {
   returning_customers: number | null;
   units_sold: number | null;
   refunds: number | null;
+  orders_paid: number | null;
+  orders_pending: number | null;
+  orders_authorized: number | null;
+  orders_refunded: number | null;
+  orders_voided: number | null;
+  revenue_pending: number | null;
+}
+
+interface RawAbandoned {
+  date: string | null;
+  abandoned_count: number | null;
+  abandoned_value: number | null;
+  recovered_count: number | null;
+  currency: string | null;
 }
 
 interface RawProduct {
@@ -83,9 +129,11 @@ interface RawProduct {
 }
 
 const ORDER_SELECT =
-  'date, orders, revenue, avg_order_value, new_customers, returning_customers, units_sold, refunds';
+  'date, orders, revenue, avg_order_value, new_customers, returning_customers, units_sold, refunds, ' +
+  'orders_paid, orders_pending, orders_authorized, orders_refunded, orders_voided, revenue_pending';
 const PRODUCT_SELECT =
   'period_start, period_end, product_id, title, sku, revenue, units_sold, orders, avg_price';
+const ABANDONED_SELECT = 'date, abandoned_count, abandoned_value, recovered_count, currency';
 const PAGE = 1000;
 
 async function fetchOrders(clientId: string, from: string, to: string): Promise<RawOrder[]> {
@@ -102,7 +150,7 @@ async function fetchOrders(clientId: string, from: string, to: string): Promise<
       .range(offset, offset + PAGE - 1);
 
     if (error) throw error;
-    const batch = (data || []) as RawOrder[];
+    const batch = (data || []) as unknown as RawOrder[];
     all.push(...batch);
     if (batch.length < PAGE) break;
     offset += PAGE;
@@ -131,6 +179,32 @@ async function fetchProducts(clientId: string): Promise<RawProduct[]> {
   return all;
 }
 
+async function fetchAbandoned(
+  clientId: string,
+  from: string,
+  to: string
+): Promise<RawAbandoned[]> {
+  const all: RawAbandoned[] = [];
+  let offset = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await supabase
+      .from('shopify_abandoned_checkouts')
+      .select(ABANDONED_SELECT)
+      .eq('client_id', clientId)
+      .gte('date', from)
+      .lte('date', to)
+      .range(offset, offset + PAGE - 1);
+
+    if (error) throw error;
+    const batch = (data || []) as RawAbandoned[];
+    all.push(...batch);
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 function buildDaily(rows: RawOrder[]): ShopifyOrderRow[] {
   const list: ShopifyOrderRow[] = rows
     .filter((r) => r.date)
@@ -143,9 +217,41 @@ function buildDaily(rows: RawOrder[]): ShopifyOrderRow[] {
       returningCustomers: Number(r.returning_customers) || 0,
       unitsSold: Number(r.units_sold) || 0,
       refunds: Number(r.refunds) || 0,
+      ordersPaid: Number(r.orders_paid) || 0,
+      ordersPending: Number(r.orders_pending) || 0,
+      ordersAuthorized: Number(r.orders_authorized) || 0,
+      ordersRefunded: Number(r.orders_refunded) || 0,
+      ordersVoided: Number(r.orders_voided) || 0,
+      revenuePending: Number(r.revenue_pending) || 0,
     }));
   list.sort((a, b) => a.date.localeCompare(b.date));
   return list;
+}
+
+function buildAbandoned(rows: RawAbandoned[]): ShopifyAbandonedRow[] {
+  const list: ShopifyAbandonedRow[] = rows
+    .filter((r) => r.date)
+    .map((r) => ({
+      date: r.date as string,
+      abandonedCount: Number(r.abandoned_count) || 0,
+      abandonedValue: Number(r.abandoned_value) || 0,
+      recoveredCount: Number(r.recovered_count) || 0,
+      currency: r.currency,
+    }));
+  list.sort((a, b) => a.date.localeCompare(b.date));
+  return list;
+}
+
+function sumAbandoned(rows: ShopifyAbandonedRow[]): ShopifyAbandonedTotals {
+  let count = 0,
+    value = 0,
+    recovered = 0;
+  for (const r of rows) {
+    count += r.abandonedCount;
+    value += r.abandonedValue;
+    recovered += r.recoveredCount;
+  }
+  return { count, value, recovered };
 }
 
 function sumTotals(daily: ShopifyOrderRow[]): ShopifyTotals {
@@ -154,7 +260,13 @@ function sumTotals(daily: ShopifyOrderRow[]): ShopifyTotals {
     unitsSold = 0,
     newCustomers = 0,
     returningCustomers = 0,
-    refunds = 0;
+    refunds = 0,
+    ordersPaid = 0,
+    ordersPending = 0,
+    ordersAuthorized = 0,
+    ordersRefunded = 0,
+    ordersVoided = 0,
+    revenuePending = 0;
   for (const d of daily) {
     revenue += d.revenue;
     orders += d.orders;
@@ -162,6 +274,12 @@ function sumTotals(daily: ShopifyOrderRow[]): ShopifyTotals {
     newCustomers += d.newCustomers;
     returningCustomers += d.returningCustomers;
     refunds += d.refunds;
+    ordersPaid += d.ordersPaid;
+    ordersPending += d.ordersPending;
+    ordersAuthorized += d.ordersAuthorized;
+    ordersRefunded += d.ordersRefunded;
+    ordersVoided += d.ordersVoided;
+    revenuePending += d.revenuePending;
   }
   return {
     revenue,
@@ -171,6 +289,13 @@ function sumTotals(daily: ShopifyOrderRow[]): ShopifyTotals {
     newCustomers,
     returningCustomers,
     refunds,
+    ordersPaid,
+    ordersPending,
+    ordersAuthorized,
+    ordersRefunded,
+    ordersVoided,
+    revenuePending,
+    revenueCollected: Math.max(revenue - revenuePending, 0),
   };
 }
 
@@ -222,20 +347,25 @@ export function useShopify(clientId: string, range: DateRange): UseShopifyResult
       setLoading(true);
       setError(null);
       try {
-        const [orderRows, productRows] = await Promise.all([
+        const [orderRows, productRows, abandonedRows] = await Promise.all([
           fetchOrders(clientId, range.from, range.to),
           fetchProducts(clientId),
+          fetchAbandoned(clientId, range.from, range.to),
         ]);
         if (cancelled) return;
 
         const daily = buildDaily(orderRows);
         const totals = sumTotals(daily);
         const { products, period } = buildProducts(productRows);
+        const abandoned = buildAbandoned(abandonedRows);
+        const abandonedTotals = sumAbandoned(abandoned);
 
         setData({
           daily,
           products,
           totals,
+          abandoned,
+          abandonedTotals,
           productPeriod: period,
           from: range.from,
           to: range.to,

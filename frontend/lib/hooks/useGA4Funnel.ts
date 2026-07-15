@@ -13,7 +13,7 @@ import type { DateRange } from '@/lib/period';
 // ============================================================
 
 const PAGE = 1000;
-const SELECT = 'event_name, event_count, total_users, is_key_event';
+const SELECT = 'event_name, event_count, total_users, is_key_event, date';
 
 export interface EventAgg {
   count: number; // eventos en el período actual
@@ -25,6 +25,7 @@ export interface EventAgg {
 export interface GA4FunnelData {
   byName: Map<string, EventAgg>; // clave = event_name
   totalEvents: number; // suma de todos los eventos (período actual)
+  sessionsByDate: Map<string, number>; // session_start por día (período actual) — para tendencia
   from: string;
   to: string;
 }
@@ -41,6 +42,7 @@ interface RawRow {
   event_count: number | null;
   total_users: number | null;
   is_key_event: number | null;
+  date: string | null;
 }
 
 /** Trae TODAS las filas del rango paginando (Supabase corta en 1000). */
@@ -109,6 +111,15 @@ export function useGA4Funnel(
         const nowMap = aggregateByName(nowRows);
         const prevMap = aggregateByName(prevRows);
 
+        // Serie diaria de sesiones (session_start) del período actual → tendencia.
+        const sessionsByDate = new Map<string, number>();
+        for (const r of nowRows) {
+          if ((r.event_name || '').trim() !== 'session_start') continue;
+          const d = r.date;
+          if (!d) continue;
+          sessionsByDate.set(d, (sessionsByDate.get(d) ?? 0) + (Number(r.event_count) || 0));
+        }
+
         const byName = new Map<string, EventAgg>();
         let totalEvents = 0;
         for (const [name, g] of nowMap.entries()) {
@@ -127,7 +138,7 @@ export function useGA4Funnel(
           }
         }
 
-        setData({ byName, totalEvents, from: range.from, to: range.to });
+        setData({ byName, totalEvents, sessionsByDate, from: range.from, to: range.to });
       } catch (e: any) {
         if (cancelled) return;
         console.error('[useGA4Funnel]', e);

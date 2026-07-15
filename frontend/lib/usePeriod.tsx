@@ -5,7 +5,7 @@ import {
   type DateRange,
   type PresetId,
   resolvePreset,
-  previousRange,
+  previousMonthRange,
 } from './period';
 
 export type CompareMode = 'auto' | 'custom';
@@ -95,7 +95,7 @@ export function PeriodProvider({ children }: { children: ReactNode }) {
   }
 
   const previous =
-    compareMode === 'custom' && customPrevious ? customPrevious : previousRange(range);
+    compareMode === 'custom' && customPrevious ? customPrevious : previousMonthRange(range);
 
   const value: PeriodState = {
     preset,

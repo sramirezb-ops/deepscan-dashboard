@@ -84,6 +84,10 @@ export function resolvePreset(preset: PresetId): DateRange {
       break;
     case 'mtd':
       from.setDate(1);
+      // Hasta AYER: el día en curso puede estar sesgado por el delay de datos
+      // (GA4/Shopify no cierran el día hasta pasadas unas horas). Si hoy es el
+      // día 1, no hay días cerrados este mes → se deja el propio día 1.
+      if (today.getDate() > 1) to.setDate(to.getDate() - 1);
       break;
     case 'ytd':
       from.setMonth(0, 1);
@@ -105,6 +109,8 @@ export function rangeLengthDays(range: DateRange): number {
 /**
  * Período anterior comparable: mismo número de días, inmediatamente antes.
  * Ej: 1–30 jun  ->  2–31 may.
+ * Se usa en el digest semanal (semana vs. semana previa), donde la comparación
+ * natural es el período contiguo anterior.
  */
 export function previousRange(range: DateRange): DateRange {
   const days = rangeLengthDays(range);
@@ -113,6 +119,32 @@ export function previousRange(range: DateRange): DateRange {
   const prevFrom = new Date(prevTo);
   prevFrom.setDate(prevFrom.getDate() - (days - 1));
   return { from: ymd(prevFrom), to: ymd(prevTo) };
+}
+
+/**
+ * Desplaza una fecha YYYY-MM-DD un nº de meses, conservando el día del mes y
+ * recortando al último día válido si el mes destino es más corto
+ * (ej. 31 mar − 1 mes = 28/29 feb, no 3 mar).
+ */
+function shiftMonths(ymdStr: string, delta: number): string {
+  const d = parse(ymdStr);
+  const day = d.getDate();
+  const target = new Date(d.getFullYear(), d.getMonth() + delta, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return ymd(target);
+}
+
+/**
+ * Período de comparación por defecto del filtro global: los MISMOS días del
+ * mes anterior (no la ventana contigua previa).
+ * Ej: 1–14 jul  ->  1–14 jun   ·   16 jun–15 jul  ->  16 may–15 jun.
+ * Así se compara "el mismo tramo del calendario" mes contra mes, que es lo
+ * esperado en reportería mensual. Si un día no existe en el mes anterior
+ * (ej. 31), se recorta al último día de ese mes.
+ */
+export function previousMonthRange(range: DateRange): DateRange {
+  return { from: shiftMonths(range.from, -1), to: shiftMonths(range.to, -1) };
 }
 
 /**

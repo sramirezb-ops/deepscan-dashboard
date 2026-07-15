@@ -209,7 +209,7 @@ export function PeriodPicker() {
 
             {compareMode === 'auto' ? (
               <div style={{ fontSize: 11, color: 'var(--t3, rgba(243,244,248,0.4))', lineHeight: 1.5 }}>
-                Se compara automáticamente con los {formatRangeLabel(previous)} (mismo nº de días justo antes).
+                Se compara automáticamente con los {formatRangeLabel(previous)} (mismos días del mes anterior).
               </div>
             ) : (
               <>

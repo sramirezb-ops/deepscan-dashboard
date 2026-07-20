@@ -2,7 +2,7 @@
 // En producción los canales activos vienen de Supabase: clients.enabled_channels
 
 export type ChannelId =
-  | 'ov2' | 'week'
+  | 'ov2' | 'week' | 'bot'
   | 'gads' | 'pmax' | 'srch' | 'shop' | 'yt' | 'prop'
   | 'meta' | 'mili' | 'wa' | 'ig'
   | 'ttok' | 'ttkc' | 'ttkr' | 'ttkm'
@@ -157,6 +157,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'ov2', label: 'Overview', icon: '▣', href: '/overview', crumb1: 'General', crumb2: 'Overview' },
       { id: 'week', label: 'Esta semana', icon: '⚡', href: '/week', crumb1: 'General', crumb2: 'Accionables' },
+      { id: 'bot', label: 'Bot & Operación', icon: '🤖', href: '/bot', crumb1: 'General', crumb2: 'Bot' },
     ],
   },
   {

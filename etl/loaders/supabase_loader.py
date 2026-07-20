@@ -127,5 +127,6 @@ class SupabaseLoader:
             "gads_flowboost_summary":   "client_id,label",
             "gads_search_categories":   "client_id,campaign_id,category_id",
             "gads_search_term_details": "client_id,campaign_id,search_term",
+            "uchat_bot_diagnostics":    "client_id,period",
         }
         return conflict_map.get(table, "id")

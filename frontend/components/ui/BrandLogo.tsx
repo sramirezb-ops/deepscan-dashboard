@@ -30,6 +30,7 @@ export type Brand =
 const CHANNEL_BRAND: Record<ChannelId, Brand> = {
   ov2: 'deepscan',
   week: 'deepscan',
+  bot: 'whatsapp',
   gads: 'google-ads',
   pmax: 'google-ads',
   srch: 'google-ads',

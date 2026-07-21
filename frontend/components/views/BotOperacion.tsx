@@ -89,7 +89,8 @@ const SHORT_LABEL: Record<string, string> = {
   b_no_precio: 'No da precio', b_catalogo_gen: 'Catálogo genérico', b_horario: 'Responde horario', b_ignora: 'Ignora al cliente',
   c_asesor: 'Pide «Asesor»', c_sin_respuesta: 'Se va sin respuesta', c_abierta: 'Queda abierta',
 };
-const TM_COLORS = ['#6366f1', '#22b8cf', '#37d399', '#fbbf24', '#a78bfa', '#f0596a'];
+// Paleta cohesiva (fría, morado-forward de marca) para el treemap.
+const TM_COLORS = ['#a78bfa', '#22b8cf', '#93c5fd', '#c4b5fd', '#67e8f9', '#bfdbfe'];
 
 // Explicación editorial por stopper: qué pasa / por qué importa / cómo se mide.
 // Es interpretación de experto (no viene del dato); da credibilidad y contexto.
@@ -327,10 +328,10 @@ export function BotOperacion() {
   // ── Datos para los 4 gráficos ejecutivos ──
   // Q1 · Embudo
   const funnelStagesG = [
-    { label: 'entra', pct: 100, color: '#6b7280' },
-    { label: 'menú', pct: IMP.funnel.reached_menu_pct, color: NEUTRAL },
-    { label: 'catálogo', pct: IMP.funnel.reached_catalog_pct, color: GREEN },
-    { label: 'humano', pct: IMP.funnel.has_human_pct, color: AMBER },
+    { label: 'entra', pct: 100, color: '#b7bfcc' },
+    { label: 'menú', pct: IMP.funnel.reached_menu_pct, color: '#a78bfa' },
+    { label: 'catálogo', pct: IMP.funnel.reached_catalog_pct, color: '#7c9cf5' },
+    { label: 'humano', pct: IMP.funnel.has_human_pct, color: '#38d3c0' },
   ];
   // Q2 · Bugs (grupo técnico A)
   const bugItems = (IMP.groups.find((g) => g.key === 'A')?.stoppers ?? [])

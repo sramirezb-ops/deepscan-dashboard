@@ -387,6 +387,8 @@ body{
 /* La dona resalta la tajada activa */
 .donut-seg{transition:stroke-width .2s ease, filter .2s ease;cursor:pointer}
 .donut-seg:hover{stroke-width:22;filter:brightness(1.08)}
+/* Tipografía unificada en el texto de los gráficos (cohesión + acentos ok) */
+.card svg text{font-family:'Inter',-apple-system,system-ui,sans-serif}
 
 .ch{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:12px}
 .ch-left{display:flex;flex-direction:column;gap:3px;min-width:0}

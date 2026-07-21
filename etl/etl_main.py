@@ -515,6 +515,18 @@ def run_etl(client_id: str, days_back: int = 30):
     else:
         log.info("── Google Ads API · desactivado (RUN_GOOGLE_ADS_API=0) — lo cubre el workflow principal")
 
+    # ── 11. UCHAT · DIAGNÓSTICO DEL BOT ─────────────────────────
+    # Solo corre si el cliente tiene token de UChat en el entorno (p.ej. Ofero).
+    if os.environ.get("UCHAT_API_TOKEN"):
+        log.info("── UChat · diagnóstico del bot")
+        try:
+            from extractors.uchat_bot import extract_uchat_bot
+            uchat_rows = extract_uchat_bot(client_id)
+            if uchat_rows:
+                loader.upsert("uchat_bot_diagnostics", uchat_rows, client_id)
+        except Exception as e:
+            log.error(f"   ✗ UChat bot error: {e}")
+
     log.info(f"✅ ETL completado para client_id={client_id}")
 
 

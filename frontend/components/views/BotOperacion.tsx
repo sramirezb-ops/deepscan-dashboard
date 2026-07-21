@@ -572,10 +572,12 @@ function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => vo
     <button
       onClick={onClick}
       style={{
-        padding: '8px 16px', borderRadius: 999, border: `1px solid ${active ? 'transparent' : 'var(--b2)'}`,
+        padding: '9px 18px', borderRadius: 999, border: `1px solid ${active ? 'transparent' : 'var(--b2)'}`,
         cursor: 'pointer', fontSize: 13, fontWeight: 700,
-        background: active ? 'var(--acc, #8b5cf6)' : 'transparent',
+        background: active ? 'linear-gradient(135deg, var(--acc-hover, #a78bfa), var(--acc, #8b5cf6))' : 'var(--bg1)',
         color: active ? '#fff' : 'var(--t2)',
+        boxShadow: active ? '0 4px 14px var(--acc-dim, rgba(139,92,246,0.35))' : 'none',
+        transition: 'transform .15s, box-shadow .2s',
       }}
     >
       {label}
@@ -697,19 +699,31 @@ function HealthGauge({ value }: { value: number }) {
   const L = Math.PI * 88;
   const f = Math.max(0, Math.min(1, value / 100));
   const col = value < 40 ? RED : value < 70 ? AMBER : GREEN;
+  const colLight = value < 40 ? '#fca5a5' : value < 70 ? '#fde68a' : '#86efac';
   const theta = Math.PI - f * Math.PI;
   const mx = 110 + 88 * Math.cos(theta);
   const my = 110 - 88 * Math.sin(theta);
+  const uid = `g${value}`;
   const D = 'M22 110 A88 88 0 0 1 198 110';
   return (
-    <svg viewBox="0 0 220 128" width="180" height="105" role="img" aria-label={`Salud del bot ${value} de 100`}>
-      <path d={D} fill="none" stroke='var(--chart-grid)' strokeWidth={13} strokeLinecap="round" />
-      <path d={D} fill="none" stroke={RED} strokeWidth={9} opacity={0.28} strokeDasharray={`${0.4 * L} ${L}`} />
-      <path d={D} fill="none" stroke={AMBER} strokeWidth={9} opacity={0.28} strokeDasharray={`${0.3 * L} ${L}`} strokeDashoffset={`${-0.4 * L}`} />
-      <path d={D} fill="none" stroke={GREEN} strokeWidth={9} opacity={0.28} strokeDasharray={`${0.3 * L} ${L}`} strokeDashoffset={`${-0.7 * L}`} />
-      <path d={D} fill="none" stroke={col} strokeWidth={13} strokeLinecap="round" strokeDasharray={`${f * L} ${L}`} />
+    <svg viewBox="0 0 220 130" width="186" height="110" role="img" aria-label={`Salud del bot ${value} de 100`}>
+      <defs>
+        <linearGradient id={`grad-${uid}`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor={colLight} />
+          <stop offset="100%" stopColor={col} />
+        </linearGradient>
+        <filter id={`glow-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
+          <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor={col} floodOpacity="0.45" />
+        </filter>
+      </defs>
+      {/* Anillo punteado exterior (detalle premium) */}
+      <path d="M12 110 A98 98 0 0 1 208 110" fill="none" stroke="var(--b1)" strokeWidth={1.5} strokeDasharray="1 5" strokeLinecap="round" />
+      {/* Pista */}
+      <path d={D} fill="none" stroke="var(--chart-grid)" strokeWidth={13} strokeLinecap="round" />
+      {/* Arco de valor con gradiente + glow */}
+      <path d={D} fill="none" stroke={`url(#grad-${uid})`} strokeWidth={13} strokeLinecap="round" strokeDasharray={`${f * L} ${L}`} filter={`url(#glow-${uid})`} />
       <circle cx={mx} cy={my} r={6} fill={col} stroke="var(--bg1)" strokeWidth={2.5} />
-      <text x="110" y="96" textAnchor="middle" fontSize="40" fontWeight="800" fill={col}>{value}</text>
+      <text x="110" y="96" textAnchor="middle" fontSize="40" fontWeight="800" fill="var(--t1)">{value}</text>
       <text x="110" y="118" textAnchor="middle" fontSize="11" fill="var(--mu)">/100 · meta 70</text>
     </svg>
   );
@@ -731,7 +745,7 @@ function FunnelSvg({ stages }: { stages: { label: string; pct: number; color: st
         const inside = wt > 78;
         return (
           <g key={i}>
-            <polygon points={pts} fill={s.color} opacity={0.92} />
+            <polygon className="chart-seg" points={pts} fill={s.color} opacity={0.92} />
             {inside ? (
               <text x={cx} y={y0 + bandH / 2 + 4} textAnchor="middle" fontSize="12.5" fontWeight="800" fill="#0f1117">{s.pct}% · {s.label}</text>
             ) : (
@@ -764,7 +778,7 @@ function RankBars({ items }: { items: { label: string; pct: number; count: numbe
         return (
           <g key={s.label}>
             <text x={4} y={y + 15} fontSize="10" fill="var(--chart-label)">{s.label}</text>
-            <rect x={barX} y={y + 6} width={Math.max(xOf(s.pct) - barX, 2)} height={13} rx={3} fill={RED} opacity={op} />
+            <rect className="chart-bar" x={barX} y={y + 6} width={Math.max(xOf(s.pct) - barX, 2)} height={13} rx={3} fill={RED} opacity={op} />
             <text x={296} y={y + 16} textAnchor="end" fontSize="10.5" fontWeight="800" fill="var(--t1)">{s.pct}%</text>
           </g>
         );
@@ -782,7 +796,7 @@ function DonutSvg({ segments, centerTop, centerSub }: { segments: { label: strin
     <svg viewBox="0 0 120 120" width="116" height="116" role="img" aria-label="Desenlace de las conversaciones">
       {segments.map((s, i) => {
         const len = (s.value / total) * C;
-        const node = <circle key={i} cx="60" cy="60" r={r} fill="none" stroke={s.color} strokeWidth={18} strokeDasharray={`${len} ${C}`} strokeDashoffset={-off} transform="rotate(-90 60 60)" />;
+        const node = <circle key={i} className="donut-seg" cx="60" cy="60" r={r} fill="none" stroke={s.color} strokeWidth={18} strokeDasharray={`${len} ${C}`} strokeDashoffset={-off} transform="rotate(-90 60 60)"><title>{s.label}</title></circle>;
         off += len;
         return node;
       })}
@@ -811,9 +825,9 @@ function Treemap({ items, total }: { items: { label: string; value: number; colo
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="Treemap de intención del cliente">
       <g stroke="var(--bg1)" strokeWidth={2}>
-        <rect x={0} y={0} width={leftW} height={H} fill={first.color} />
+        <rect className="chart-tile" x={0} y={0} width={leftW} height={H} fill={first.color}><title>{first.label} · {pct(first.value)}%</title></rect>
         {restLayout.map((s, i) => (
-          <rect key={i} x={leftW} y={s.y} width={W - leftW} height={s.h} fill={s.color} />
+          <rect className="chart-tile" key={i} x={leftW} y={s.y} width={W - leftW} height={s.h} fill={s.color}><title>{s.label} · {pct(s.value)}%</title></rect>
         ))}
       </g>
       <text x={12} y={H / 2 - 2} fontSize="14" fontWeight="800" fill="#0f1117">{first.label}</text>

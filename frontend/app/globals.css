@@ -84,9 +84,9 @@ html,body{height:100%}
   --acc-hover:#6a45f5;
   --acc-dim:rgba(124,92,255,0.10);
   --acc-faint:rgba(124,92,255,0.05);
-  --sh-sm:0 1px 2px rgba(30,20,60,0.05);
-  --sh-md:0 4px 14px rgba(30,20,60,0.07);
-  --sh-lg:0 14px 44px rgba(30,20,60,0.10);
+  --sh-sm:0 1px 3px rgba(40,30,90,0.06),0 1px 2px rgba(40,30,90,0.04);
+  --sh-md:0 2px 6px rgba(40,30,90,0.05),0 12px 28px rgba(40,30,90,0.09);
+  --sh-lg:0 8px 20px rgba(40,30,90,0.08),0 24px 56px rgba(40,30,90,0.13);
   --track:rgba(20,10,40,0.05);
   --overlay:rgba(20,10,40,0.04);
   --chart-grid:rgba(20,10,40,0.08);
@@ -365,6 +365,28 @@ body{
   border-color:var(--acc-dim);
   box-shadow:0 0 30px rgba(139,92,246,0.08);
 }
+
+/* Elevación premium de tarjetas en tema claro (estilo Command) */
+.lm .card{
+  box-shadow:var(--sh-sm);
+  transition:box-shadow .22s cubic-bezier(.4,0,.2,1), transform .22s cubic-bezier(.4,0,.2,1), border-color .15s;
+}
+.lm .card:hover{box-shadow:var(--sh-md)}
+
+/* Movimiento al pasar el mouse sobre elementos de gráfico (SVG) */
+.chart-bar,.chart-seg,.chart-tile{
+  transition:transform .2s cubic-bezier(.34,1.56,.64,1), filter .2s ease;
+  transform-box:fill-box;cursor:pointer;
+}
+.chart-bar{transform-origin:left center}
+.chart-bar:hover{filter:brightness(1.07) saturate(1.08);transform:scaleY(1.18)}
+.chart-seg{transform-origin:center}
+.chart-seg:hover{filter:brightness(1.1);transform:scale(1.05)}
+.chart-tile{transition:filter .2s ease, opacity .2s ease}
+.chart-tile:hover{filter:brightness(1.09) saturate(1.06)}
+/* La dona resalta la tajada activa */
+.donut-seg{transition:stroke-width .2s ease, filter .2s ease;cursor:pointer}
+.donut-seg:hover{stroke-width:22;filter:brightness(1.08)}
 
 .ch{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;gap:12px}
 .ch-left{display:flex;flex-direction:column;gap:3px;min-width:0}

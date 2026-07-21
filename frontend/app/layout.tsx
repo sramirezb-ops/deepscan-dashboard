@@ -25,6 +25,10 @@ export const viewport: Viewport = {
 // Se puede cambiar con la variable NEXT_PUBLIC_DEFAULT_CLIENT_SLUG.
 const DEFAULT_SLUG = process.env.NEXT_PUBLIC_DEFAULT_CLIENT_SLUG || 'sneakers-store';
 
+// Clientes que arrancan en tema CLARO (mockai). Se activa por deployment según
+// su slug. El resto queda en oscuro. El toggle del topbar sigue funcionando.
+const LIGHT_SLUGS = ['ofero-colombia'];
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Lee la "receta" del cliente desde Supabase (con fallback seguro interno)
   const client = await getClientBySlug(DEFAULT_SLUG);
@@ -35,7 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ClientProvider client={client}>
           <PeriodProvider>
             <ChannelModalProvider>
-              <div className="app" id="app">
+              <div className={LIGHT_SLUGS.includes(DEFAULT_SLUG) ? 'app lm' : 'app'} id="app">
                 <MobileOverlay />
                 <Sidebar />
                 <main className="mn">

@@ -377,7 +377,7 @@ export function BotOperacion() {
                   <span>⚠</span>
                   <span>Salud del bot · Ofero · {IMP.period}</span>
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.3, marginTop: 6 }}>
+                <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.3, marginTop: 6, color: 'var(--t1)' }}>
                   <span style={{ color: RED }}>{IMP.blocked.pct}%</span> de las conversaciones se <b style={{ color: RED }}>traban</b> en una falla del bot.
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--t2)', marginTop: 6 }}>
@@ -489,7 +489,7 @@ export function BotOperacion() {
           </div>
           <div className="card" style={{ marginTop: 12 }}>
             <div style={{ fontSize: 12, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 10 }}>Último mensaje de la conversación (muestra)</div>
-            <div style={{ display: 'flex', height: 16, borderRadius: 8, overflow: 'hidden', background: 'rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', height: 16, borderRadius: 8, overflow: 'hidden', background: 'var(--track)' }}>
               {Object.entries(lastType).map(([k, v]) => {
                 const pct = (v / lastTypeTotal) * 100;
                 const color = k === 'out' ? OFERO : k === 'agent' ? NEUTRAL : AMBER;
@@ -514,7 +514,7 @@ export function BotOperacion() {
               <span style={{ fontSize: 12, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>Estado de las conversaciones</span>
               <span style={{ fontSize: 11, color: MUTED }}>histórico · {formatInt(stateTotal)} en total</span>
             </div>
-            <div style={{ display: 'flex', height: 18, borderRadius: 9, overflow: 'hidden', background: 'rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', height: 18, borderRadius: 9, overflow: 'hidden', background: 'var(--track)' }}>
               {stateRows.map((s) => (
                 <div key={s.label} style={{ width: `${(s.value / stateTotal) * 100}%`, background: s.color }} title={`${s.label}: ${formatInt(s.value)}`} />
               ))}
@@ -593,7 +593,7 @@ function ChatBubbles({ lines }: { lines: string[] }) {
         const txt = m ? m[2] : ln;
         const isLead = who === 'LEAD';
         const isHuman = who === 'HUMANO';
-        const bg = isLead ? 'rgba(21,128,61,0.30)' : isHuman ? 'rgba(96,165,250,0.20)' : 'rgba(255,255,255,0.07)';
+        const bg = isLead ? 'rgba(21,128,61,0.30)' : isHuman ? 'rgba(96,165,250,0.20)' : 'var(--track)';
         return (
           <div key={i} style={{ display: 'flex', justifyContent: isLead ? 'flex-end' : 'flex-start' }}>
             <div
@@ -666,7 +666,7 @@ function FindingCard({ stopper, info, examples, isTop, total }: { stopper: Stopp
           </summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 12 }}>
             {examples.map((ex, i) => (
-              <div key={i} style={{ padding: '10px', borderRadius: 8, background: 'rgba(0,0,0,0.22)' }}>
+              <div key={i} style={{ padding: '10px', borderRadius: 8, background: 'var(--overlay)' }}>
                 <div style={{ fontSize: 9.5, color: MUTED, marginBottom: 8 }}>Conversación {i + 1} · origen {ex.origin === 'ad' ? 'anuncio' : 'contacto directo'}</div>
                 <ChatBubbles lines={ex.lines} />
               </div>
@@ -703,12 +703,12 @@ function HealthGauge({ value }: { value: number }) {
   const D = 'M22 110 A88 88 0 0 1 198 110';
   return (
     <svg viewBox="0 0 220 128" width="180" height="105" role="img" aria-label={`Salud del bot ${value} de 100`}>
-      <path d={D} fill="none" stroke="#232833" strokeWidth={13} strokeLinecap="round" />
+      <path d={D} fill="none" stroke='var(--chart-grid)' strokeWidth={13} strokeLinecap="round" />
       <path d={D} fill="none" stroke={RED} strokeWidth={9} opacity={0.28} strokeDasharray={`${0.4 * L} ${L}`} />
       <path d={D} fill="none" stroke={AMBER} strokeWidth={9} opacity={0.28} strokeDasharray={`${0.3 * L} ${L}`} strokeDashoffset={`${-0.4 * L}`} />
       <path d={D} fill="none" stroke={GREEN} strokeWidth={9} opacity={0.28} strokeDasharray={`${0.3 * L} ${L}`} strokeDashoffset={`${-0.7 * L}`} />
       <path d={D} fill="none" stroke={col} strokeWidth={13} strokeLinecap="round" strokeDasharray={`${f * L} ${L}`} />
-      <circle cx={mx} cy={my} r={6} fill={col} stroke="#161922" strokeWidth={2.5} />
+      <circle cx={mx} cy={my} r={6} fill={col} stroke="var(--bg1)" strokeWidth={2.5} />
       <text x="110" y="96" textAnchor="middle" fontSize="40" fontWeight="800" fill={col}>{value}</text>
       <text x="110" y="118" textAnchor="middle" fontSize="11" fill="var(--mu)">/100 · meta 70</text>
     </svg>
@@ -754,8 +754,8 @@ function RankBars({ items }: { items: { label: string; pct: number; count: numbe
     <svg viewBox={`0 0 300 ${H}`} width="100%" height={H} role="img" aria-label="Ranking de bugs técnicos">
       {grids.map((g, i) => (
         <g key={i}>
-          <line x1={xOf(g)} y1={top} x2={xOf(g)} y2={items.length * rowH + top} stroke="#232833" strokeWidth={1} />
-          <text x={xOf(g)} y={H - 4} textAnchor="middle" fontSize="8" fill="#5a6070">{Math.round(g)}%</text>
+          <line x1={xOf(g)} y1={top} x2={xOf(g)} y2={items.length * rowH + top} stroke='var(--chart-grid)' strokeWidth={1} />
+          <text x={xOf(g)} y={H - 4} textAnchor="middle" fontSize="8" fill="var(--chart-axis)">{Math.round(g)}%</text>
         </g>
       ))}
       {items.map((s, i) => {
@@ -763,7 +763,7 @@ function RankBars({ items }: { items: { label: string; pct: number; count: numbe
         const op = 0.5 + 0.5 * (s.pct / scale);
         return (
           <g key={s.label}>
-            <text x={4} y={y + 15} fontSize="10" fill="#c7ccd8">{s.label}</text>
+            <text x={4} y={y + 15} fontSize="10" fill="var(--chart-label)">{s.label}</text>
             <rect x={barX} y={y + 6} width={Math.max(xOf(s.pct) - barX, 2)} height={13} rx={3} fill={RED} opacity={op} />
             <text x={296} y={y + 16} textAnchor="end" fontSize="10.5" fontWeight="800" fill="var(--t1)">{s.pct}%</text>
           </g>
@@ -810,7 +810,7 @@ function Treemap({ items, total }: { items: { label: string; value: number; colo
   const pct = (v: number) => Math.round((v / total) * 100);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="Treemap de intención del cliente">
-      <g stroke="#161922" strokeWidth={2}>
+      <g stroke="var(--bg1)" strokeWidth={2}>
         <rect x={0} y={0} width={leftW} height={H} fill={first.color} />
         {restLayout.map((s, i) => (
           <rect key={i} x={leftW} y={s.y} width={W - leftW} height={s.h} fill={s.color} />
@@ -908,7 +908,7 @@ function BarRow({ label, value, max, color, suffix }: { label: string; value: nu
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ width: 130, fontSize: 12, color: 'var(--t2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={label}>{label}</div>
-      <div style={{ flex: 1, height: 18, borderRadius: 5, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+      <div style={{ flex: 1, height: 18, borderRadius: 5, background: 'var(--track)', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 5 }} />
       </div>
       <div style={{ width: 54, textAlign: 'right', fontSize: 12, color: 'var(--t1)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{suffix}</div>

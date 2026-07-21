@@ -15,14 +15,19 @@ export function Topbar() {
   const { crumb1, crumb2, title, id } = findRouteMeta(pathname);
   const { previous } = usePeriod();
 
+  // Sincroniza el estado inicial con el tema que el layout ya aplicó (SSR),
+  // así el default por cliente (p.ej. Ofero en claro) se respeta sin parpadeo.
   useEffect(() => {
+    const app = document.getElementById('app');
+    if (app) setIsDark(!app.classList.contains('lm'));
     setMounted(true);
   }, []);
 
   useEffect(() => {
+    if (!mounted) return;
     const app = document.getElementById('app');
     if (app) app.classList.toggle('lm', !isDark);
-  }, [isDark]);
+  }, [isDark, mounted]);
 
   const openSidebar = () => {
     document.getElementById('sb')?.classList.add('open');

@@ -59,27 +59,39 @@ html,body{height:100%}
   --r-md:10px;
   --r-lg:14px;
   --r-xl:20px;
+
+  /* Superficies de gráficos y rellenos (tema-aware) */
+  --track:rgba(255,255,255,0.06);
+  --overlay:rgba(0,0,0,0.22);
+  --chart-grid:rgba(255,255,255,0.08);
+  --chart-axis:rgba(243,244,248,0.35);
+  --chart-label:rgba(243,244,248,0.72);
 }
 
 .lm{
-  --bg0:#fafbfc;
+  --bg0:#f4f3fb;
   --bg1:#ffffff;
-  --bg2:#f5f6f8;
-  --bg3:#eceef2;
-  --bg4:#e2e5eb;
-  --b1:rgba(0,0,0,0.06);
-  --b2:rgba(0,0,0,0.1);
-  --t1:#0a0a0f;
-  --t2:rgba(10,10,15,0.65);
-  --t3:rgba(10,10,15,0.4);
-  --t4:rgba(10,10,15,0.2);
-  --acc:#7c3aed;
-  --acc-hover:#6d28d9;
-  --acc-dim:rgba(124,58,237,0.08);
-  --acc-faint:rgba(124,58,237,0.04);
-  --sh-sm:0 1px 2px rgba(0,0,0,0.04);
-  --sh-md:0 4px 12px rgba(0,0,0,0.06);
-  --sh-lg:0 12px 40px rgba(0,0,0,0.08);
+  --bg2:#faf9fe;
+  --bg3:#f1f0f8;
+  --bg4:#e6e4f0;
+  --b1:rgba(20,10,40,0.07);
+  --b2:rgba(20,10,40,0.11);
+  --t1:#141021;
+  --t2:rgba(20,16,33,0.66);
+  --t3:rgba(20,16,33,0.42);
+  --t4:rgba(20,16,33,0.22);
+  --acc:#7c5cff;
+  --acc-hover:#6a45f5;
+  --acc-dim:rgba(124,92,255,0.10);
+  --acc-faint:rgba(124,92,255,0.05);
+  --sh-sm:0 1px 2px rgba(30,20,60,0.05);
+  --sh-md:0 4px 14px rgba(30,20,60,0.07);
+  --sh-lg:0 14px 44px rgba(30,20,60,0.10);
+  --track:rgba(20,10,40,0.05);
+  --overlay:rgba(20,10,40,0.04);
+  --chart-grid:rgba(20,10,40,0.08);
+  --chart-axis:rgba(20,16,33,0.35);
+  --chart-label:rgba(20,16,33,0.68);
 }
 
 body{
@@ -92,7 +104,7 @@ body{
   overflow:hidden;
 }
 
-.app{display:flex;height:100vh;height:100dvh;min-height:640px;background:var(--bg0)}
+.app{display:flex;height:100vh;height:100dvh;min-height:640px;background:var(--bg0);color:var(--t1)}
 
 /* ================= SIDEBAR ================= */
 .sb{

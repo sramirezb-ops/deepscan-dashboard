@@ -40,3 +40,5 @@ etl/analyze_impediments.py
 etl/process_local_convos.py
 etl/run_when_ready.sh
 etl/migrations/seed_ofero.sql
+etl/migrations/fix_mojibake.sql
+etl/.shopify.env

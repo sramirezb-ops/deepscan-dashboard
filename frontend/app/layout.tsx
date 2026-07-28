@@ -27,7 +27,7 @@ const DEFAULT_SLUG = process.env.NEXT_PUBLIC_DEFAULT_CLIENT_SLUG || 'sneakers-st
 
 // Clientes que arrancan en tema CLARO (mockai). Se activa por deployment según
 // su slug. El resto queda en oscuro. El toggle del topbar sigue funcionando.
-const LIGHT_SLUGS = ['ofero-colombia'];
+const LIGHT_SLUGS = ['ofero-colombia', 'sneakers-store'];
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Lee la "receta" del cliente desde Supabase (con fallback seguro interno)

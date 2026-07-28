@@ -214,6 +214,71 @@ def extract_ga4_cities(
     return rows
 
 
+def extract_ga4_items(
+    property_id: str,
+    credentials_path: str,
+    date_from: date,
+    date_to: date
+) -> list[dict]:
+    """
+    Detalle diario POR PRODUCTO (item-scoped) desde GA4. Una fila =
+    (fecha × nombre de producto). Permite ver, por par de tenis: cuántas veces
+    se vio, cuántos se agregaron al carrito, cuántos llegaron a checkout,
+    cuántos se compraron y su revenue. 100% dato real de GA4.
+
+    Devuelve: date, item_name, items_viewed, items_added_to_cart,
+    items_checked_out, items_purchased, item_revenue.
+    """
+    import os
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric, OrderBy
+    )
+
+    client = BetaAnalyticsDataClient()
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[
+            Dimension(name="date"),
+            Dimension(name="itemName"),
+        ],
+        metrics=[
+            Metric(name="itemsViewed"),
+            Metric(name="itemsAddedToCart"),
+            Metric(name="itemsCheckedOut"),
+            Metric(name="itemsPurchased"),
+            Metric(name="itemRevenue"),
+        ],
+        date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
+        order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
+        limit=100000,
+    )
+
+    resp = client.run_report(request)
+    rows = []
+    for row in resp.rows:
+        dims = [d.value for d in row.dimension_values]
+        mets = [m.value for m in row.metric_values]
+        item_name = dims[1] or "(not set)"
+        if item_name == "(not set)":
+            continue  # eventos sin producto asociado: no aportan al análisis por par
+        rows.append({
+            "date":                dims[0],
+            "item_name":           item_name,
+            "items_viewed":        int(float(mets[0] or 0)),
+            "items_added_to_cart": int(float(mets[1] or 0)),
+            "items_checked_out":   int(float(mets[2] or 0)),
+            "items_purchased":     int(float(mets[3] or 0)),
+            "item_revenue":        round(float(mets[4] or 0), 2),
+        })
+
+    log.info(f"   GA4 productos (items): {len(rows)} filas (fecha×producto)")
+    return rows
+
+
 def extract_ga4_events(
     property_id: str,
     credentials_path: str,

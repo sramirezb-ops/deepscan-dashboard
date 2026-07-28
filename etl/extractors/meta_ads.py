@@ -21,6 +21,10 @@ AD_FIELDS = ",".join([
     "ctr", "cpm", "frequency",
     "actions",
     "action_values",
+    # Video (para tasa de retención / hold rate por anuncio)
+    "video_thruplay_watched_actions",
+    "video_p100_watched_actions",
+    "video_avg_time_watched_actions",
 ])
 
 
@@ -30,6 +34,19 @@ def _get_action(actions: list, action_type: str) -> float:
     for a in actions:
         if a.get("action_type") == action_type:
             return float(a.get("value", 0))
+    return 0.0
+
+
+def _get_video(row: dict, field: str) -> float:
+    """Los campos de video llegan como lista [{action_type, value}]. Toma el valor."""
+    v = row.get(field)
+    if isinstance(v, list) and v:
+        return float(v[0].get("value", 0) or 0)
+    if isinstance(v, (int, float, str)) and v not in ("", None):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
     return 0.0
 
 
@@ -395,6 +412,15 @@ def extract_meta_ads(
             add_to_cart    = _get_action(actions,       "add_to_cart")
             initiate_chk   = _get_action(actions,       "initiate_checkout")
             view_content   = _get_action(actions,       "view_content")
+            # Clics en el enlace y visitas a la página destino (landing) — para el
+            # embudo de Compras (CPC/CTR de enlace y costo por visita a landing).
+            link_clicks    = _get_action(actions,       "link_click")
+            landing_views  = _get_action(actions,       "landing_page_view")
+            # Retención de video por anuncio (hold rate). ThruPlay = vio ≥15s o
+            # completo; p100 = lo vio entero; avg_watch = segundos promedio vistos.
+            thruplay       = _get_video(r, "video_thruplay_watched_actions")
+            video_p100     = _get_video(r, "video_p100_watched_actions")
+            video_avg_sec  = _get_video(r, "video_avg_time_watched_actions")
             # Conversaciones iniciadas a nivel anuncio (mismo dato real que la
             # mensajería usa por ad set). Permite la tabla "anuncios por conjunto"
             # de la vista de WhatsApp con resultados por creativo.
@@ -428,6 +454,11 @@ def extract_meta_ads(
                 "add_to_cart":       add_to_cart,
                 "initiate_checkout": initiate_chk,
                 "view_content":      view_content,
+                "link_clicks":       link_clicks,
+                "landing_page_views": landing_views,
+                "thruplay":          thruplay,
+                "video_p100":        video_p100,
+                "video_avg_watch_sec": video_avg_sec,
                 "cpa":               cpa,
                 "conversations":          conversations,
                 "cost_per_conversation":  cost_per_conversation,

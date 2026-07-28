@@ -114,6 +114,7 @@ class SupabaseLoader:
             "ga4_events":               "client_id,date,event_name",
             "ga4_pages":                "client_id,date,page_path",
             "ga4_landing":              "client_id,date,landing_page",
+            "ga4_items":                "client_id,date,item_name",
             "gmc_products":             "client_id,product_id",
             "shopify_orders":           "client_id,date",
             "shopify_products":         "client_id,period_start,product_id",

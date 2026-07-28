@@ -27,6 +27,7 @@ from extractors.ga4             import (
     extract_ga4_cities,
     extract_ga4_events,
     extract_ga4_pages,
+    extract_ga4_items,
 )
 from extractors.shopify         import extract_shopify, extract_shopify_abandoned
 from extractors.clarity         import extract_clarity
@@ -411,6 +412,34 @@ def run_etl(client_id: str, days_back: int = 30):
             log.error(f"   ✗ GA4 páginas {property_id}: {e}")
     loader.upsert("ga4_pages",   list(ga4_pages_merge.values()),   client_id)
     loader.upsert("ga4_landing", list(ga4_landing_merge.values()), client_id)
+
+    # Detalle POR PRODUCTO (item-scoped): vistas, add-to-cart, checkout, compras
+    # y revenue por par de tenis. Alimenta el análisis "qué pares se ven y cuáles
+    # convierten" de la hoja de Compras. Se agrega entre propiedades.
+    ga4_items_merge: dict[tuple, dict] = {}
+    for property_id in GA4_PROPERTIES:
+        try:
+            item_rows = extract_ga4_items(
+                property_id=property_id,
+                credentials_path=os.environ["GOOGLE_CREDENTIALS_PATH"],
+                date_from=date_from,
+                date_to=date_to
+            )
+            for r in item_rows:
+                key = (r["date"], r["item_name"])
+                acc = ga4_items_merge.get(key)
+                if acc is None:
+                    ga4_items_merge[key] = dict(r)
+                else:
+                    acc["items_viewed"]        += r["items_viewed"]
+                    acc["items_added_to_cart"] += r["items_added_to_cart"]
+                    acc["items_checked_out"]   += r["items_checked_out"]
+                    acc["items_purchased"]     += r["items_purchased"]
+                    acc["item_revenue"]        = round(acc["item_revenue"] + r["item_revenue"], 2)
+            log.info(f"   ✓ GA4 productos {property_id}: {len(item_rows)} filas")
+        except Exception as e:
+            log.error(f"   ✗ GA4 productos {property_id}: {e}")
+    loader.upsert("ga4_items", list(ga4_items_merge.values()), client_id)
 
     # ── 7. GOOGLE MERCHANT CENTER ───────────────────────────────
     log.info("── Google Merchant Center")

@@ -681,6 +681,11 @@ def extract_shopify(
         elif status == "voided":
             orders_by_date[d]["orders_voided"] += 1
 
+        # Clasificación de pago del pedido para el desglose por par:
+        # "paid" = cobrado; "pending" = pago pendiente (COD / sin cobrar aún).
+        is_paid    = status == "paid"
+        is_pending = status == "pending"
+
         for item in order.get("line_items", []):
             pid = str(item.get("product_id", ""))
             qty = int(item.get("quantity", 0))
@@ -695,10 +700,21 @@ def extract_shopify(
                     "revenue":    0,
                     "units_sold": 0,
                     "orders":     0,
+                    # Desglose por estado de pago (por par)
+                    "revenue_paid":    0,
+                    "revenue_pending": 0,
+                    "units_paid":      0,
+                    "units_pending":   0,
                 }
             product_sales[pid]["revenue"]    += item_price
             product_sales[pid]["units_sold"] += qty
             product_sales[pid]["orders"]     += 1
+            if is_paid:
+                product_sales[pid]["revenue_paid"] += item_price
+                product_sales[pid]["units_paid"]   += qty
+            elif is_pending:
+                product_sales[pid]["revenue_pending"] += item_price
+                product_sales[pid]["units_pending"]   += qty
 
     orders_rows = []
     for d, v in sorted(orders_by_date.items()):
@@ -738,6 +754,11 @@ def extract_shopify(
             "orders":        p["orders"],
             "avg_price":     avg_price,
             "conv_rate":     0,   # se calcula cruzando con GA4 si se necesita
+            # Desglose por estado de pago (por par): cobrado vs pendiente.
+            "revenue_paid":    round(p["revenue_paid"], 2),
+            "revenue_pending": round(p["revenue_pending"], 2),
+            "units_paid":      p["units_paid"],
+            "units_pending":   p["units_pending"],
         })
 
     # Funnel Shopify — estimado desde checkout API

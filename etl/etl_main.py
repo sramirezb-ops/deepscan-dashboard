@@ -18,7 +18,10 @@ from extractors.google_sheets   import (
     extract_flowboost,
 )
 from extractors.implementations   import extract_implementations
-from extractors.meta_ads          import extract_meta_ads, extract_meta_platform, extract_meta_messaging
+from extractors.meta_ads          import (
+    extract_meta_ads, extract_meta_platform, extract_meta_messaging,
+    extract_meta_breakdown, extract_meta_ad_creatives,
+)
 from extractors.tiktok_ads        import extract_tiktok_ads, extract_tiktok_creatives
 from extractors.tiktok_comments   import extract_tiktok_comments
 from extractors.instagram_organic import extract_instagram_organic
@@ -201,6 +204,32 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Meta Platform: {len(platform_rows)} filas")
     except Exception as e:
         log.error(f"   ✗ Meta Platform error: {e}")
+
+    # ── 5b2. META BREAKDOWNS (segmento + plataforma, conjunto y anuncio) ─
+    log.info("── Meta Ads breakdowns (segmento / plataforma)")
+    try:
+        _tok = os.environ["META_ACCESS_TOKEN"]; _acc = os.environ["META_AD_ACCOUNT_ID"]
+        bd_all = []
+        for _level, _bd in [("adset", "user_segment_key"), ("adset", "publisher_platform"),
+                            ("ad", "publisher_platform")]:
+            try:
+                bd_all += extract_meta_breakdown(_tok, _acc, date_from, date_to, _level, _bd)
+            except Exception as e:
+                log.error(f"   ✗ breakdown {_level}×{_bd}: {e}")
+        loader.upsert("meta_breakdowns", bd_all, client_id)
+        log.info(f"   ✓ Meta Breakdowns: {len(bd_all)} filas")
+    except Exception as e:
+        log.error(f"   ✗ Meta Breakdowns error: {e}")
+
+    # ── 5b3. META CREATIVOS (media + copy de anuncios activos) ──
+    log.info("── Meta Ads creativos (media)")
+    try:
+        cre_rows = extract_meta_ad_creatives(
+            os.environ["META_ACCESS_TOKEN"], os.environ["META_AD_ACCOUNT_ID"])
+        loader.upsert("meta_ad_creatives", cre_rows, client_id)
+        log.info(f"   ✓ Meta creativos: {len(cre_rows)} filas")
+    except Exception as e:
+        log.error(f"   ✗ Meta creativos error: {e}")
 
     # ── 5c. META ADS · MENSAJES / CONVERSACIONES ────────────────
     log.info("── Meta Ads · mensajes (conversaciones iniciadas)")

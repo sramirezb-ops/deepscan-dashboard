@@ -133,6 +133,119 @@ def extract_meta_platform(
     return rows
 
 
+# ── BREAKDOWNS (plataforma / segmento) por conjunto o anuncio ──
+def extract_meta_breakdown(
+    access_token: str,
+    ad_account_id: str,
+    date_from: date,
+    date_to: date,
+    level: str = "adset",          # 'adset' o 'ad'
+    breakdown: str = "publisher_platform",  # 'publisher_platform' o 'user_segment_key'
+) -> list[dict]:
+    """
+    Insights de Meta desglosados por `breakdown` a nivel `level`, agregados en
+    el período (sin time_increment: una fila por entidad × valor de breakdown).
+    Alimenta la tabla `meta_breakdowns`, que la hoja de Compras usa para:
+      - Segmentos de público (breakdown=user_segment_key)  → nuevos/activos/existing
+      - Rendimiento por plataforma (breakdown=publisher_platform) → FB/IG…
+    a nivel conjunto y a nivel anuncio (para el modal por creativo).
+    """
+    ent = "adset_name,adset_id" if level == "adset" else "ad_name,ad_id,adset_name"
+    fields = f"campaign_name,{ent},spend,impressions,reach,actions,action_values"
+    params = {
+        "level":        level,
+        "fields":       fields,
+        "breakdowns":   breakdown,
+        "time_range":   f'{{"since":"{date_from}","until":"{date_to}"}}',
+        "limit":        500,
+        "access_token": access_token,
+    }
+    url = f"{BASE_URL}/act_{ad_account_id}/insights"
+    rows, page = [], 0
+    while url:
+        page += 1
+        resp = requests.get(url, params=params if page == 1 else {})
+        resp.raise_for_status()
+        data = resp.json()
+        for r in data.get("data", []):
+            actions = r.get("actions", []); avals = r.get("action_values", [])
+            spend = float(r.get("spend", 0) or 0)
+            rows.append({
+                "level":            level,
+                "breakdown_type":   breakdown,
+                "breakdown_value":  r.get(breakdown, "") or "unknown",
+                "campaign_name":    r.get("campaign_name", ""),
+                "entity_name":      r.get("adset_name" if level == "adset" else "ad_name", ""),
+                "entity_id":        r.get("adset_id" if level == "adset" else "ad_id", ""),
+                "adset_name":       r.get("adset_name", ""),
+                "spend":            round(spend, 2),
+                "impressions":      int(r.get("impressions", 0) or 0),
+                "reach":            int(r.get("reach", 0) or 0),
+                "purchases":        _get_action(actions, "purchase"),
+                "purchase_value":   _get_action(avals,   "purchase"),
+                "add_to_cart":      _get_action(actions, "add_to_cart"),
+                "initiate_checkout": _get_action(actions, "initiate_checkout"),
+                "landing_page_views": _get_action(actions, "landing_page_view"),
+                "link_clicks":      _get_action(actions, "link_click"),
+            })
+        nxt = data.get("paging", {}).get("next")
+        url = nxt; params = {}
+        if nxt: time.sleep(0.3)
+    log.info(f"   Meta Breakdown {level}×{breakdown}: {len(rows)} filas")
+    return rows
+
+
+# ── MEDIA DE CREATIVOS (imagen / video / copy) por anuncio ──
+def extract_meta_ad_creatives(
+    access_token: str,
+    ad_account_id: str,
+) -> list[dict]:
+    """
+    Media + copy de los creativos de anuncios ACTIVOS. Alimenta `meta_ad_creatives`
+    para el grid de creativos y el modal de la hoja de Compras. Guarda URLs
+    (no base64): imagen, thumbnail de video, video_id, título, cuerpo y CTA.
+    Las URLs firmadas de Meta se refrescan en cada corrida diaria del ETL.
+    """
+    fields = ("id,name,effective_status,adset{name},campaign{name},"
+              "creative{object_type,image_url,thumbnail_url,video_id,title,body,call_to_action_type}")
+    params = {
+        "fields":       fields,
+        "filtering":    '[{"field":"ad.effective_status","operator":"IN","value":["ACTIVE"]}]',
+        "limit":        200,
+        "access_token": access_token,
+    }
+    url = f"{BASE_URL}/act_{ad_account_id}/ads"
+    rows, page = [], 0
+    while url:
+        page += 1
+        resp = requests.get(url, params=params if page == 1 else {})
+        resp.raise_for_status()
+        data = resp.json()
+        for a in data.get("data", []):
+            cr = a.get("creative", {}) or {}
+            is_video = cr.get("object_type") == "VIDEO" or bool(cr.get("video_id"))
+            vid = cr.get("video_id", "") or ""
+            rows.append({
+                "ad_id":          a.get("id", ""),
+                "ad_name":        a.get("name", ""),
+                "adset_name":     (a.get("adset", {}) or {}).get("name", ""),
+                "campaign_name":  (a.get("campaign", {}) or {}).get("name", ""),
+                "creative_id":    cr.get("id", ""),
+                "is_video":       is_video,
+                "image_url":      cr.get("image_url", "") or "",
+                "thumbnail_url":  cr.get("thumbnail_url", "") or "",
+                "video_id":       vid,
+                "title":          cr.get("title", "") or "",
+                "body":           cr.get("body", "") or "",
+                "cta":            cr.get("call_to_action_type", "") or "",
+            })
+        nxt = data.get("paging", {}).get("next")
+        url = nxt; params = {}
+        if nxt: time.sleep(0.3)
+    log.info(f"   Meta creativos: {len(rows)} anuncios activos")
+    return rows
+
+
 # ── MENSAJES / CONVERSACIONES ───────────────────────────────
 # Campañas de mensajes (optimization_goal = CONVERSATIONS). Métrica real:
 # "conversaciones con mensaje iniciadas". El destino (WhatsApp / Messenger /

@@ -4,6 +4,9 @@ Nivel: anuncio (ad) por día — el más granular disponible
 Métricas clave para ecommerce: spend, purchases, purchase_value, ROAS, add_to_cart, etc.
 """
 
+from __future__ import annotations
+
+import json
 import logging
 import time
 from datetime import date
@@ -196,52 +199,77 @@ def extract_meta_breakdown(
 
 
 # ── MEDIA DE CREATIVOS (imagen / video / copy) por anuncio ──
+def _creative_row(a: dict) -> dict:
+    cr = a.get("creative", {}) or {}
+    return {
+        "ad_id":          a.get("id", ""),
+        "ad_name":        a.get("name", ""),
+        "adset_name":     (a.get("adset", {}) or {}).get("name", ""),
+        "campaign_name":  (a.get("campaign", {}) or {}).get("name", ""),
+        "creative_id":    cr.get("id", ""),
+        "is_video":       cr.get("object_type") == "VIDEO" or bool(cr.get("video_id")),
+        "image_url":      cr.get("image_url", "") or "",
+        "thumbnail_url":  cr.get("thumbnail_url", "") or "",
+        "video_id":       cr.get("video_id", "") or "",
+        "title":          cr.get("title", "") or "",
+        "body":           cr.get("body", "") or "",
+        "cta":            cr.get("call_to_action_type", "") or "",
+    }
+
+
 def extract_meta_ad_creatives(
     access_token: str,
     ad_account_id: str,
+    ad_ids: list[str] | None = None,
 ) -> list[dict]:
     """
-    Media + copy de los creativos de anuncios ACTIVOS. Alimenta `meta_ad_creatives`
-    para el grid de creativos y el modal de la hoja de Compras. Guarda URLs
-    (no base64): imagen, thumbnail de video, video_id, título, cuerpo y CTA.
-    Las URLs firmadas de Meta se refrescan en cada corrida diaria del ETL.
+    Media + copy de creativos. Si se pasan `ad_ids` (los anuncios que corrieron
+    con gasto en el período, activos o pausados), pide ESOS por ID en lotes —
+    para que el grid de Compras tenga imagen/video en todos, no solo activos.
+    Si no, cae al filtro de anuncios ACTIVOS. Guarda URLs (no base64); las URLs
+    firmadas de Meta se refrescan en cada corrida diaria del ETL.
     """
-    fields = ("id,name,effective_status,adset{name},campaign{name},"
-              "creative{object_type,image_url,thumbnail_url,video_id,title,body,call_to_action_type}")
+    CFIELDS = ("id,name,effective_status,adset{name},campaign{name},"
+               "creative{object_type,image_url,thumbnail_url,video_id,title,body,call_to_action_type}")
+    rows: list[dict] = []
+
+    ids = sorted({str(a) for a in (ad_ids or []) if a})
+    if ids:
+        # Pedir por ID en lotes (el batch del edge /ads con filtering ad.id IN).
+        BATCH = 50
+        for i in range(0, len(ids), BATCH):
+            chunk = ids[i:i + BATCH]
+            flt = json.dumps([{"field": "ad.id", "operator": "IN", "value": chunk}])
+            params = {"fields": CFIELDS, "filtering": flt, "limit": 100, "access_token": access_token}
+            url = f"{BASE_URL}/act_{ad_account_id}/ads"
+            while url:
+                resp = requests.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                for a in data.get("data", []):
+                    rows.append(_creative_row(a))
+                url = data.get("paging", {}).get("next"); params = {}
+                if url: time.sleep(0.3)
+            time.sleep(0.2)
+        log.info(f"   Meta creativos: {len(rows)} de {len(ids)} anuncios (por ID)")
+        return rows
+
+    # Fallback: solo activos.
     params = {
-        "fields":       fields,
+        "fields":       CFIELDS,
         "filtering":    '[{"field":"ad.effective_status","operator":"IN","value":["ACTIVE"]}]',
         "limit":        200,
         "access_token": access_token,
     }
     url = f"{BASE_URL}/act_{ad_account_id}/ads"
-    rows, page = [], 0
     while url:
-        page += 1
-        resp = requests.get(url, params=params if page == 1 else {})
+        resp = requests.get(url, params=params)
         resp.raise_for_status()
         data = resp.json()
         for a in data.get("data", []):
-            cr = a.get("creative", {}) or {}
-            is_video = cr.get("object_type") == "VIDEO" or bool(cr.get("video_id"))
-            vid = cr.get("video_id", "") or ""
-            rows.append({
-                "ad_id":          a.get("id", ""),
-                "ad_name":        a.get("name", ""),
-                "adset_name":     (a.get("adset", {}) or {}).get("name", ""),
-                "campaign_name":  (a.get("campaign", {}) or {}).get("name", ""),
-                "creative_id":    cr.get("id", ""),
-                "is_video":       is_video,
-                "image_url":      cr.get("image_url", "") or "",
-                "thumbnail_url":  cr.get("thumbnail_url", "") or "",
-                "video_id":       vid,
-                "title":          cr.get("title", "") or "",
-                "body":           cr.get("body", "") or "",
-                "cta":            cr.get("call_to_action_type", "") or "",
-            })
-        nxt = data.get("paging", {}).get("next")
-        url = nxt; params = {}
-        if nxt: time.sleep(0.3)
+            rows.append(_creative_row(a))
+        url = data.get("paging", {}).get("next"); params = {}
+        if url: time.sleep(0.3)
     log.info(f"   Meta creativos: {len(rows)} anuncios activos")
     return rows
 

@@ -221,13 +221,20 @@ def run_etl(client_id: str, days_back: int = 30):
     except Exception as e:
         log.error(f"   ✗ Meta Breakdowns error: {e}")
 
-    # ── 5b3. META CREATIVOS (media + copy de anuncios activos) ──
+    # ── 5b3. META CREATIVOS (media + copy de los anuncios que gastaron) ──
     log.info("── Meta Ads creativos (media)")
     try:
+        # ad_ids de los anuncios que corrieron con gasto en el período (activos o
+        # pausados) → así el grid de Compras tiene media en todos, no solo activos.
+        spent_ids = sorted({
+            str(r.get("ad_id")) for r in (meta_rows if "meta_rows" in dir() else [])
+            if r.get("ad_id") and (r.get("spend") or 0) > 0
+        })
         cre_rows = extract_meta_ad_creatives(
-            os.environ["META_ACCESS_TOKEN"], os.environ["META_AD_ACCOUNT_ID"])
+            os.environ["META_ACCESS_TOKEN"], os.environ["META_AD_ACCOUNT_ID"],
+            ad_ids=spent_ids or None)
         loader.upsert("meta_ad_creatives", cre_rows, client_id)
-        log.info(f"   ✓ Meta creativos: {len(cre_rows)} filas")
+        log.info(f"   ✓ Meta creativos: {len(cre_rows)} filas (de {len(spent_ids)} con gasto)")
     except Exception as e:
         log.error(f"   ✗ Meta creativos error: {e}")
 

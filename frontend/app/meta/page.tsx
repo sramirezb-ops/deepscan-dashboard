@@ -1,2 +1,2 @@
-import { MetaCompras } from '@/components/views/MetaCompras';
-export default function Page() { return <MetaCompras />; }
+import { ComprasDiagnostico } from '@/components/views/ComprasDiagnostico';
+export default function Page() { return <ComprasDiagnostico />; }

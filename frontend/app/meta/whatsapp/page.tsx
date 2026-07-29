@@ -1,2 +1,2 @@
-import { MetaWhatsApp } from '@/components/views/MetaWhatsApp';
-export default function Page() { return <MetaWhatsApp />; }
+import { WhatsAppDiagnostico } from '@/components/views/WhatsAppDiagnostico';
+export default function Page() { return <WhatsAppDiagnostico />; }

@@ -206,6 +206,11 @@ def _creative_row(a: dict) -> dict:
         "ad_name":        a.get("name", ""),
         "adset_name":     (a.get("adset", {}) or {}).get("name", ""),
         "campaign_name":  (a.get("campaign", {}) or {}).get("name", ""),
+        # Estado real de entrega del anuncio (ACTIVE / PAUSED / ADSET_PAUSED /
+        # DISAPPROVED …). Se trae por ad_id en lotes (fiable en cuentas grandes,
+        # a diferencia del edge /ads masivo), así que es un snapshot ACTUAL por
+        # corrida del ETL. La vista de WhatsApp lo usa para separar activo/pausado.
+        "status":         a.get("effective_status", "") or "",
         "creative_id":    cr.get("id", ""),
         "is_video":       cr.get("object_type") == "VIDEO" or bool(cr.get("video_id")),
         "image_url":      cr.get("image_url", "") or "",

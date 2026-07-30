@@ -21,6 +21,12 @@ export const viewport: Viewport = {
   themeColor: '#0a0a0f',
 };
 
+// La "receta" del cliente (enabled_channels, tema, objetivos) se lee de Supabase
+// en el layout. Sin esto, Next la congelaría en el build y los cambios de
+// configuración por cliente (p.ej. ocultar/mostrar canales del menú) no se
+// reflejarían hasta un redeploy. Revalidamos cada 5 min para que propaguen solos.
+export const revalidate = 300;
+
 // Cliente que se carga por defecto (hasta activar el ruteo por URL /[clientId]).
 // Se puede cambiar con la variable NEXT_PUBLIC_DEFAULT_CLIENT_SLUG.
 const DEFAULT_SLUG = process.env.NEXT_PUBLIC_DEFAULT_CLIENT_SLUG || 'sneakers-store';

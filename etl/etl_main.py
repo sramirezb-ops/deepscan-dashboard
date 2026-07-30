@@ -435,7 +435,11 @@ def run_etl(client_id: str, days_back: int = 30):
                             (acc["bounce_rate"] * (s1 - s2) + r["bounce_rate"] * s2) / s1, 4
                         ) if s1 > 0 else r["bounce_rate"]
             for r in land_rows:
-                key = (r["date"], r["landing_page"])
+                # Etiquetamos la propiedad GA4 de origen y NO fusionamos entre
+                # propiedades: así una hoja puede aislar una sola (p.ej. Shopify)
+                # y no se suman rutas compartidas (como "/") de sitios distintos.
+                r["property_id"] = str(property_id)
+                key = (r["date"], r["landing_page"], str(property_id))
                 acc = ga4_landing_merge.get(key)
                 if acc is None:
                     ga4_landing_merge[key] = dict(r)

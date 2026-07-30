@@ -466,6 +466,13 @@ def extract_ga4_pages(
                 Metric(name="activeUsers"),
                 Metric(name="bounceRate"),
                 Metric(name="conversions"),
+                # Embudo ecommerce por página de ENTRADA: cuántas de las sesiones
+                # que empiezan en esta URL agregan al carrito, inician checkout y
+                # compran. Permite comparar la conversión real entre landings.
+                Metric(name="addToCarts"),
+                Metric(name="checkouts"),
+                Metric(name="ecommercePurchases"),
+                Metric(name="purchaseRevenue"),
             ],
             date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
             order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
@@ -483,6 +490,10 @@ def extract_ga4_pages(
                 "users": int(m[1] or 0),
                 "bounce_rate": round(float(m[2] or 0), 4),
                 "conversions": int(float(m[3] or 0)),
+                "add_to_cart": int(float(m[4] or 0)),
+                "checkout": int(float(m[5] or 0)),
+                "purchases": int(float(m[6] or 0)),
+                "revenue": round(float(m[7] or 0), 2),
             })
         log.info(f"   GA4 landing: {len(landing_rows)} filas (fecha×landing)")
     except Exception as e:

@@ -443,6 +443,10 @@ def run_etl(client_id: str, days_back: int = 30):
                     acc["sessions"]    += r["sessions"]
                     acc["users"]       += r["users"]
                     acc["conversions"] += r["conversions"]
+                    acc["add_to_cart"] += r.get("add_to_cart", 0)
+                    acc["checkout"]    += r.get("checkout", 0)
+                    acc["purchases"]   += r.get("purchases", 0)
+                    acc["revenue"]     += r.get("revenue", 0)
             log.info(f"   ✓ GA4 páginas {property_id}: {len(top_rows)} top, {len(land_rows)} landing")
         except Exception as e:
             log.error(f"   ✗ GA4 páginas {property_id}: {e}")

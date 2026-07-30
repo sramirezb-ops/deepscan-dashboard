@@ -32,27 +32,46 @@ function posterUrl(c: Creative): string {
 
 export function ComprasDiagnostico() {
   const client = useClient();
-  const { range } = usePeriod();
-  const { data, loading, error } = useCompras(client.id, range);
+  const { range, previous } = usePeriod();
+  const { data, loading, error } = useCompras(client.id, range, previous);
   const [sel, setSel] = useState<number | null>(null);
 
   const view = useMemo(() => {
     if (!data) return null;
-    const T = data.totals, ST = data.store;
+    const T = data.totals, ST = data.store, PT = data.prevTotals, PST = data.prevStore;
     const r = (a: number, b: number, d = 1) => (b ? +((100 * a) / b).toFixed(d) : 0);
     const rBuy = r(T.purchases, T.checkout);
     const abandon = T.checkout - T.purchases;
-    const steps = [
-      { lbl: 'Impresiones', val: T.impressions, sub: `CPM ${money(T.cpm)} · Frec ${data.sets ? T.freq : ''}`, conv: null as number | null, cc: '', bm: '', leak: '' },
-      { lbl: 'Clics en el enlace', val: T.link_clicks, sub: `CPC ${money(T.cpc)} · CTR ${T.ctr}%`, conv: r(T.link_clicks, T.impressions), cc: sem(r(T.link_clicks, T.impressions), 2, 1), bm: 'bench 1–2%', leak: '' },
-      { lbl: 'Visitas a la página', val: T.landing, sub: `${money(T.spend / (T.landing || 1))}/visita`, conv: r(T.landing, T.link_clicks), cc: sem(r(T.landing, T.link_clicks), 85, 70), bm: 'bench >85%', leak: `${kfmt(T.link_clicks - T.landing)} clics no cargan` },
-      { lbl: 'Agregan al carrito', val: T.cart, sub: `${money(T.spend / (T.cart || 1))}/carrito`, conv: r(T.cart, T.landing), cc: sem(r(T.cart, T.landing), 6, 3), bm: 'bench 5–10%', leak: `${kfmt(T.landing - T.cart)} ven y NO agregan` },
-      { lbl: 'Inician pago', val: T.checkout, sub: `${money(T.spend / (T.checkout || 1))}/pago`, conv: r(T.checkout, T.cart), cc: sem(r(T.checkout, T.cart), 45, 30), bm: 'bench >45%', leak: '' },
-      { lbl: 'Compran', val: T.purchases, sub: `${money(T.spend / (T.purchases || 1))}/compra`, conv: rBuy, cc: sem(rBuy, 35, 15), bm: 'bench 35–60%', leak: `${kfmt(abandon)} inician pago y NO compran` },
-    ];
-    const maxv = T.impressions || 1;
     const blended = T.roas;
     const aov = T.aov;
+
+    // ── Embudo por TASA (A) + Δ vs periodo de comparación (D) ──
+    type Step = { key: string; lbl: string; val: number; from: number; sub: string;
+      conv: number; pconv: number; delta: number; cc: string; obj: number; bench: string; ratelbl: string; leak: string; note?: string };
+    const cfg: Array<[string, string, number, number, number, number, number, number, number, string, string, string]> = [
+      // key, lbl, val, prevVal, from, prevFrom, g, a, obj, benchTxt, ratelbl, leakTxt
+      ['clk', 'Clics en el enlace', T.link_clicks, PT.link_clicks, T.impressions, PT.impressions, 2, 1, 2, 'obj 1–2%', 'CTR', ''],
+      ['lpv', 'Visitas a la página', T.landing, PT.landing, T.link_clicks, PT.link_clicks, 85, 70, 85, 'obj >85%', '% que carga', `${kfmt(T.link_clicks - T.landing)} clics no cargan`],
+      ['cart', 'Agregan al carrito', T.cart, PT.cart, T.landing, PT.landing, 6, 3, 6, 'obj 5–10%', '% que agrega', `${kfmt(T.landing - T.cart)} ven y NO agregan`],
+      ['chk', 'Inician pago', T.checkout, PT.checkout, T.cart, PT.cart, 45, 30, 45, 'obj >45%', '% que paga', ''],
+      ['buy', 'Compran', T.purchases, PT.purchases, T.checkout, PT.checkout, 35, 15, 35, 'obj 35–60%', '% que compra', `${kfmt(abandon)} inician pago y NO compran`],
+    ];
+    const steps: Step[] = cfg.map(([key, lbl, val, pval, from, pfrom, g, a, obj, bench, ratelbl, leak]) => {
+      const conv = r(val, from), pconv = r(pval, pfrom);
+      return { key, lbl, val, from, sub: `${money(T.spend / (val || 1))}/${key === 'clk' ? 'clic' : key === 'lpv' ? 'visita' : key === 'cart' ? 'carrito' : key === 'chk' ? 'pago' : 'compra'}`,
+        conv, pconv, delta: +(conv - pconv).toFixed(1), cc: sem(conv, g, a), obj, bench, ratelbl, leak };
+    });
+    // Paso extra (B): Compra → Cobrada (nivel tienda)
+    const cobrada: Step = { key: 'cobr', lbl: 'Cobradas', val: ST.orders_paid, from: ST.orders,
+      sub: `${money(ST.revenue_paid)} cobrado`, conv: ST.paid_pct, pconv: PST.paid_pct, delta: +(ST.paid_pct - PST.paid_pct).toFixed(1),
+      cc: sem(ST.paid_pct, 90, 60), obj: 90, bench: 'obj >90%', ratelbl: 'se cobra', leak: `${money(ST.revenue_pending)} pendiente de cobro`, note: 'tienda' };
+    // Rotura #1 = el paso rojo más lejos de su objetivo
+    const reds = steps.filter((s) => s.cc === RED);
+    const worst = (reds.length ? reds : steps).reduce((w, s) => (s.conv / s.obj < w.conv / w.obj ? s : w));
+    const buyAtObj = Math.round((worst.from * worst.obj) / 100);
+    const recover = Math.max(buyAtObj - worst.val, 0);
+    // Segunda alerta = mayor deterioro de tasa (Δ más negativo) distinto de la rotura
+    const second = steps.filter((s) => s.key !== worst.key && s.delta < -2).sort((x, y) => x.delta - y.delta)[0] || null;
     // AI insights
     const nm = data.pairs.find((p) => p.name.includes('MIND 001 SLIDE BLACK')) || { views: 0, atc: 0, checkout: 0 };
     const pend = data.pairs.filter((p) => p.sold > 0 && p.rev_paid === 0).slice(0, 3).map((p) => p.name.replace('TENIS ', ''));
@@ -69,14 +88,14 @@ export function ComprasDiagnostico() {
       { ic: '🖼️', pri: 'MEDIA', pc: ACC, t: 'La imagen vende más que el video', h: `Los creativos de imagen promedian ${iroas}× ROAS vs ${vroas}× del video.`, hip: 'En sneakers de hype, la foto del producto + oferta convierte más que el storytelling largo.', ac: 'Priorizar creativos de producto/precio para cierre; reservar el video para awareness.' },
     ];
     if (pend.length) AI.push({ ic: '🧾', pri: 'MEDIA', pc: AMBER, t: 'Ventas “fantasma”: pares 100% pendientes de pago', h: `Vendidos pero con $0 cobrado: ${pend.join(', ')}.`, hip: 'Preventas/COD de ticket alto que no se concretan — el cliente aparta pero no paga.', ac: 'Exigir anticipo obligatorio en preventa y medir “venta cobrada”, no “venta colocada”.' });
-    return { T, ST, steps, maxv, blended, aov, rBuy, abandon, AI, vroas, iroas, fb, ig };
+    return { T, ST, steps, cobrada, worst, second, buyAtObj, recover, blended, aov, rBuy, abandon, AI, vroas, iroas, fb, ig };
   }, [data]);
 
   if (loading) return <div className="ct-pad"><EmptyState title="Cargando Compras…" message="Un momento…" /></div>;
   if (error || !data || !view) return <div className="ct-pad"><EmptyState title="Sin datos de Compras" message={error || 'No hay datos de Advantage+ en este período.'} /></div>;
 
   const BS = data.sets['Best Sellers'], PX = data.sets['Próximos lanzamientos'];
-  const { T, ST, steps, maxv, blended, AI, fb, ig } = view;
+  const { T, ST, steps, cobrada, worst, second, buyAtObj, recover, blended, AI, fb, ig } = view;
   const selc = sel != null ? data.creatives[sel] : null;
 
   // charts
@@ -134,24 +153,55 @@ export function ComprasDiagnostico() {
         </div>
       </div>
 
-      {/* Embudo */}
-      <h2><span className="nn">1</span>Embudo diagnóstico · dónde se rompe</h2>
-      <div className="h2sub">De cada paso al siguiente: % que sobrevive vs benchmark. 🔴 = fuga.</div>
-      <div className="card">
-        {steps.map((s, i) => (
-          <div key={i}>
-            {s.conv != null && (
-              <div className="fconv"><span className="fchip" style={{ background: s.cc + '1a', color: s.cc, borderColor: s.cc + '55' }}>▼ {s.conv}% <small>{s.bm}</small></span>
-                {(s.cc === RED || s.cc === AMBER) && s.leak ? <span className="leak">⚠ {s.leak}</span> : null}</div>
-            )}
-            <div className="fstage">
-              <div className="fbarbox"><div className="fbar" style={{ width: `${Math.max(Math.round((100 * s.val) / maxv), 5)}%`, background: s.cc === RED ? RED : i === 0 ? INK : ACC }} /></div>
-              <div className="fnum"><b>{kfmt(s.val)}</b><span>{s.lbl} · {s.sub}</span></div>
-            </div>
-          </div>
-        ))}
-        <div className="leakbox"><b style={{ color: RED }}>Fuga mayor — el pago:</b> {kfmt(view.abandon)} inician el pago y no compran. Recuperar 10% = <b>~{Math.round(view.abandon * 0.1)} compras extra</b> (casi 2× las {T.purchases}) sin gastar $1 más. La palanca #1 es método de pago, confianza y seguimiento de checkout.</div>
+      {/* Embudo por tasa — rotura destacada + Δ vs comparación */}
+      <div className="fnl-hero">
+        <div className="hk">🔴 ROTURA #1 · DÓNDE SE ROMPE EL EMBUDO</div>
+        <div className="ht">{steps.find((s) => s.key === worst.key)?.key === 'clk' ? 'Impresiones' : ({ lpv: 'Clics', cart: 'Visitas', chk: 'Carrito', buy: 'Inician pago' } as Record<string, string>)[worst.key] || ''} → {worst.lbl}</div>
+        <div className="hbig">{worst.conv}%<small> · objetivo {worst.obj}%</small></div>
+        <p>{kfmt(worst.from - worst.val)} {worst.key === 'buy' ? 'llegan a pagar y no compran' : 'avanzan y se caen'}. A objetivo serían <b>~{kfmt(buyAtObj)} compras/mes</b> — <b>+{kfmt(recover)}</b> sin gastar $1 más.{worst.delta < -0.3 ? <> Y empeoró: era <b>{worst.pconv}%</b> el periodo anterior ▼.</> : worst.delta > 0.3 ? <> Venía de {worst.pconv}% ▲.</> : null}</p>
+        <div className="hstats">
+          <div className="hstat"><b>{kfmt(worst.val)}</b><span>compran hoy</span></div>
+          <div className="hstat"><b>{worst.conv}%</b><span>tasa actual</span></div>
+          <div className="hstat"><b>{worst.pconv}%</b><span>periodo anterior</span></div>
+          <div className="hstat"><b>~{kfmt(recover)}</b><span>recuperables</span></div>
+        </div>
       </div>
+
+      <h2><span className="nn">1</span>Embudo por tasa de conversión · no por volumen</h2>
+      <div className="h2sub">Cada barra = % que sobrevive del paso anterior (0–100%). La marca vertical = tu objetivo. Δ = cambio vs {data.prevFrom} → {data.prevTo}.</div>
+      <div className="card fnl">
+        <div className="frow fnl-head">
+          <div className="fl"><div className="fn">Impresiones</div><div className="fc">{kfmt(T.impressions)}</div></div>
+          <div className="fbar-wrap"><div className="ftop">arranque del embudo · CPM {money(T.cpm)}</div></div>
+          <div className="fd" />
+        </div>
+        {[...steps, cobrada].map((s) => {
+          const isw = s.key === worst.key;
+          const bw = Math.max(Math.min(s.conv, 100), 1.5);
+          const objL = Math.min(s.obj, 100);
+          const showLeak = (s.cc === RED || s.cc === AMBER) && s.leak;
+          return (
+            <div className={`frow${isw ? ' worst' : ''}${s.key === 'cobr' ? ' cobr' : ''}`} key={s.key}>
+              <div className="fl"><div className="fn">{s.lbl}{s.note ? <span className="tienda">{s.note}</span> : null}</div>
+                <div className="fc">{kfmt(s.val)}{s.key === 'cobr' ? <span className="ofrom"> de {kfmt(s.from)} pedidos</span> : null}</div></div>
+              <div className="fbar-wrap">
+                <div className="fconv2" style={{ color: s.cc }}>{s.conv}%<span className="frl">{s.ratelbl}</span></div>
+                <div className="fbar2"><div className="fbar-in" style={{ width: `${bw}%`, background: s.cc }} /><div className="fobj" style={{ left: `${objL}%` }} title={`objetivo ${s.bench}`} /></div>
+                <div className="fmeta">
+                  {Math.abs(s.delta) < 0.3 ? <span className="dl flat">→ igual</span> : <span className="dl" style={{ color: s.delta > 0 ? GREEN : RED }}>{s.delta > 0 ? '▲' : '▼'} {Math.abs(s.delta)}pp</span>}
+                  <span className="obj">{s.bench}</span>
+                  {showLeak ? <span className="lk">⚠ {s.leak}</span> : null}
+                </div>
+              </div>
+              <div className="fd">{isw ? <span className="wtag">ROTURA #1</span> : null}</div>
+            </div>
+          );
+        })}
+        <div className="fnl-leg"><span><b>│</b> objetivo</span><span><b style={{ color: GREEN }}>▲</b> mejora vs anterior</span><span><b style={{ color: RED }}>▼</b> empeora</span><span><b>pp</b> = puntos porcentuales</span></div>
+      </div>
+      {second ? (
+        <div className="alert2"><span className="a2ic">🟠</span><div><b>Fuga que apareció este periodo · {({ lpv: 'Clics', cart: 'Visitas', chk: 'Carrito', buy: 'Inician pago' } as Record<string, string>)[second.key]} → {second.lbl}</b> cayó de <b>{second.pconv}%</b> a <b style={{ color: RED }}>{second.conv}%</b> ({second.delta}pp). Llega tráfico pero casi nadie avanza — señal de <b>menor calidad de tráfico o mismatch anuncio ↔ producto/precio</b>. Solo se ve gracias a la comparación vs. periodo anterior.</div></div>
+      ) : null}
 
       {/* Duelo */}
       <h2><span className="nn">2</span>Duelo de conjuntos · quién escala y quién se audita</h2>
@@ -366,13 +416,31 @@ export function ComprasDiagnostico() {
         .aic-pri{font-size:8.5px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:.4px}
         .aic-row{display:flex;gap:9px;margin-bottom:6px}.aic-lbl{width:64px;flex:none;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:${MUT};padding-top:1px}
         .aic-row p{font-size:11.5px;line-height:1.5;color:${INK2};margin:0}
-        .fstage{display:flex;align-items:center;gap:14px;margin:2px 0}
-        .fbarbox{flex:1;background:#f2eff8;border-radius:7px;height:30px;overflow:hidden}.fbar{height:100%;border-radius:7px;opacity:.9}
-        .fnum{width:230px;flex:none}.fnum b{font-size:16px;font-weight:800}.fnum span{display:block;font-size:10.5px;color:${MUT}}
-        .fconv{display:flex;align-items:center;gap:10px;margin:5px 0 5px calc(100% - 244px)}
-        .fchip{font-size:11px;font-weight:800;border:1px solid;border-radius:20px;padding:2px 9px}.fchip small{font-weight:500;opacity:.75;font-size:9px}
-        .leak{font-size:11px;color:${RED};font-weight:700}
-        .leakbox{margin-top:14px;padding:12px 14px;background:rgba(229,56,77,.06);border:1px solid rgba(229,56,77,.2);border-radius:11px;font-size:12px;line-height:1.55}
+        .fnl-hero{margin-top:16px;border-radius:16px;padding:20px 22px;background:linear-gradient(135deg,#2a0d16,#4a1020 60%,${RED});color:#fff;box-shadow:0 10px 30px rgba(229,56,77,.22)}
+        .fnl-hero .hk{font-size:10px;font-weight:800;letter-spacing:1.5px;opacity:.85}
+        .fnl-hero .ht{font-size:24px;font-weight:800;margin:6px 0 4px}
+        .fnl-hero .hbig{font-size:38px;font-weight:800}.fnl-hero .hbig small{font-size:14px;opacity:.8;font-weight:700}
+        .fnl-hero p{font-size:13px;line-height:1.6;opacity:.95;max-width:640px;margin-top:6px}
+        .fnl-hero .hstats{display:flex;gap:24px;margin-top:14px;flex-wrap:wrap}
+        .fnl-hero .hstat b{font-size:20px;font-weight:800;display:block}.fnl-hero .hstat span{font-size:9.5px;opacity:.8;text-transform:uppercase;letter-spacing:.5px}
+        .fnl .frow{display:grid;grid-template-columns:186px 1fr 92px;gap:14px;align-items:center;padding:11px 6px;border-bottom:1px solid #f4f2f9}
+        .fnl .frow:last-child{border-bottom:0}
+        .fnl .frow.worst{background:rgba(229,56,77,.05);border:1.5px solid rgba(229,56,77,.35);border-radius:12px;margin:4px 0}
+        .fnl .frow.cobr{background:rgba(245,165,36,.05);border-top:2px dashed ${LINE}}
+        .fl .fn{font-weight:700;font-size:13px}.fl .fc{font-size:19px;font-weight:800;margin-top:1px}
+        .fl .ofrom{font-size:10px;color:${MUT};font-weight:600}.tienda{font-size:9.5px;color:${MUT};font-weight:600;background:#f0eef7;padding:1px 6px;border-radius:5px;margin-left:5px}
+        .fnl-head .ftop{font-size:11px;color:${MUT};font-style:italic}
+        .fbar-wrap{display:flex;flex-direction:column;gap:5px}
+        .fconv2{font-size:16px;font-weight:800;display:flex;align-items:baseline;gap:7px}.frl{font-size:10px;color:${MUT};font-weight:600}
+        .fbar2{position:relative;height:12px;background:#f1eef8;border-radius:6px}
+        .fbar-in{height:100%;border-radius:6px;min-width:3px}
+        .fobj{position:absolute;top:-3px;height:18px;width:2px;background:${INK};opacity:.45}
+        .fmeta{font-size:11px;color:${MUT};display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+        .dl{font-weight:800;font-size:11px}.dl.flat{color:${MUT}}.obj{font-weight:600}.lk{color:${RED};font-weight:700}
+        .fd{text-align:right}.wtag{font-size:9px;font-weight:800;color:#fff;background:${RED};padding:3px 8px;border-radius:20px}
+        .fnl-leg{font-size:11px;color:${MUT};margin-top:12px;display:flex;gap:16px;flex-wrap:wrap}.fnl-leg b{color:${INK}}
+        .alert2{display:flex;gap:11px;background:rgba(245,165,36,.09);border:1px solid rgba(245,165,36,.35);border-radius:12px;padding:13px 15px;margin-top:14px;font-size:12.5px;line-height:1.55;color:${INK2}}.a2ic{font-size:18px}
+        @media(max-width:640px){.fnl .frow{grid-template-columns:1fr;gap:6px}.fnl .fd{text-align:left}}
         .duel{width:100%;border-collapse:collapse}.duel th{font-size:12px;padding:9px 10px;border-bottom:2px solid ${LINE};text-align:center}.duel th:first-child{text-align:left;color:${MUT};font-weight:600}
         .duel td{padding:8px 10px;border-bottom:1px solid #f4f2f9;font-size:12.5px}.duel td:first-child{color:${MUT}}.duel td.dv{text-align:center;font-weight:600}
         .verdict{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}

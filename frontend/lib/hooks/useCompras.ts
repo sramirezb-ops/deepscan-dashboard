@@ -44,11 +44,15 @@ export interface Creative {
   plat: Record<string, { spend: number; buy: number; val: number }>;
 }
 export interface DailyRow { date: string; spend: number; purchase_value: number; purchases: number; checkout: number; }
+export interface StoreCobro { orders: number; orders_paid: number; orders_pending: number; revenue: number; revenue_paid: number; revenue_pending: number; paid_pct: number; roas_collected: number }
 export interface ComprasData {
   from: string; to: string;
+  prevFrom: string; prevTo: string;
   sets: Record<string, SetMetrics>;
   totals: SetMetrics;
-  store: { orders: number; orders_paid: number; orders_pending: number; revenue: number; revenue_paid: number; revenue_pending: number; paid_pct: number; roas_collected: number };
+  prevTotals: SetMetrics; // mismo embudo, periodo de comparación (para Δ por paso)
+  store: StoreCobro;
+  prevStore: StoreCobro; // cobro del periodo de comparación
   pairs: Pair[];
   segments: SegRow[];
   platforms: PlatRow[];
@@ -79,10 +83,11 @@ function toks(s: string): Set<string> {
   return new Set(x.split(/\s+/).filter((w) => w.length > 1));
 }
 
-export function useCompras(clientId: string, range: DateRange) {
+export function useCompras(clientId: string, range: DateRange, previous?: DateRange) {
   const [data, setData] = useState<ComprasData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const prevFrom = previous?.from || range.from, prevTo = previous?.to || range.to;
 
   useEffect(() => {
     let alive = true;
@@ -90,7 +95,8 @@ export function useCompras(clientId: string, range: DateRange) {
       setLoading(true); setError(null);
       try {
         const from = range.from, to = range.to;
-        const [mc, so, sp, gi, bd, cr] = await Promise.all([
+        const cfCols = 'campaign_name,adset_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value';
+        const [mc, so, sp, gi, bd, cr, mcPrev, soPrev] = await Promise.all([
           page<any>('meta_campaigns',
             'date,campaign_name,adset_name,ad_id,ad_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value,thruplay,ctr',
             clientId, (q) => q.gte('date', from).lte('date', to)),
@@ -101,6 +107,9 @@ export function useCompras(clientId: string, range: DateRange) {
             clientId, (q) => q.gte('date', from).lte('date', to)),
           page<any>('meta_breakdowns', 'level,breakdown_type,breakdown_value,campaign_name,adset_name,entity_id,spend,purchases,purchase_value', clientId),
           page<any>('meta_ad_creatives', 'ad_id,ad_name,adset_name,campaign_name,is_video,image_url,thumbnail_url,video_id,title,body,cta', clientId),
+          // Periodo de comparación (para Δ por paso del embudo): solo el embudo Advantage+ y el cobro.
+          page<any>('meta_campaigns', 'date,' + cfCols, clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
+          page<any>('shopify_orders', 'date,orders,orders_paid,orders_pending,revenue,revenue_pending', clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
         ]);
 
         // ---- META por conjunto + totales + diario + por anuncio ----
@@ -135,11 +144,26 @@ export function useCompras(clientId: string, range: DateRange) {
         for (const g of Object.keys(setAcc)) for (const k of Object.keys(Tacc)) Tacc[k] += setAcc[g][k === 'link_clicks' ? 'link_clicks' : k] || 0;
         const totals = derive(Tacc);
 
-        // ---- Store cobro ----
-        const st = { orders: 0, orders_paid: 0, orders_pending: 0, revenue: 0, revenue_pending: 0 };
-        for (const r of so) { st.orders += n(r.orders); st.orders_paid += n(r.orders_paid); st.orders_pending += n(r.orders_pending); st.revenue += n(r.revenue); st.revenue_pending += n(r.revenue_pending); }
-        const revenue_paid = st.revenue - st.revenue_pending;
-        const store = { ...st, revenue_paid, paid_pct: st.revenue ? Math.round((100 * revenue_paid) / st.revenue) : 0, roas_collected: div(revenue_paid, totals.spend) };
+        // ---- Store cobro (helper reusable para actual y periodo previo) ----
+        const cobro = (rows: any[], spend: number): StoreCobro => {
+          const st = { orders: 0, orders_paid: 0, orders_pending: 0, revenue: 0, revenue_pending: 0 };
+          for (const r of rows) { st.orders += n(r.orders); st.orders_paid += n(r.orders_paid); st.orders_pending += n(r.orders_pending); st.revenue += n(r.revenue); st.revenue_pending += n(r.revenue_pending); }
+          const revenue_paid = st.revenue - st.revenue_pending;
+          return { ...st, revenue_paid, paid_pct: st.revenue ? Math.round((100 * revenue_paid) / st.revenue) : 0, roas_collected: div(revenue_paid, spend) };
+        };
+        const store = cobro(so, totals.spend);
+
+        // ---- Embudo del periodo de comparación (Advantage+) para Δ por paso ----
+        const prevAcc: any = { spend: 0, impressions: 0, reach: 0, link_clicks: 0, landing: 0, cart: 0, checkout: 0, purchases: 0, purchase_value: 0 };
+        for (const r of mcPrev) {
+          if (!(r.campaign_name || '').startsWith(CAMP_PREFIX) || !grp(r.adset_name)) continue;
+          prevAcc.spend += n(r.spend); prevAcc.impressions += n(r.impressions); prevAcc.reach += n(r.reach);
+          prevAcc.link_clicks += n(r.link_clicks); prevAcc.landing += n(r.landing_page_views);
+          prevAcc.cart += n(r.add_to_cart); prevAcc.checkout += n(r.initiate_checkout);
+          prevAcc.purchases += n(r.purchases); prevAcc.purchase_value += n(r.purchase_value);
+        }
+        const prevTotals = derive(prevAcc);
+        const prevStore = cobro(soPrev, prevTotals.spend);
 
         // ---- Shopify por par (ventana más reciente) ----
         const maxpe = sp.reduce((m, r) => (r.period_end > m ? r.period_end : m), '');
@@ -232,7 +256,7 @@ export function useCompras(clientId: string, range: DateRange) {
           .sort((a, b) => (b.thumbnail_url || b.image_url ? 1 : 0) - (a.thumbnail_url || a.image_url ? 1 : 0) || b.spend - a.spend);
 
         const out: ComprasData = {
-          from, to, sets, totals, store, pairs, segments, platforms, segPlatform, creatives,
+          from, to, prevFrom, prevTo, sets, totals, prevTotals, store, prevStore, pairs, segments, platforms, segPlatform, creatives,
           daily: Object.values(daily).sort((a, b) => a.date.localeCompare(b.date)),
         };
         if (alive) { setData(out); setLoading(false); }
@@ -241,7 +265,7 @@ export function useCompras(clientId: string, range: DateRange) {
       }
     })();
     return () => { alive = false; };
-  }, [clientId, range.from, range.to]);
+  }, [clientId, range.from, range.to, prevFrom, prevTo]);
 
   return { data, loading, error };
 }

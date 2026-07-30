@@ -416,13 +416,13 @@ export function ComprasDiagnostico() {
         .aic-pri{font-size:8.5px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:.4px}
         .aic-row{display:flex;gap:9px;margin-bottom:6px}.aic-lbl{width:64px;flex:none;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:${MUT};padding-top:1px}
         .aic-row p{font-size:11.5px;line-height:1.5;color:${INK2};margin:0}
-        .fnl-hero{margin-top:16px;border-radius:16px;padding:20px 22px;background:linear-gradient(135deg,#2a0d16,#4a1020 60%,${RED});color:#fff;box-shadow:0 10px 30px rgba(229,56,77,.22)}
-        .fnl-hero .hk{font-size:10px;font-weight:800;letter-spacing:1.5px;opacity:.85}
-        .fnl-hero .ht{font-size:24px;font-weight:800;margin:6px 0 4px}
-        .fnl-hero .hbig{font-size:38px;font-weight:800}.fnl-hero .hbig small{font-size:14px;opacity:.8;font-weight:700}
-        .fnl-hero p{font-size:13px;line-height:1.6;opacity:.95;max-width:640px;margin-top:6px}
+        .fnl-hero{margin-top:12px;border:1px solid rgba(229,56,77,.22);border-left:4px solid ${RED};border-radius:16px;padding:18px 22px;background:linear-gradient(135deg,#fff,#fdf2f4);box-shadow:0 4px 18px rgba(60,40,120,.05)}
+        .fnl-hero .hk{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.8px;color:${RED};background:rgba(229,56,77,.1);padding:3px 9px;border-radius:20px}
+        .fnl-hero .ht{font-size:21px;font-weight:800;margin:9px 0 2px;color:${INK}}
+        .fnl-hero .hbig{font-size:34px;font-weight:800;color:${RED}}.fnl-hero .hbig small{font-size:13px;color:${MUT};font-weight:700}
+        .fnl-hero p{font-size:12.5px;line-height:1.6;color:${INK2};max-width:660px;margin-top:6px}
         .fnl-hero .hstats{display:flex;gap:24px;margin-top:14px;flex-wrap:wrap}
-        .fnl-hero .hstat b{font-size:20px;font-weight:800;display:block}.fnl-hero .hstat span{font-size:9.5px;opacity:.8;text-transform:uppercase;letter-spacing:.5px}
+        .fnl-hero .hstat b{font-size:20px;font-weight:800;display:block;color:${INK}}.fnl-hero .hstat span{font-size:9.5px;color:${MUT};text-transform:uppercase;letter-spacing:.5px}
         .fnl .frow{display:grid;grid-template-columns:186px 1fr 92px;gap:14px;align-items:center;padding:11px 6px;border-bottom:1px solid #f4f2f9}
         .fnl .frow:last-child{border-bottom:0}
         .fnl .frow.worst{background:rgba(229,56,77,.05);border:1.5px solid rgba(229,56,77,.35);border-radius:12px;margin:4px 0}

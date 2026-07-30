@@ -160,6 +160,14 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: 'Meta Ads · ACP',
+    items: [
+      { id: 'meta', label: 'Compras', icon: '🛒', href: '/meta', crumb1: 'Meta Ads', crumb2: 'Compras', dotColor: 'warn' },
+      { id: 'wa', label: 'WhatsApp', icon: '💬', href: '/meta/whatsapp', crumb1: 'Meta Ads', crumb2: 'WhatsApp', isSubItem: true },
+      { id: 'ig', label: 'Instagram orgánico', icon: '📸', href: '/meta/instagram', crumb1: 'Instagram', crumb2: 'Orgánico', isSubItem: true },
+    ],
+  },
+  {
     label: 'Google Ads',
     items: [
       { id: 'gads', label: 'Overview', icon: '◎', href: '/google-ads', crumb1: 'Google Ads', crumb2: 'Overview' },
@@ -168,14 +176,6 @@ export const NAV_SECTIONS: NavSection[] = [
       { id: 'prop', label: 'Propietarios', icon: '', href: '/google-ads/propietarios', crumb1: 'Google Ads', crumb2: 'Propietarios', isSubItem: true },
       { id: 'shop', label: 'Shopping', icon: '', href: '/google-ads/shopping', crumb1: 'Google Ads', crumb2: 'Shopping', isSubItem: true },
       { id: 'yt', label: 'YouTube', icon: '', href: '/google-ads/youtube', crumb1: 'Google Ads', crumb2: 'YouTube', isSubItem: true },
-    ],
-  },
-  {
-    label: 'Meta Ads · ACP',
-    items: [
-      { id: 'meta', label: 'Compras', icon: '🛒', href: '/meta', crumb1: 'Meta Ads', crumb2: 'Compras', dotColor: 'warn' },
-      { id: 'wa', label: 'WhatsApp', icon: '💬', href: '/meta/whatsapp', crumb1: 'Meta Ads', crumb2: 'WhatsApp', isSubItem: true },
-      { id: 'ig', label: 'Instagram orgánico', icon: '📸', href: '/meta/instagram', crumb1: 'Instagram', crumb2: 'Orgánico', isSubItem: true },
     ],
   },
   {

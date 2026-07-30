@@ -29,7 +29,7 @@ NEXT_PUBLIC_CURRENCY=MXN
 
 ## Qué queda con datos mockup (hardcoded del v7)
 
-Todas las demás 19 vistas (Week, Google Ads, PMAX, Search, Shopping, YouTube, Meta, Milimétrico, WhatsApp, Instagram, TikTok, GA4, Clarity, Search Console, Shopify, Merchant Center, Insights, ABTests, Learnings).
+Todas las demás 18 vistas (Week, Google Ads, PMAX, Search, Shopping, YouTube, Meta, WhatsApp, Instagram, TikTok, GA4, Clarity, Search Console, Shopify, Merchant Center, Insights, ABTests, Learnings).
 
 Cuando quieras conectar cada una, usá `useOverview` como patrón de referencia y creá un hook análogo en `lib/hooks/`.
 

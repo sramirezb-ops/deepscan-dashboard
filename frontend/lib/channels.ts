@@ -39,7 +39,6 @@ export const CHANNEL_META: Partial<Record<ChannelId, ChannelMeta>> = {
     benefits: [
       'Add to cart, Initiated checkout y costos asociados',
       'Jerarquía Campaña › Ad Set › Anuncio',
-      'Análisis milimétrico de retención ACP',
       'WhatsApp y Instagram incluidos',
     ],
   },
@@ -175,7 +174,6 @@ export const NAV_SECTIONS: NavSection[] = [
     label: 'Meta Ads · ACP',
     items: [
       { id: 'meta', label: 'Compras', icon: '🛒', href: '/meta', crumb1: 'Meta Ads', crumb2: 'Compras', dotColor: 'warn' },
-      { id: 'mili', label: 'Análisis milimétrico', icon: '📊', href: '/meta/milimetric', crumb1: 'Meta Ads', crumb2: 'Milimétrico', isSubItem: true },
       { id: 'wa', label: 'WhatsApp', icon: '💬', href: '/meta/whatsapp', crumb1: 'Meta Ads', crumb2: 'WhatsApp', isSubItem: true },
       { id: 'ig', label: 'Instagram orgánico', icon: '📸', href: '/meta/instagram', crumb1: 'Instagram', crumb2: 'Orgánico', isSubItem: true },
     ],

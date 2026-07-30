@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { useCompras, type Creative } from '@/lib/hooks/useCompras';
+import { useLanding, type LandingPage } from '@/lib/hooks/useLanding';
 import { EmptyState } from '@/components/ui/EmptyState';
 
 const INK = '#171226', INK2 = '#2b2440', MUT = '#77718a', ACC = '#7c5cff', ACCD = '#5a37e0';
@@ -34,6 +35,7 @@ export function ComprasDiagnostico() {
   const client = useClient();
   const { range, previous } = usePeriod();
   const { data, loading, error } = useCompras(client.id, range, previous);
+  const { data: landing } = useLanding(client.id, range);
   const [sel, setSel] = useState<number | null>(null);
 
   const view = useMemo(() => {
@@ -352,6 +354,54 @@ export function ComprasDiagnostico() {
         </div>
       </div>
 
+      {/* Páginas de aterrizaje (solo propiedad Shopify) */}
+      {landing && landing.hasData && (() => {
+        const S = landing.site;
+        const prod = landing.pages.filter((p) => p.sessions >= 150);
+        const best = (prod.length ? prod : landing.pages).reduce((a, b) => (b.chk_r > a.chk_r ? b : a));
+        const waste = landing.pages.filter((p) => p.kind === 'Producto' && p.chk_r < S.chk_r * 0.4).sort((a, b) => b.sessions - a.sessions)[0] || null;
+        const maxAtc = Math.max(...landing.pages.map((p) => p.atc_r), 1);
+        const maxChk = Math.max(...landing.pages.map((p) => p.chk_r), 1);
+        const KC: Record<string, string> = { Home: ACCD, Producto: ACC, 'Colección': '#17b3c9', Otra: MUT };
+        const bar = (val: number, mx: number, avg: number) => {
+          const col = val >= avg ? GREEN : val >= avg * 0.5 ? AMBER : RED;
+          return (<div className="lp-bc"><span className="lp-bv" style={{ color: col }}>{val}%</span>
+            <span className="lp-bt"><span className="lp-bf" style={{ width: `${Math.max(Math.round((100 * val) / mx), 2)}%`, background: col }} /><span className="lp-bavg" style={{ left: `${Math.round((100 * avg) / mx)}%` }} /></span></div>);
+        };
+        return (
+          <div key="landing">
+            <h2><span className="nn">8</span>Páginas de aterrizaje · conversión vs las demás</h2>
+            <div className="h2sub">Por dónde entran las sesiones y qué tan bien convierten — solo propiedad Shopify (aísla el otro sitio GA4). Barra comparada vs el promedio del sitio (│).</div>
+            <div className="card lp-kpis">
+              <div className="lp-kpi"><b>{kfmt(S.sessions)}</b><span>Sesiones de entrada</span></div>
+              <div className="lp-kpi"><b style={{ color: ACC }}>{S.atc_r}%</b><span>Al carrito</span><small>{kfmt(S.atc)} sesiones</small></div>
+              <div className="lp-kpi"><b style={{ color: '#5b9df9' }}>{S.chk_r}%</b><span>Checkout</span><small>{kfmt(S.chk)} sesiones</small></div>
+              <div className="lp-kpi"><b style={{ color: GREEN }}>{S.buy_r}%</b><span>Compra</span><small>{S.buy} · {money(S.rev)}</small></div>
+            </div>
+            <div className="lp-ins">
+              {waste && <div className="lp-inc" style={{ borderColor: 'rgba(229,56,77,.3)' }}><b style={{ color: RED }}>🚨 Tráfico desperdiciado</b>«{waste.label}» recibe {kfmt(waste.sessions)} sesiones pero convierte {waste.chk_r}% a checkout (promedio {S.chk_r}%) y {waste.buy} compras. Mucho tráfico por una página que no cierra.</div>}
+              <div className="lp-inc" style={{ borderColor: 'rgba(31,175,106,.3)' }}><b style={{ color: GREEN }}>🏆 La que mejor convierte</b>«{best.label}» lleva {best.chk_r}% a checkout ({(best.chk_r / Math.max(S.chk_r, 0.1)).toFixed(1)}× el promedio) con {kfmt(best.sessions)} sesiones. El molde a replicar (foto, precio, copy).</div>
+            </div>
+            <div className="card">
+              <table className="lp-tbl"><thead><tr><th>Página de entrada</th><th>Sesiones</th><th>Al carrito</th><th>Checkout</th><th>Compra</th><th>Rebote</th></tr></thead>
+                <tbody>{landing.pages.map((p: LandingPage) => {
+                  const isw = !!waste && p.path === waste.path, isb = p.path === best.path;
+                  return (<tr key={p.path} className={isw ? 'lp-w' : isb ? 'lp-b' : ''}>
+                    <td><div className="lp-pl"><span className="lp-kd" style={{ background: KC[p.kind] + '1a', color: KC[p.kind] }}>{p.kind}</span><span className="lp-pn" title={p.path}>{p.label}</span>{isw ? <span className="lp-rt" style={{ background: RED }}>FUGA</span> : isb ? <span className="lp-rt" style={{ background: GREEN }}>MEJOR</span> : null}</div></td>
+                    <td className="lp-num">{kfmt(p.sessions)}</td>
+                    <td>{bar(p.atc_r, maxAtc, S.atc_r)}</td>
+                    <td>{bar(p.chk_r, maxChk, S.chk_r)}</td>
+                    <td className="lp-n2">{p.buy}<span className="muted"> · {p.buy_r}%</span></td>
+                    <td className="lp-n2 muted">{p.bounce}%</td>
+                  </tr>);
+                })}</tbody></table>
+              <div className="lp-leg"><span><b>│</b> promedio del sitio ({S.atc_r}% carrito · {S.chk_r}% checkout)</span><span><b style={{ color: GREEN }}>verde</b> sobre promedio</span><span><b style={{ color: RED }}>rojo</b> debajo</span></div>
+            </div>
+            <div className="lp-note"><b>Solo Shopify:</b> GA4 tiene 2 propiedades cruzando datos; esta hoja aísla la de Shopify (rutas /products, /collections) y descarta el sitio custom, que ni siquiera rastrea checkout. Las compras de GA4 cuadran con los pedidos de Shopify → el tracking funciona; lo bajo es la conversión real. {landing.nPages} páginas con ≥12 sesiones; se muestran las {landing.pages.length} con más tráfico.</div>
+          </div>
+        );
+      })()}
+
       <div className="foot">Datos reales {data.from} → {data.to} · Meta (Advantage+ | Full funnel) · GA4 item-scoped · Shopify (pagado/pendiente). Segmentos/plataforma y creativos = snapshot del último ETL. Media de creativos: URLs de Meta refrescadas a diario.</div>
 
       {/* Modal */}
@@ -471,6 +521,24 @@ export function ComprasDiagnostico() {
         .tag{font-size:9px;font-weight:800;border:1px solid;border-radius:20px;padding:2px 8px;letter-spacing:.3px}
         .legend{display:flex;gap:15px;font-size:11px;color:${MUT};margin-top:10px;flex-wrap:wrap}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
         .foot{margin-top:26px;font-size:10px;color:${MUT};border-top:1px solid ${LINE};padding-top:12px;line-height:1.5}
+        .lp-kpis{display:flex;gap:26px;flex-wrap:wrap}
+        .lp-kpi b{font-size:24px;font-weight:800;display:block;line-height:1}.lp-kpi span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.5px}.lp-kpi small{font-size:11px;color:${MUT};font-weight:600;display:block;margin-top:1px}
+        .lp-ins{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+        .lp-inc{border:1px solid ${LINE};border-radius:12px;padding:13px 15px;font-size:12px;line-height:1.55}.lp-inc b{display:block;margin-bottom:3px}
+        .lp-tbl{width:100%;border-collapse:collapse}
+        .lp-tbl th{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:${MUT};font-weight:700;text-align:right;padding:8px 10px;border-bottom:2px solid ${LINE}}.lp-tbl th:first-child{text-align:left}
+        .lp-tbl td{padding:9px 10px;border-bottom:1px solid #f4f2f9;font-size:12.5px;vertical-align:middle}
+        .lp-tbl tr.lp-w{background:rgba(229,56,77,.05)}.lp-tbl tr.lp-b{background:rgba(31,175,106,.05)}
+        .lp-pl{display:flex;align-items:center;gap:8px}.lp-kd{font-size:8.5px;font-weight:800;text-transform:uppercase;padding:2px 7px;border-radius:5px;flex:none}
+        .lp-pn{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px}
+        .lp-rt{font-size:8px;font-weight:800;color:#fff;padding:2px 6px;border-radius:20px;flex:none}
+        .lp-num{text-align:right;font-weight:800;font-size:13px}.lp-n2{text-align:right;font-weight:700}
+        .lp-bc{display:flex;align-items:center;gap:9px;justify-content:flex-end}.lp-bv{font-weight:800;width:38px;text-align:right}
+        .lp-bt{position:relative;width:96px;height:9px;background:#f1eef8;border-radius:5px;flex:none}.lp-bf{position:absolute;left:0;top:0;height:100%;border-radius:5px}
+        .lp-bavg{position:absolute;top:-2px;height:13px;width:2px;background:${INK};opacity:.5}
+        .lp-leg{font-size:11px;color:${MUT};margin-top:12px;display:flex;gap:16px;flex-wrap:wrap}.lp-leg b{color:${INK}}
+        .lp-note{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:${INK2};margin-top:14px;line-height:1.55}
+        @media(max-width:720px){.lp-ins{grid-template-columns:1fr}.lp-bt{width:60px}.lp-pn{max-width:130px}}
         #adm{position:fixed;inset:0;background:rgba(15,12,26,.55);z-index:99;display:flex;align-items:flex-start;justify-content:center;padding:34px 16px;overflow:auto}
         .adm-box{background:#fff;border-radius:18px;max-width:760px;width:100%;box-shadow:0 30px 80px rgba(20,10,50,.4);overflow:hidden;position:relative}
         .adm-top{display:flex}.adm-media{width:250px;flex:none;background:#0d0c16;position:relative;aspect-ratio:1/1}.adm-media img{width:100%;height:100%;object-fit:cover}.adm-media .play{width:52px;height:52px;font-size:19px}

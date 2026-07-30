@@ -198,7 +198,6 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Ecommerce',
     items: [
-      { id: 'shp', label: 'Shopify', icon: '◐', href: '/ecommerce/shopify', crumb1: 'Ecommerce', crumb2: 'Shopify' },
       { id: 'gmc', label: 'Merchant Center', icon: '📦', href: '/ecommerce/merchant-center', crumb1: 'Ecommerce', crumb2: 'GMC' },
     ],
   },

@@ -112,6 +112,14 @@ export async function POST(req: NextRequest) {
   put('country', hashCountry(addr.country_code || addr.country));
   if (cust.id) put('external_id', [sha256(String(cust.id))]);
 
+  // Meta exige ≥1 dato de cliente para el match. Si el pedido no trae ninguno
+  // (p.ej. borrador sin cliente o notificación de prueba vacía), lo omitimos en
+  // vez de mandar un evento que Meta rechazaría (400 subcode 2804050).
+  if (Object.keys(user_data).length === 0) {
+    console.warn(`[meta-capi] Omitido: pedido ${order.id} sin datos de cliente (email/teléfono/dirección)`);
+    return NextResponse.json({ skipped: 'no customer data', order_id: String(order.id ?? '') });
+  }
+
   const payload: any = {
     data: [{
       event_name: 'CompraPagada',
@@ -139,9 +147,14 @@ export async function POST(req: NextRequest) {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
-      // Non-2xx → Shopify reintentará (hasta 48h). Registramos el motivo real.
-      console.error('[meta-capi] Meta rechazó el evento', res.status, JSON.stringify(body).slice(0, 400));
-      return NextResponse.json({ error: 'meta rejected', status: res.status, meta: body }, { status: 502 });
+      const transient = body?.error?.is_transient === true;
+      console.error('[meta-capi] Meta rechazó el evento', res.status,
+        transient ? '(transitorio, se reintentará)' : '(permanente, no se reintenta)',
+        JSON.stringify(body).slice(0, 400));
+      // Transitorio → 502 para que Shopify reintente. Permanente → 200 para NO
+      // entrar en un bucle de reintentos que nunca va a pasar (p.ej. datos inválidos).
+      return NextResponse.json({ error: 'meta rejected', status: res.status, meta: body },
+        { status: transient ? 502 : 200 });
     }
     console.log(`[meta-capi] CompraPagada OK order=${order.id} value=${value} ${order.currency}`,
       body?.events_received != null ? `recibidos=${body.events_received}` : '');

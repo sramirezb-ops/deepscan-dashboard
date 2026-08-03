@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
-import { useCompras, type Creative } from '@/lib/hooks/useCompras';
+import { useCompras, type Creative, type Pair } from '@/lib/hooks/useCompras';
 import { useLanding, type LandingPage } from '@/lib/hooks/useLanding';
+import { useSortableTable } from '@/components/ui/useSortableTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 
 const INK = '#171226', INK2 = '#2b2440', MUT = '#77718a', ACC = '#7c5cff', ACCD = '#5a37e0';
@@ -35,8 +36,24 @@ export function ComprasDiagnostico() {
   const client = useClient();
   const { range, previous } = usePeriod();
   const { data, loading, error } = useCompras(client.id, range, previous);
-  const { data: landing } = useLanding(client.id, range);
+  const { data: landing } = useLanding(client.id, range, 12, 500);
   const [sel, setSel] = useState<number | null>(null);
+
+  // Tabla "El par correcto" — orden por columna + paginación (tipo Google Ads)
+  const [parSize, setParSize] = useState(10);
+  const [parPage, setParPage] = useState(1);
+  const parSorted = useSortableTable<Pair>(data?.pairs ?? [], [
+    (p) => p.name, (p) => p.views, (p) => p.atc, (p) => p.checkout, (p) => p.sold, (p) => p.rev_paid, (p) => p.rev_pend, null,
+  ], { col: 1, dir: 'desc' });
+  useEffect(() => { setParPage(1); }, [parSorted.sort, parSize]);
+
+  // Tabla "Páginas de aterrizaje" — orden + paginación
+  const [lpSize, setLpSize] = useState(10);
+  const [lpPage, setLpPage] = useState(1);
+  const lpSorted = useSortableTable<LandingPage>(landing?.pages ?? [], [
+    (p) => p.path, (p) => p.sessions, (p) => p.atc_r, (p) => p.chk_r, (p) => p.buy, (p) => p.bounce,
+  ], { col: 1, dir: 'desc' });
+  useEffect(() => { setLpPage(1); }, [lpSorted.sort, lpSize]);
 
   const view = useMemo(() => {
     if (!data) return null;
@@ -231,8 +248,20 @@ export function ComprasDiagnostico() {
               <div className="lp-inc" style={{ borderColor: 'rgba(31,175,106,.3)' }}><b style={{ color: GREEN }}>🏆 La que mejor convierte</b>«{best.label}» lleva {best.chk_r}% a checkout ({(best.chk_r / Math.max(S.chk_r, 0.1)).toFixed(1)}× el promedio) con {kfmt(best.sessions)} sesiones. El molde a replicar (foto, precio, copy).</div>
             </div>
             <div className="card">
-              <div className="tscroll"><table className="lp-tbl"><thead><tr><th>Página de entrada</th><th>Sesiones</th><th>Al carrito</th><th>Checkout</th><th>Compra</th><th>Rebote</th></tr></thead>
-                <tbody>{landing.pages.map((p: LandingPage) => {
+              <div className="tblctl">
+                <span className="tc-info">{landing.pages.length === 0 ? 'Sin páginas' : `${(lpPage - 1) * lpSize + 1}–${Math.min(lpPage * lpSize, landing.pages.length)} de ${landing.pages.length} páginas`}</span>
+                <div className="tc-r">
+                  <span className="tc-lbl">Filas</span>
+                  {[10, 25, 50, 100].map((n) => <button key={n} className={`tc-sz${lpSize === n ? ' on' : ''}`} onClick={() => setLpSize(n)}>{n}</button>)}
+                  <div className="tc-pg">
+                    <button disabled={lpPage <= 1} onClick={() => setLpPage(lpPage - 1)}>‹</button>
+                    <span>{lpPage} / {Math.max(1, Math.ceil(landing.pages.length / lpSize))}</span>
+                    <button disabled={lpPage >= Math.ceil(landing.pages.length / lpSize)} onClick={() => setLpPage(lpPage + 1)}>›</button>
+                  </div>
+                </div>
+              </div>
+              <div className="tscroll"><table className="lp-tbl"><thead><tr><th {...lpSorted.headerProps(0)}>Página de entrada</th><th {...lpSorted.headerProps(1)}>Sesiones</th><th {...lpSorted.headerProps(2)}>Al carrito</th><th {...lpSorted.headerProps(3)}>Checkout</th><th {...lpSorted.headerProps(4)}>Compra</th><th {...lpSorted.headerProps(5)}>Rebote</th></tr></thead>
+                <tbody>{lpSorted.rows.slice((lpPage - 1) * lpSize, lpPage * lpSize).map((p: LandingPage) => {
                   const isw = !!waste && p.path === waste.path, isb = p.path === best.path;
                   return (<tr key={p.path} className={isw ? 'lp-w' : isb ? 'lp-b' : ''}>
                     <td><div className="lp-pl"><span className="lp-kd" style={{ background: KC[p.kind] + '1a', color: KC[p.kind] }}>{p.kind}</span><span className="lp-pn" title={p.path}>{p.label}</span>{isw ? <span className="lp-rt" style={{ background: RED }}>FUGA</span> : isb ? <span className="lp-rt" style={{ background: GREEN }}>MEJOR</span> : null}</div></td>
@@ -255,10 +284,22 @@ export function ComprasDiagnostico() {
       <h2><span className="nn">3</span>El par correcto · escalar / arreglar / cobrar</h2>
       <div className="h2sub">Comportamiento (GA4) + venta real y cobro (Shopify) por par.</div>
       <div className="card">
-        <div className="tscroll"><table className="pairs"><thead><tr><th>Par</th><th>Vistas</th><th>Carrito</th><th>Checkout</th><th>Vend.</th><th>💰 Cobrado</th><th>⏳ Pendiente</th><th></th></tr></thead>
-          <tbody>{data.pairs.slice(0, 14).map((p, i) => {
+        <div className="tblctl">
+          <span className="tc-info">{data.pairs.length === 0 ? 'Sin pares' : `${(parPage - 1) * parSize + 1}–${Math.min(parPage * parSize, data.pairs.length)} de ${data.pairs.length} pares`}</span>
+          <div className="tc-r">
+            <span className="tc-lbl">Filas</span>
+            {[10, 25, 50, 100].map((n) => <button key={n} className={`tc-sz${parSize === n ? ' on' : ''}`} onClick={() => setParSize(n)}>{n}</button>)}
+            <div className="tc-pg">
+              <button disabled={parPage <= 1} onClick={() => setParPage(parPage - 1)}>‹</button>
+              <span>{parPage} / {Math.max(1, Math.ceil(data.pairs.length / parSize))}</span>
+              <button disabled={parPage >= Math.ceil(data.pairs.length / parSize)} onClick={() => setParPage(parPage + 1)}>›</button>
+            </div>
+          </div>
+        </div>
+        <div className="tscroll"><table className="pairs"><thead><tr><th {...parSorted.headerProps(0)}>Par</th><th {...parSorted.headerProps(1)}>Vistas</th><th {...parSorted.headerProps(2)}>Carrito</th><th {...parSorted.headerProps(3)}>Checkout</th><th {...parSorted.headerProps(4)}>Vend.</th><th {...parSorted.headerProps(5)}>💰 Cobrado</th><th {...parSorted.headerProps(6)}>⏳ Pendiente</th><th></th></tr></thead>
+          <tbody>{parSorted.rows.slice((parPage - 1) * parSize, parPage * parSize).map((p) => {
             const t = p.sold > 0 && p.rev_paid > 0 ? ['ESCALAR', GREEN] : p.sold > 0 ? ['COBRAR', AMBER] : p.views >= 80 ? ['ARREGLAR', RED] : ['observar', MUT];
-            return <tr key={i}><td className="pn">{p.name}</td><td>{kfmt(p.views)}</td><td>{p.atc}</td><td>{p.checkout}</td>
+            return <tr key={p.name}><td className="pn">{p.name}</td><td>{kfmt(p.views)}</td><td>{p.atc}</td><td>{p.checkout}</td>
               <td><b>{p.sold || '—'}</b></td><td style={{ color: GREEN }}>{p.rev_paid ? money(p.rev_paid) : '—'}</td><td style={{ color: AMBER }}>{p.rev_pend ? money(p.rev_pend) : '—'}</td>
               <td><span className="tag" style={{ color: t[1] as string, background: (t[1] as string) + '14', borderColor: (t[1] as string) + '40' }}>{t[0]}</span></td></tr>;
           })}</tbody></table></div>
@@ -468,6 +509,20 @@ export function ComprasDiagnostico() {
         .cap{display:flex;align-items:baseline;gap:12px;margin:34px 0 2px;padding-bottom:10px;border-bottom:2px solid ${LINE};scroll-margin-top:14px}
         .cap-n{font-size:11px;font-weight:800;color:${ACC};letter-spacing:1.5px;background:${ACC}14;padding:4px 10px;border-radius:20px}
         .cap-t{font-size:19px;font-weight:800;color:${INK}}
+        .tblctl{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+        .tc-info{font-size:11px;color:${MUT};font-weight:600}
+        .tc-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        .tc-lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:${MUT}}
+        .tc-sz{font-family:inherit;cursor:pointer;font-size:11px;font-weight:700;color:${MUT};background:#fff;border:1px solid ${LINE};border-radius:7px;padding:4px 9px;transition:.12s}
+        .tc-sz:hover{border-color:${ACC};color:${ACC}}.tc-sz.on{background:${ACC};border-color:${ACC};color:#fff}
+        .tc-pg{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;color:${INK2};margin-left:2px}
+        .tc-pg button{font-family:inherit;cursor:pointer;width:26px;height:26px;border-radius:7px;border:1px solid ${LINE};background:#fff;color:${INK};font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center}
+        .tc-pg button:hover:not(:disabled){border-color:${ACC};color:${ACC}}.tc-pg button:disabled{opacity:.35;cursor:default}
+        .pairs th[data-sort],.lp-tbl th[data-sort]{cursor:pointer;user-select:none;white-space:nowrap}
+        .pairs th[data-sort]::after,.lp-tbl th[data-sort]::after{content:'⇅';margin-left:4px;font-size:9px;opacity:.35}
+        .pairs th[data-sort]:hover,.lp-tbl th[data-sort]:hover{color:${INK}}
+        .pairs th[data-sort='asc']::after,.lp-tbl th[data-sort='asc']::after{content:'▲';opacity:.9;color:${ACC}}
+        .pairs th[data-sort='desc']::after,.lp-tbl th[data-sort='desc']::after{content:'▼';opacity:.9;color:${ACC}}
         .tscroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;max-width:100%}
         .tscroll .lp-tbl,.tscroll .pairs{min-width:480px}
         @media(max-width:640px){.biblia{flex-direction:column;align-items:flex-start;padding:14px 16px}.biblia-nav{width:100%}.bn-chip{flex:1;text-align:center}.cap{margin-top:26px}.cap-t{font-size:16px}}

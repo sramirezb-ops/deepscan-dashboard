@@ -34,6 +34,7 @@ export interface Pair {
 }
 export interface SegRow { name: string; spend: number; buy: number; val: number; roas: number; pct: number; }
 export interface PlatRow { key: string; spend: number; buy: number; val: number; roas: number; }
+export interface PlacementRow { label: string; spend: number; impr: number; atc: number; chk: number; buy: number; }
 export interface Creative {
   ad_id: string; name: string; adset: string; is_video: boolean;
   image_url: string; thumbnail_url: string; video_id: string;
@@ -42,6 +43,7 @@ export interface Creative {
   cpc: number; landing: number; cost_land: number; atc: number; cost_atc: number;
   chk: number; cost_chk: number; buy: number; cost_buy: number; pv: number; roas: number; hold: number;
   plat: Record<string, { spend: number; buy: number; val: number }>;
+  placement: PlacementRow[];   // ubicación/formato (Feed/Reels/Stories · FB/IG) con compras
 }
 export interface DailyRow { date: string; spend: number; purchase_value: number; purchases: number; checkout: number; }
 export interface StoreCobro { orders: number; orders_paid: number; orders_pending: number; revenue: number; revenue_paid: number; revenue_pending: number; paid_pct: number; roas_collected: number }
@@ -105,7 +107,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           page<any>('shopify_products', 'period_end,title,units_sold,revenue,revenue_paid,revenue_pending,units_paid,units_pending', clientId),
           page<any>('ga4_items', 'item_name,items_viewed,items_added_to_cart,items_checked_out,items_purchased,item_revenue',
             clientId, (q) => q.gte('date', from).lte('date', to)),
-          page<any>('meta_breakdowns', 'level,breakdown_type,breakdown_value,campaign_name,adset_name,entity_id,spend,purchases,purchase_value', clientId),
+          page<any>('meta_breakdowns', 'level,breakdown_type,breakdown_value,campaign_name,adset_name,entity_id,spend,impressions,add_to_cart,initiate_checkout,purchases,purchase_value', clientId),
           page<any>('meta_ad_creatives', 'ad_id,ad_name,adset_name,campaign_name,is_video,image_url,thumbnail_url,video_id,title,body,cta', clientId),
           // Periodo de comparación (para Δ por paso del embudo): solo el embudo Advantage+ y el cobro.
           page<any>('meta_campaigns', 'date,' + cfCols, clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
@@ -226,11 +228,27 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
 
         // per-ad platform split (ad × publisher_platform)
         const adPlat: Record<string, Record<string, { spend: number; buy: number; val: number }>> = {};
+        // per-ad placement split (ad × platform_position → Feed/Reels/Stories · FB/IG)
+        const adPlcAcc: Record<string, Record<string, { spend: number; impr: number; atc: number; chk: number; buy: number }>> = {};
         for (const r of bd) {
           if (r.level !== 'ad') continue;
-          const pl = (adPlat[r.entity_id] ||= {});
-          const A = (pl[r.breakdown_value] ||= { spend: 0, buy: 0, val: 0 });
-          A.spend += n(r.spend); A.buy += n(r.purchases); A.val += n(r.purchase_value);
+          if (r.breakdown_type === 'publisher_platform') {
+            const pl = (adPlat[r.entity_id] ||= {});
+            const A = (pl[r.breakdown_value] ||= { spend: 0, buy: 0, val: 0 });
+            A.spend += n(r.spend); A.buy += n(r.purchases); A.val += n(r.purchase_value);
+          } else if (r.breakdown_type === 'platform_position') {
+            const pl = (adPlcAcc[r.entity_id] ||= {});
+            const A = (pl[r.breakdown_value] ||= { spend: 0, impr: 0, atc: 0, chk: 0, buy: 0 });
+            A.spend += n(r.spend); A.impr += n(r.impressions); A.atc += n(r.add_to_cart);
+            A.chk += n(r.initiate_checkout); A.buy += n(r.purchases);
+          }
+        }
+        const adPlacement: Record<string, PlacementRow[]> = {};
+        for (const [id, m] of Object.entries(adPlcAcc)) {
+          adPlacement[id] = Object.entries(m)
+            .map(([label, v]) => ({ label, spend: +v.spend.toFixed(2), impr: v.impr, atc: v.atc, chk: v.chk, buy: v.buy }))
+            .filter((p) => p.spend > 0 || p.impr > 0)
+            .sort((a, b) => b.spend - a.spend);
         }
 
         // ---- Creativos: driven por los anuncios que GASTARON, media donde exista ----
@@ -251,6 +269,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
               buy: A.buy, cost_buy: div(A.spend, A.buy), pv: +A.pv.toFixed(2), roas: div(A.pv, A.spend),
               hold: div(100 * A.thru, A.impr, 1),
               plat: adPlat[A.ad_id] || {},
+              placement: adPlacement[A.ad_id] || [],
             };
           })
           .sort((a, b) => (b.thumbnail_url || b.image_url ? 1 : 0) - (a.thumbnail_url || a.image_url ? 1 : 0) || b.spend - a.spend);

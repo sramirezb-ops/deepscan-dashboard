@@ -5,6 +5,7 @@ import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { useCompras, type Creative, type Pair } from '@/lib/hooks/useCompras';
 import { useLanding, type LandingPage } from '@/lib/hooks/useLanding';
+import { useCatalog } from '@/lib/hooks/useCatalog';
 import { useSortableTable } from '@/components/ui/useSortableTable';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -37,6 +38,7 @@ export function ComprasDiagnostico() {
   const { range, previous } = usePeriod();
   const { data, loading, error } = useCompras(client.id, range, previous);
   const { data: landing } = useLanding(client.id, range, 12, 500);
+  const { data: catalog } = useCatalog(client.id, range);
   const [sel, setSel] = useState<number | null>(null);
 
   // Tabla "El par correcto" — orden por columna + paginación (tipo Google Ads)
@@ -116,6 +118,8 @@ export function ComprasDiagnostico() {
   const BS = data.sets['Best Sellers'], PX = data.sets['Próximos lanzamientos'];
   const { T, ST, steps, cobrada, worst, second, buyAtObj, recover, blended, AI, fb, ig } = view;
   const selc = sel != null ? data.creatives[sel] : null;
+  const mxCatW = catalog ? Math.max(1, ...catalog.waste.map((p) => p.impr), ...catalog.healthy.map((p) => p.impr)) : 1;
+  const mxCatO = catalog ? Math.max(1, ...catalog.opportunity.map((p) => p.impr)) : 1;
 
   // charts
   const D = data.daily;
@@ -324,9 +328,67 @@ export function ComprasDiagnostico() {
         </div>
       </div>
 
+      {/* Variaciones de catálogo — Meta empuja ↔ Shopify vende */}
+      <h2><span className="nn">4</span>Variaciones de catálogo · Meta empuja ↔ Shopify vende</h2>
+      <div className="h2sub">Meta no da compras por producto, así que cruzamos su <b>entrega</b> (impresiones/gasto por producto) con las <b>ventas reales de Shopify</b>. Señal direccional, no atribución exacta.</div>
+      {catalog?.hasData ? (
+        <div className="card">
+          {catalog.health && (
+            <div className="cat-h">
+              <div className="cat-hc"><b>{catalog.health.product_count}</b><span>productos</span><small>{catalog.health.product_set_count} conjuntos</small></div>
+              <div className="cat-hc red"><b style={{ color: RED }}>{catalog.health.oos_count}</b><span>agotados</span><small>fuera de ads dinámicos</small></div>
+              <div className="cat-hc red"><b style={{ color: RED }}>{catalog.health.no_image_count}</b><span>sin imagen</span><small>no se muestran</small></div>
+              <div className="cat-hc"><b>{catalog.nProducts}</b><span>con pauta</span><small>en el período</small></div>
+            </div>
+          )}
+          {catalog.wasteSpend > 0 && (
+            <div className="cat-hero">🚨 El algoritmo gastó <b>{money(catalog.wasteSpend)}</b> empujando productos que casi no vendieron, mientras varios que sí venden recibieron poca pauta. Ajustar el conjunto y las exclusiones libera presupuesto hacia lo que convierte.</div>
+          )}
+          <div className="cat-cols">
+            <div className="cat-col">
+              <div className="cat-ct" style={{ color: RED }}>🔴 Desperdicio · empuja fuerte, no vende</div>
+              <div className="cat-cs">Mucha impresión, 0–1 ventas. Candidatos a excluir del conjunto o revisar precio/stock.</div>
+              {catalog.waste.length ? catalog.waste.map((p) => (
+                <div className="crow" key={p.name}>
+                  <div className="cn">{p.name}</div>
+                  <div className="cbar"><span className="bt"><span className="bf" style={{ width: `${Math.max(Math.round((100 * p.impr) / mxCatW), 3)}%`, background: RED }} /></span><span className="bl">{kfmt(p.impr)} impr · {money(p.spend)}</span></div>
+                  <div className="cu">{p.units > 0 ? <b style={{ color: GREEN }}>{p.units} uds</b> : <b style={{ color: RED }}>0 ventas</b>}{p.revenue ? ` · ${money(p.revenue)}` : ''}</div>
+                </div>
+              )) : <div className="muted cat-empty">Sin casos en este período.</div>}
+            </div>
+            <div className="cat-col">
+              <div className="cat-ct" style={{ color: GREEN }}>🟢 Oportunidad · vende, casi no empuja</div>
+              <div className="cat-cs">Venden con poca o nula pauta. Subirles prioridad o meterlos al conjunto puede crecer ventas.</div>
+              {catalog.opportunity.length ? catalog.opportunity.map((p) => (
+                <div className="crow" key={p.name}>
+                  <div className="cn">{p.name}</div>
+                  <div className="cbar"><span className="bt"><span className="bf" style={{ width: `${Math.max(Math.round((100 * p.impr) / mxCatO), 2)}%`, background: GREEN }} /></span><span className="bl">{p.impr ? `${kfmt(p.impr)} impr` : 'sin pauta'}{p.spend ? ` · ${money(p.spend)}` : ''}</span></div>
+                  <div className="cu"><b style={{ color: GREEN }}>{p.units} uds</b>{p.revenue ? ` · ${money(p.revenue)}` : ''}</div>
+                </div>
+              )) : <div className="muted cat-empty">Sin casos en este período.</div>}
+            </div>
+          </div>
+          {catalog.healthy.length > 0 && (
+            <div className="cat-healthy">
+              <div className="cat-ct" style={{ color: INK }}>✅ Sanos · empuja y vende <span className="muted" style={{ fontWeight: 600 }}>— sostener / escalar</span></div>
+              {catalog.healthy.map((p) => (
+                <div className="crow" key={p.name}>
+                  <div className="cn">{p.name}</div>
+                  <div className="cbar"><span className="bt"><span className="bf" style={{ width: `${Math.max(Math.round((100 * p.impr) / mxCatW), 3)}%`, background: GREEN }} /></span><span className="bl">{kfmt(p.impr)} impr · {money(p.spend)}</span></div>
+                  <div className="cu"><b style={{ color: GREEN }}>{p.units} uds</b>{p.revenue ? ` · ${money(p.revenue)}` : ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="cat-note"><b>Honestidad:</b> Meta no expone las compras por producto (confirmado hasta nivel campaña); cruzamos su entrega (gasto/impresiones por producto, dato real) con las ventas de Shopify (unidades/ingresos, dato real de todos los canales). Las ventanas difieren un poco, así que el cruce es direccional — suficiente para detectar productos mal priorizados.{!catalog.health ? ' · Salud del feed pendiente (requiere permiso de catálogo del token).' : ''}</div>
+        </div>
+      ) : (
+        <div className="card muted" style={{ fontSize: 12 }}>Aún sin datos de entrega por producto para este período.</div>
+      )}
+
       <div className="cap" id="cap3"><span className="cap-n">CAPÍTULO 3</span><span className="cap-t">Los anuncios · qué creativo y cómo</span></div>
       {/* Duelo */}
-      <h2><span className="nn">4</span>Duelo de conjuntos · quién escala y quién se audita</h2>
+      <h2><span className="nn">5</span>Duelo de conjuntos · quién escala y quién se audita</h2>
       <div className="h2sub">Best Sellers gasta ~2× lo de Próximos. ¿Lo vale?</div>
       <div className="card">
         {BS && PX && (
@@ -352,7 +414,7 @@ export function ComprasDiagnostico() {
       </div>
 
       {/* Segmentos */}
-      <h2><span className="nn">5</span>Segmentos de público · Full Funnel</h2>
+      <h2><span className="nn">6</span>Segmentos de público · Full Funnel</h2>
       <div className="h2sub">A quién le llega: nuevos, activos (engaged) o compradores actuales.</div>
       <div className="card">
         {data.segments.filter((s) => s.spend >= 5).map((s, i) => {
@@ -371,7 +433,7 @@ export function ComprasDiagnostico() {
       </div>
 
       {/* Plataforma */}
-      <h2><span className="nn">6</span>Rendimiento por plataforma</h2>
+      <h2><span className="nn">7</span>Rendimiento por plataforma</h2>
       <div className="h2sub">Dónde rinde cada peso.</div>
       <div className="card">
         {data.platforms.map((p, i) => {
@@ -395,7 +457,7 @@ export function ComprasDiagnostico() {
       </div>
 
       {/* Creativos */}
-      <h2><span className="nn">7</span>Creativos · todos los activos, con datos</h2>
+      <h2><span className="nn">8</span>Creativos · todos los activos, con datos</h2>
       <div className="h2sub">{data.creatives.length} anuncios activos. Clic en una tarjeta para ver todo el detalle.</div>
       <div className="cinsight"><b>Lectura:</b> el video promedia <b style={{ color: view.vroas >= view.iroas ? GREEN : RED }}>{view.vroas}×</b> vs <b>{view.iroas}×</b> de la imagen. Clic en cada anuncio para su embudo, costos y ventas por plataforma.</div>
       <div className="card"><div className="cgrid">
@@ -423,7 +485,7 @@ export function ComprasDiagnostico() {
 
       <div className="cap" id="cap4"><span className="cap-n">CAPÍTULO 4</span><span className="cap-t">Tendencias y plan de acción</span></div>
       {/* Tendencias */}
-      <h2><span className="nn">8</span>Tendencias · cómo se movió el mes</h2>
+      <h2><span className="nn">9</span>Tendencias · cómo se movió el mes</h2>
       <div className="h2sub">Día a día. Ritmo, picos y si la venta acompaña a la inversión.</div>
       <div className="card charts">
         <div><h4>Inversión vs Valor de compra</h4><div className="cs">diario MXN</div>
@@ -491,6 +553,20 @@ export function ComprasDiagnostico() {
                     <div className="pm"><span>{money(d.spend)}</span><span>{d.buy} compras</span><span style={{ color: roas >= 1 ? GREEN : RED }}>{roas.toFixed(2)}×</span></div></div>; })}
                 {(!selc.plat.facebook && !selc.plat.instagram) ? <div className="muted" style={{ fontSize: 11, gridColumn: '1/3' }}>Split por plataforma no disponible (gasto bajo).</div> : null}
               </div>
+              {selc.placement.length > 0 && <>
+                <div className="adm-sec">📍 Por ubicación / formato · dónde se muestra y dónde compra</div>
+                <div className="tscroll"><table className="plc"><thead><tr><th>Ubicación</th><th>Gasto</th><th>Impr</th><th>Carrito</th><th>Pago</th><th>Compras</th></tr></thead>
+                  <tbody>{selc.placement.map((p) => {
+                    const isFeed = p.label.includes('Feed');
+                    const col = isFeed ? GREEN : (p.buy > 0 ? '#5b9df9' : MUT);
+                    return <tr key={p.label}>
+                      <td className="plc-l"><span className="pdot" style={{ background: col }} />{p.label}{isFeed ? ' 🏆' : ''}</td>
+                      <td>{money(p.spend)}</td><td>{kfmt(p.impr)}</td><td>{p.atc}</td><td>{p.chk}</td>
+                      <td><b style={{ color: p.buy > 0 ? GREEN : MUT }}>{p.buy || 0}</b></td>
+                    </tr>;
+                  })}</tbody></table></div>
+                <div className="plc-note">El <b>Feed</b> suele cerrar la venta; Reels/Stories gastan pero rara vez compran. Palanca de eficiencia: concentrar o excluir ubicaciones que no cierran.</div>
+              </>}
               {selc.body && <><div className="adm-sec">Texto del anuncio</div><div className="copybox">{(selc.title ? selc.title + '\n\n' : '') + selc.body + (selc.cta ? `\n\n[ ${selc.cta.replace(/_/g, ' ')} ]` : '')}</div></>}
             </div>
           </div>
@@ -525,6 +601,39 @@ export function ComprasDiagnostico() {
         .pairs th[data-sort='desc']::after,.lp-tbl th[data-sort='desc']::after{content:'▼';opacity:.9;color:${ACC}}
         .tscroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;max-width:100%}
         .tscroll .lp-tbl,.tscroll .pairs{min-width:480px}
+        /* Catálogo (Cap 2) */
+        .cat-h{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+        .cat-hc{flex:1;min-width:120px;border:1px solid ${LINE};border-radius:12px;padding:12px 14px}
+        .cat-hc.red{border-color:rgba(229,56,77,.28)}
+        .cat-hc b{font-size:26px;font-weight:800;display:block;line-height:1}
+        .cat-hc span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700;display:block;margin-top:4px}
+        .cat-hc small{font-size:10px;color:${MUT};display:block;margin-top:2px}
+        .cat-hero{background:linear-gradient(135deg,#fff,#fdf2f4);border:1px solid rgba(229,56,77,.22);border-left:4px solid ${RED};border-radius:12px;padding:12px 15px;font-size:12.5px;line-height:1.55;color:${INK2};margin-bottom:14px}
+        .cat-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+        .cat-col{border:1px solid ${LINE};border-radius:12px;padding:14px 16px}
+        .cat-healthy{border:1px solid ${LINE};border-radius:12px;padding:14px 16px;margin-top:14px}
+        .cat-ct{font-size:13px;font-weight:800;margin-bottom:2px}
+        .cat-cs{font-size:11px;color:${MUT};margin-bottom:10px}
+        .cat-empty{font-size:11.5px;padding:6px 0}
+        .crow{padding:8px 0;border-bottom:1px solid #f4f2f9}
+        .crow:last-child{border-bottom:0}
+        .cn{font-size:12px;font-weight:700;margin-bottom:4px}
+        .cbar{display:flex;align-items:center;gap:9px}
+        .cbar .bt{width:130px;min-width:130px;height:8px;background:#f1eef8;border-radius:5px;overflow:hidden}
+        .cbar .bf{display:block;height:100%;border-radius:5px}
+        .cbar .bl{font-size:10px;color:${MUT}}
+        .cu{font-size:11px;margin-top:3px}
+        .cat-note{background:#faf9ff;border:1px solid #ece7fb;border-radius:10px;padding:11px 14px;font-size:11.5px;color:${INK2};margin-top:14px;line-height:1.5}
+        @media(max-width:640px){.cat-cols{grid-template-columns:1fr}}
+        /* Ubicación en el modal */
+        .plc{width:100%;border-collapse:collapse}
+        .plc th{font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:${MUT};font-weight:700;text-align:right;padding:6px 8px;border-bottom:1.5px solid ${LINE}}
+        .plc th:first-child{text-align:left}
+        .plc td{padding:7px 8px;border-bottom:1px solid #f4f2f9;font-size:12px;text-align:right;color:${INK2}}
+        .plc td.plc-l{text-align:left;font-weight:700;color:${INK};white-space:nowrap}
+        .plc .pdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px}
+        .tscroll .plc{min-width:420px}
+        .plc-note{font-size:11px;color:${INK2};margin-top:8px;line-height:1.45}
         @media(max-width:640px){.biblia{flex-direction:column;align-items:flex-start;padding:14px 16px}.biblia-nav{width:100%}.bn-chip{flex:1;text-align:center}.cap{margin-top:26px}.cap-t{font-size:16px}}
         .brand{font-weight:800;letter-spacing:.5px;font-size:12px}.brand small{color:${MUT};font-weight:600;letter-spacing:1.5px}
         .pill{display:inline-block;background:${ACC};color:#fff;font-size:9.5px;font-weight:800;border-radius:20px;padding:3px 9px;margin-left:8px;letter-spacing:.5px}

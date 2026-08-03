@@ -198,6 +198,122 @@ def extract_meta_breakdown(
     return rows
 
 
+# ── CATÁLOGO: entrega por producto + salud del feed ─────────────────
+# Meta NO expone compras por producto (confirmado hasta nivel campaña).
+# Lo que sí da: la ENTREGA por producto (gasto/impresiones) vía breakdown
+# product_id. En la vista de Compras cruzamos eso con las ventas reales de
+# Shopify (shopify_products) → "Meta empuja ↔ Shopify vende".
+_OOS_VALS = {"out of stock", "out_of_stock", "oos", "discontinued"}
+
+
+def _fetch_catalog_products(access_token: str, catalog_id: str) -> dict:
+    """Mapa {product_id → {name, retailer_id, availability, has_image}} del catálogo.
+    Sirve para (a) ponerle nombre a la entrega por product_id y (b) contar salud."""
+    fields = "id,name,retailer_id,availability,image_url"
+    url = f"{BASE_URL}/{catalog_id}/products"
+    params = {"fields": fields, "limit": 200, "access_token": access_token}
+    out, page = {}, 0
+    while url:
+        page += 1
+        resp = requests.get(url, params=params if page == 1 else {})
+        resp.raise_for_status()
+        data = resp.json()
+        for p in data.get("data", []):
+            pid = str(p.get("id", "") or "")
+            if not pid:
+                continue
+            out[pid] = {
+                "name":         p.get("name", "") or "",
+                "retailer_id":  p.get("retailer_id", "") or "",
+                "availability": (p.get("availability", "") or "").strip().lower(),
+                "has_image":    bool(p.get("image_url")),
+            }
+        url = data.get("paging", {}).get("next"); params = {}
+        if url:
+            time.sleep(0.3)
+    log.info(f"   Catálogo {catalog_id}: {len(out)} productos")
+    return out
+
+
+def extract_meta_catalog_products(
+    access_token: str,
+    ad_account_id: str,
+    catalog_id: str,
+    date_from: str,
+    date_to: str,
+    prod_map: dict | None = None,
+) -> list:
+    """Entrega (gasto/impresiones) por producto de catálogo, con nombre resuelto.
+    Alimenta `meta_catalog_products` (snapshot). Agrega por NOMBRE para que las
+    variantes del mismo producto sumen y se cruce con Shopify por título."""
+    if prod_map is None:
+        prod_map = _fetch_catalog_products(access_token, catalog_id)
+    params = {
+        "level":        "account",
+        "fields":       "spend,impressions",
+        "breakdowns":   "product_id",
+        "time_range":   f'{{"since":"{date_from}","until":"{date_to}"}}',
+        "limit":        500,
+        "access_token": access_token,
+    }
+    url = f"{BASE_URL}/act_{ad_account_id}/insights"
+    agg: dict = {}   # name → {spend, impr, retailer_id, availability}
+    page = 0
+    while url:
+        page += 1
+        resp = requests.get(url, params=params if page == 1 else {})
+        resp.raise_for_status()
+        data = resp.json()
+        for r in data.get("data", []):
+            pid  = str(r.get("product_id", "") or "")
+            meta = prod_map.get(pid, {})
+            name = meta.get("name") or pid
+            if not name:
+                continue
+            a = agg.setdefault(name, {"spend": 0.0, "impr": 0,
+                                      "retailer_id":  meta.get("retailer_id", ""),
+                                      "availability": meta.get("availability", "")})
+            a["spend"] += float(r.get("spend", 0) or 0)
+            a["impr"]  += int(r.get("impressions", 0) or 0)
+        url = data.get("paging", {}).get("next"); params = {}
+        if url:
+            time.sleep(0.3)
+    rows = [{
+        "product_name": name,
+        "retailer_id":  v["retailer_id"],
+        "availability": v["availability"],
+        "spend":        round(v["spend"], 2),
+        "impressions":  v["impr"],
+    } for name, v in agg.items()]
+    log.info(f"   Meta Catálogo entrega: {len(rows)} productos con pauta")
+    return rows
+
+
+def extract_meta_catalog_health(
+    access_token: str,
+    catalog_id: str,
+    prod_map: dict | None = None,
+) -> list:
+    """Salud del feed: total, sets, agotados, sin imagen. OOS/sin-imagen se
+    derivan de los productos (fiable) en vez del endpoint diagnostics (frágil)."""
+    det = requests.get(f"{BASE_URL}/{catalog_id}", params={
+        "fields": "product_count,product_set_count", "access_token": access_token})
+    det.raise_for_status()
+    d = det.json()
+    if prod_map is None:
+        prod_map = _fetch_catalog_products(access_token, catalog_id)
+    oos    = sum(1 for p in prod_map.values() if p["availability"] in _OOS_VALS)
+    no_img = sum(1 for p in prod_map.values() if not p["has_image"])
+    row = {
+        "product_count":     int(d.get("product_count", 0) or 0),
+        "product_set_count": int(d.get("product_set_count", 0) or 0),
+        "oos_count":         oos,
+        "no_image_count":    no_img,
+    }
+    log.info(f"   Meta Catálogo salud: {row}")
+    return [row]
+
+
 # ── MEDIA DE CREATIVOS (imagen / video / copy) por anuncio ──
 def _creative_row(a: dict) -> dict:
     cr = a.get("creative", {}) or {}

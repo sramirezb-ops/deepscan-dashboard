@@ -21,6 +21,8 @@ from extractors.implementations   import extract_implementations
 from extractors.meta_ads          import (
     extract_meta_ads, extract_meta_platform, extract_meta_messaging,
     extract_meta_breakdown, extract_meta_ad_creatives,
+    extract_meta_catalog_products, extract_meta_catalog_health,
+    _fetch_catalog_products,
 )
 from extractors.tiktok_ads        import extract_tiktok_ads, extract_tiktok_creatives
 from extractors.tiktok_comments   import extract_tiktok_comments
@@ -211,7 +213,7 @@ def run_etl(client_id: str, days_back: int = 30):
         _tok = os.environ["META_ACCESS_TOKEN"]; _acc = os.environ["META_AD_ACCOUNT_ID"]
         bd_all = []
         for _level, _bd in [("adset", "user_segment_key"), ("adset", "publisher_platform"),
-                            ("ad", "publisher_platform")]:
+                            ("ad", "publisher_platform"), ("ad", "platform_position")]:
             try:
                 bd_all += extract_meta_breakdown(_tok, _acc, date_from, date_to, _level, _bd)
             except Exception as e:
@@ -220,6 +222,25 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Meta Breakdowns: {len(bd_all)} filas")
     except Exception as e:
         log.error(f"   ✗ Meta Breakdowns error: {e}")
+
+    # ── 5b3. META CATÁLOGO (entrega por producto + salud del feed) ──────
+    # Requiere META_CATALOG_ID en el entorno (id del catálogo Shopify del cliente).
+    # Si no está, se omite sin romper el ETL (clientes sin catálogo dinámico).
+    _cat = os.environ.get("META_CATALOG_ID", "").strip()
+    if _cat:
+        log.info("── Meta Ads catálogo (entrega por producto / salud)")
+        try:
+            _tok = os.environ["META_ACCESS_TOKEN"]; _acc = os.environ["META_AD_ACCOUNT_ID"]
+            prod_map = _fetch_catalog_products(_tok, _cat)          # una sola lectura del feed
+            cp = extract_meta_catalog_products(_tok, _acc, _cat, date_from, date_to, prod_map)
+            loader.upsert("meta_catalog_products", cp, client_id)
+            ch = extract_meta_catalog_health(_tok, _cat, prod_map)
+            loader.upsert("meta_catalog_health", ch, client_id)
+            log.info(f"   ✓ Meta Catálogo: {len(cp)} productos con pauta + salud")
+        except Exception as e:
+            log.error(f"   ✗ Meta Catálogo error: {e}")
+    else:
+        log.info("   · Meta Catálogo omitido (sin META_CATALOG_ID)")
 
     # ── 5b3. META CREATIVOS (media + copy de los anuncios que gastaron) ──
     log.info("── Meta Ads creativos (media)")

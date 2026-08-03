@@ -224,9 +224,12 @@ def run_etl(client_id: str, days_back: int = 30):
         log.error(f"   ✗ Meta Breakdowns error: {e}")
 
     # ── 5b3. META CATÁLOGO (entrega por producto + salud del feed) ──────
-    # Requiere META_CATALOG_ID en el entorno (id del catálogo Shopify del cliente).
-    # Si no está, se omite sin romper el ETL (clientes sin catálogo dinámico).
-    _cat = os.environ.get("META_CATALOG_ID", "").strip()
+    # Id del catálogo Shopify por cliente. Se puede sobreescribir con META_CATALOG_ID
+    # en el entorno; si no, se resuelve por client_id. Sin catálogo → se omite.
+    _CATALOG_BY_CLIENT = {
+        "bae8c125-19e0-46b4-b0f6-462b642658ac": "2076243159883599",  # Sneakers Store · "Shopify - Catálogo Sneakers Store"
+    }
+    _cat = os.environ.get("META_CATALOG_ID", "").strip() or _CATALOG_BY_CLIENT.get(str(client_id), "")
     if _cat:
         log.info("── Meta Ads catálogo (entrega por producto / salud)")
         try:

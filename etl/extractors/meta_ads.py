@@ -198,6 +198,89 @@ def extract_meta_breakdown(
     return rows
 
 
+# ── UBICACIÓN / FORMATO por anuncio (Feed / Reels / Stories · FB/IG) ─
+# El endpoint de insights (v19) RECHAZA platform_position solo → hay que pedirlo
+# emparejado con publisher_platform. Combinamos ambos en un label legible y lo
+# guardamos en meta_breakdowns con breakdown_type='platform_position'.
+_PUB_LABEL = {
+    "facebook": "Facebook", "instagram": "Instagram", "messenger": "Messenger",
+    "audience_network": "Audience Network", "threads": "Threads",
+}
+_POS_LABEL = {
+    "feed": "Feed", "profile_feed": "Feed perfil",
+    "facebook_reels": "Reels", "instagram_reels": "Reels", "reels": "Reels",
+    "story": "Stories", "instagram_stories": "Stories", "facebook_stories": "Stories",
+    "instagram_explore": "Explorar", "instagram_explore_grid_home": "Explorar",
+    "instagram_search": "Búsqueda", "right_hand_column": "Columna derecha",
+    "marketplace": "Marketplace", "video_feeds": "Video feed",
+    "instream_video": "Video in-stream", "facebook_reels_overlay": "Reels overlay",
+    "instagram_profile_reels": "Reels perfil", "instagram_reels_overlay": "Reels overlay",
+    "an_classic": "Audience Network", "rewarded_video": "Video con premio",
+    "search": "Búsqueda", "instagram_shop": "Shop", "biz_disco_feed": "Descubrimiento",
+}
+
+
+def _placement_label(pub: str, pos: str) -> str:
+    p  = _PUB_LABEL.get((pub or "").lower(), (pub or "otros").title())
+    q  = _POS_LABEL.get((pos or "").lower(), (pos or "otros").replace("_", " ").title())
+    return f"{p} · {q}"
+
+
+def extract_meta_placement(
+    access_token: str,
+    ad_account_id: str,
+    date_from: date,
+    date_to: date,
+) -> list:
+    """Ubicación/formato por anuncio, pidiendo publisher_platform + platform_position
+    JUNTOS (Meta rechaza platform_position solo). Alimenta meta_breakdowns con
+    breakdown_type='platform_position' y breakdown_value = label combinado."""
+    fields = "campaign_name,ad_name,ad_id,adset_name,spend,impressions,reach,actions,action_values"
+    params = {
+        "level":        "ad",
+        "fields":       fields,
+        "breakdowns":   "publisher_platform,platform_position",
+        "time_range":   f'{{"since":"{date_from}","until":"{date_to}"}}',
+        "limit":        500,
+        "access_token": access_token,
+    }
+    url = f"{BASE_URL}/act_{ad_account_id}/insights"
+    rows, page = [], 0
+    while url:
+        page += 1
+        resp = requests.get(url, params=params if page == 1 else {})
+        if not resp.ok:
+            log.error(f"   placement HTTP {resp.status_code}: {resp.text[:250]}")
+        resp.raise_for_status()
+        data = resp.json()
+        for r in data.get("data", []):
+            actions = r.get("actions", []); avals = r.get("action_values", [])
+            rows.append({
+                "level":              "ad",
+                "breakdown_type":     "platform_position",
+                "breakdown_value":    _placement_label(r.get("publisher_platform", ""),
+                                                        r.get("platform_position", "")),
+                "campaign_name":      r.get("campaign_name", ""),
+                "entity_name":        r.get("ad_name", ""),
+                "entity_id":          r.get("ad_id", ""),
+                "adset_name":         r.get("adset_name", ""),
+                "spend":              round(float(r.get("spend", 0) or 0), 2),
+                "impressions":        int(r.get("impressions", 0) or 0),
+                "reach":              int(r.get("reach", 0) or 0),
+                "purchases":          _get_action(actions, "purchase"),
+                "purchase_value":     _get_action(avals,   "purchase"),
+                "add_to_cart":        _get_action(actions, "add_to_cart"),
+                "initiate_checkout":  _get_action(actions, "initiate_checkout"),
+                "landing_page_views": _get_action(actions, "landing_page_view"),
+                "link_clicks":        _get_action(actions, "link_click"),
+            })
+        url = data.get("paging", {}).get("next"); params = {}
+        if url:
+            time.sleep(0.3)
+    log.info(f"   Meta Placement ad×(pub+pos): {len(rows)} filas")
+    return rows
+
+
 # ── CATÁLOGO: entrega por producto + salud del feed ─────────────────
 # Meta NO expone compras por producto (confirmado hasta nivel campaña).
 # Lo que sí da: la ENTREGA por producto (gasto/impresiones) vía breakdown
@@ -216,6 +299,8 @@ def _fetch_catalog_products(access_token: str, catalog_id: str) -> dict:
     while url:
         page += 1
         resp = requests.get(url, params=params if page == 1 else {})
+        if not resp.ok:
+            log.error(f"   catálogo /products HTTP {resp.status_code}: {resp.text[:280]}")
         resp.raise_for_status()
         data = resp.json()
         for p in data.get("data", []):
@@ -243,11 +328,13 @@ def extract_meta_catalog_products(
     date_to: str,
     prod_map: dict | None = None,
 ) -> list:
-    """Entrega (gasto/impresiones) por producto de catálogo, con nombre resuelto.
-    Alimenta `meta_catalog_products` (snapshot). Agrega por NOMBRE para que las
-    variantes del mismo producto sumen y se cruce con Shopify por título."""
-    if prod_map is None:
-        prod_map = _fetch_catalog_products(access_token, catalog_id)
+    """Entrega (gasto/impresiones) por producto de catálogo. El breakdown product_id
+    de insights devuelve el valor como '<retailer_id>, <NOMBRE>', así que el nombre
+    sale directo del insight (NO depende de leer el feed del catálogo, que puede estar
+    bloqueado por permisos del token). Agrega por NOMBRE para sumar variantes y cruzar
+    con Shopify por título. `prod_map` (opcional) solo enriquece con disponibilidad."""
+    ravail = {v.get("retailer_id", ""): v.get("availability", "")
+              for v in (prod_map or {}).values() if v.get("retailer_id")}
     params = {
         "level":        "account",
         "fields":       "spend,impressions",
@@ -262,17 +349,21 @@ def extract_meta_catalog_products(
     while url:
         page += 1
         resp = requests.get(url, params=params if page == 1 else {})
+        if not resp.ok:
+            log.error(f"   catálogo product_id HTTP {resp.status_code}: {resp.text[:250]}")
         resp.raise_for_status()
         data = resp.json()
         for r in data.get("data", []):
-            pid  = str(r.get("product_id", "") or "")
-            meta = prod_map.get(pid, {})
-            name = meta.get("name") or pid
+            raw = str(r.get("product_id", "") or "").strip()
+            if not raw or raw.lower() == "unknown":
+                continue
+            # formato '<retailer_id>, <NOMBRE>'  (p.ej. '42923391352868, TENIS JORDAN 3…')
+            rid, name = raw.split(", ", 1) if ", " in raw else ("", raw)
+            name = name.strip()
             if not name:
                 continue
-            a = agg.setdefault(name, {"spend": 0.0, "impr": 0,
-                                      "retailer_id":  meta.get("retailer_id", ""),
-                                      "availability": meta.get("availability", "")})
+            a = agg.setdefault(name, {"spend": 0.0, "impr": 0, "retailer_id": rid,
+                                      "availability": ravail.get(rid, "")})
             a["spend"] += float(r.get("spend", 0) or 0)
             a["impr"]  += int(r.get("impressions", 0) or 0)
         url = data.get("paging", {}).get("next"); params = {}

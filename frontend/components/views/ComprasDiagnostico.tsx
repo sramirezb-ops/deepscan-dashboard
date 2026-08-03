@@ -127,6 +127,18 @@ export function ComprasDiagnostico() {
         <div className="sub">Advantage+ trae el tráfico · Shopify revela dónde muere la venta. {data.from} → {data.to}</div>
       </header>
 
+      {/* Veredicto + Índice navegable */}
+      <div className="biblia">
+        <div className="biblia-l">
+          <div className="biblia-t">📖 La Biblia de Compras</div>
+          <div className="biblia-s">Todo el circuito Meta → Shopify en un recorrido: qué funciona, qué no, y qué hacer.</div>
+        </div>
+        <div className="biblia-nav">
+          {([['cap1', '1 · El circuito'], ['cap2', '2 · El catálogo'], ['cap3', '3 · Los anuncios'], ['cap4', '4 · Tendencias y plan']] as [string, string][]).map(([id, t]) => (
+            <button key={id} className="bn-chip" onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>{t}</button>
+          ))}
+        </div>
+      </div>
       {/* Cobro */}
       <div className="card">
         <div className="cobro-head"><span>⚠️ Realidad de cobro · toda la tienda</span>
@@ -139,22 +151,7 @@ export function ComprasDiagnostico() {
         </div>
       </div>
 
-      {/* IA */}
-      <div className="ai-wrap">
-        <div className="aihead"><div className="l"><span className="spark">✦</span>Análisis IA · nivel negocio</div>
-          <span className="badge">Hallazgo → hipótesis → acción · en vivo con IA (Gemini) al conectar la clave</span></div>
-        <div className="aigrid">
-          {AI.map((x, i) => (
-            <div className="aic" key={i}>
-              <div className="aic-h"><span className="aic-ic">{x.ic}</span><b>{x.t}</b><span className="aic-pri" style={{ background: x.pc + '1a', color: x.pc }}>{x.pri}</span></div>
-              <div className="aic-row"><span className="aic-lbl">Hallazgo</span><p>{x.h}</p></div>
-              <div className="aic-row"><span className="aic-lbl" style={{ color: ACCD }}>Hipótesis</span><p>{x.hip}</p></div>
-              <div className="aic-row"><span className="aic-lbl" style={{ color: GREEN }}>Acción</span><p>{x.ac}</p></div>
-            </div>
-          ))}
-        </div>
-      </div>
-
+      <div className="cap" id="cap1"><span className="cap-n">CAPÍTULO 1</span><span className="cap-t">El circuito · dónde se gana y se pierde</span></div>
       {/* Embudo por tasa — rotura destacada + Δ vs comparación */}
       <div className="fnl-hero">
         <div className="hk">🔴 ROTURA #1 · DÓNDE SE ROMPE EL EMBUDO</div>
@@ -205,155 +202,6 @@ export function ComprasDiagnostico() {
         <div className="alert2"><span className="a2ic">🟠</span><div><b>Fuga que apareció este periodo · {({ lpv: 'Clics', cart: 'Visitas', chk: 'Carrito', buy: 'Inician pago' } as Record<string, string>)[second.key]} → {second.lbl}</b> cayó de <b>{second.pconv}%</b> a <b style={{ color: RED }}>{second.conv}%</b> ({second.delta}pp). Llega tráfico pero casi nadie avanza — señal de <b>menor calidad de tráfico o mismatch anuncio ↔ producto/precio</b>. Solo se ve gracias a la comparación vs. periodo anterior.</div></div>
       ) : null}
 
-      {/* Duelo */}
-      <h2><span className="nn">2</span>Duelo de conjuntos · quién escala y quién se audita</h2>
-      <div className="h2sub">Best Sellers gasta ~2× lo de Próximos. ¿Lo vale?</div>
-      <div className="card">
-        {BS && PX && (
-          <table className="duel"><thead><tr><th></th><th style={{ color: '#17b3c9' }}>Best Sellers</th><th style={{ color: ACC }}>Próximos lanzamientos</th></tr></thead>
-            <tbody>
-              {([['Inversión', money(BS.spend), money(PX.spend), 0], ['ROAS', `${BS.roas}×`, `${PX.roas}×`, BS.roas > PX.roas ? 1 : 2],
-              ['Costo/compra', money(BS.cost_purchase), money(PX.cost_purchase), BS.cost_purchase < PX.cost_purchase ? 1 : 2],
-              ['Ticket prom.', money(BS.aov), money(PX.aov), BS.aov > PX.aov ? 1 : 2],
-              ['CTR enlace', `${BS.ctr}%`, `${PX.ctr}%`, BS.ctr > PX.ctr ? 1 : 2], ['CPC', money(BS.cpc), money(PX.cpc), BS.cpc < PX.cpc ? 1 : 2],
-              ['Checkout→Compra', `${(100 * BS.purchases / (BS.checkout || 1)).toFixed(1)}%`, `${(100 * PX.purchases / (PX.checkout || 1)).toFixed(1)}%`, (BS.purchases / (BS.checkout || 1)) > (PX.purchases / (PX.checkout || 1)) ? 1 : 2]] as [string, string, string, number][]).map((row, i) => (
-                <tr key={i}><td>{row[0]}</td>
-                  <td className="dv">{row[3] === 1 ? <b style={{ color: GREEN }}>{row[1]} ▲</b> : row[1]}</td>
-                  <td className="dv">{row[3] === 2 ? <b style={{ color: GREEN }}>{row[2]} ▲</b> : row[2]}</td></tr>
-              ))}
-            </tbody></table>
-        )}
-        {BS && PX && (
-          <div className="verdict">
-            <div className="vc cut"><b style={{ color: RED }}>⚠ Best Sellers — auditar</b>Gasta {money(BS.spend)} para ROAS {BS.roas}× y costo/compra {money(BS.cost_purchase)}. Trae más clics (CTR {BS.ctr}%) pero de menor intención.</div>
-            <div className="vc win"><b style={{ color: GREEN }}>✓ Próximos — escalar</b>Mejor ROAS ({PX.roas}×) y costo/compra ({money(PX.cost_purchase)}) con la mitad del gasto. El motor más eficiente.</div>
-          </div>
-        )}
-      </div>
-
-      {/* Segmentos */}
-      <h2><span className="nn">3</span>Segmentos de público · Full Funnel</h2>
-      <div className="h2sub">A quién le llega: nuevos, activos (engaged) o compradores actuales.</div>
-      <div className="card">
-        {data.segments.filter((s) => s.spend >= 5).map((s, i) => {
-          const col = { Nuevos: '#5b9df9', 'Activos (engaged)': GREEN, 'Compradores actuales': AMBER, Automático: '#c3bcd4' }[s.name] || ACC;
-          const mxs = Math.max(...data.segments.map((x) => x.spend), 1);
-          return (
-            <div className="segrow" key={i}>
-              <div className="seglbl"><b>{s.name}</b><span>{s.pct}% del gasto</span></div>
-              <div className="segbarwrap"><div className="segbar" style={{ width: `${Math.max(Math.round(100 * s.spend / mxs), 6)}%`, background: col }} /><span className="segval">{money(s.spend)}</span></div>
-              <div className="segkpi"><b>{s.buy}</b><span>compras</span></div>
-              <div className="segkpi"><b style={{ color: col }}>{s.roas < 50 ? s.roas + '×' : '—'}</b><span>ROAS</span></div>
-            </div>
-          );
-        })}
-        <div className="note amber">La campaña es mayormente nuevos + activos. A los <b>compradores actuales</b> les dedica poco y venden poco — recomprar suele ser lo más barato. Es una palanca de LTV sin tomar.</div>
-      </div>
-
-      {/* Plataforma */}
-      <h2><span className="nn">4</span>Rendimiento por plataforma</h2>
-      <div className="h2sub">Dónde rinde cada peso.</div>
-      <div className="card">
-        {data.platforms.map((p, i) => {
-          const mxp = Math.max(...data.platforms.map((x) => x.spend), 1);
-          const col = platCol[p.key] || ACC;
-          return (
-            <div className="segrow" key={i}>
-              <div className="seglbl"><b>{platName[p.key] || p.key}</b><span>{money(p.spend)}</span></div>
-              <div className="segbarwrap"><div className="segbar" style={{ width: `${Math.max(Math.round(100 * p.spend / mxp), 5)}%`, background: col }} /></div>
-              <div className="segkpi"><b>{p.buy}</b><span>compras</span></div>
-              <div className="segkpi"><b style={{ color: p.roas >= 1 ? col : RED }}>{p.roas}×</b><span>ROAS</span></div>
-            </div>
-          );
-        })}
-        {fb && ig && <div className="note red"><b>Facebook manda:</b> {fb.roas}× vs {ig.roas}× en Instagram. Considera bajarle a IG (sobre todo en Próximos) y mover el peso a Facebook.</div>}
-        <table className="sptbl"><thead><tr><th>Conjunto</th><th>Plataforma</th><th>Gasto</th><th>Compras</th><th>ROAS</th></tr></thead>
-          <tbody>{['Best Sellers|facebook', 'Best Sellers|instagram', 'Próximos lanzamientos|facebook', 'Próximos lanzamientos|instagram'].map((k) => {
-            const v = data.segPlatform[k]; if (!v) return null; const [g, p] = k.split('|'); const roas = v.spend ? v.val / v.spend : 0;
-            return <tr key={k}><td>{g}</td><td>{platName[p]}</td><td>{money(v.spend)}</td><td>{v.buy}</td><td style={{ color: roas >= 4 ? GREEN : roas < 1 ? RED : AMBER, fontWeight: 700 }}>{roas.toFixed(2)}×</td></tr>;
-          })}</tbody></table>
-      </div>
-
-      {/* Tendencias */}
-      <h2><span className="nn">5</span>Tendencias · cómo se movió el mes</h2>
-      <div className="h2sub">Día a día. Ritmo, picos y si la venta acompaña a la inversión.</div>
-      <div className="card charts">
-        <div><h4>Inversión vs Valor de compra</h4><div className="cs">diario MXN</div>
-          <svg viewBox="0 0 520 130" width="100%">
-            <path d={`${pathd(rvPts)} L${rvPts.length ? rvPts[rvPts.length - 1][0].toFixed(0) : 24},114 L24,114 Z`} fill={GREEN} fillOpacity="0.1" />
-            <path d={pathd(rvPts)} fill="none" stroke={GREEN} strokeWidth="2.5" />
-            <path d={pathd(spPts)} fill="none" stroke={ACC} strokeWidth="2.5" />
-            <text x="24" y="12" fontSize="10" fill={ACC} fontWeight="700">■ Inversión</text>
-            <text x="120" y="12" fontSize="10" fill={GREEN} fontWeight="700">■ Valor de compra</text>
-          </svg></div>
-        <div><h4>Pagos iniciados vs Compras</h4><div className="cs">la brecha = la fuga del pago</div>
-          <svg viewBox="0 0 520 130" width="100%">
-            {D.map((x, i) => { const xx = 24 + (i / Math.max(D.length - 1, 1)) * 480; const hc = (x.checkout / mxb) * 100, hb = (x.purchases / mxb) * 100; const bw = 480 / D.length * 0.5;
-              return <g key={i}><rect x={xx} y={114 - hc} width={bw} height={hc} fill={AMBER} fillOpacity="0.35" /><rect x={xx} y={114 - hb} width={bw} height={hb} fill={ACC} /></g>; })}
-            <text x="24" y="12" fontSize="10" fill={AMBER} fontWeight="700">▮ Pagos iniciados</text>
-            <text x="150" y="12" fontSize="10" fill={ACC} fontWeight="700">▮ Compras</text>
-          </svg></div>
-      </div>
-
-      {/* Creativos */}
-      <h2><span className="nn">6</span>Creativos · todos los activos, con datos</h2>
-      <div className="h2sub">{data.creatives.length} anuncios activos. Clic en una tarjeta para ver todo el detalle.</div>
-      <div className="cinsight"><b>Lectura:</b> el video promedia <b style={{ color: view.vroas >= view.iroas ? GREEN : RED }}>{view.vroas}×</b> vs <b>{view.iroas}×</b> de la imagen. Clic en cada anuncio para su embudo, costos y ventas por plataforma.</div>
-      <div className="card"><div className="cgrid">
-        {data.creatives.map((a, i) => {
-          const tag = a.buy > 0 && a.roas >= 5 ? ['GANADOR', GREEN] : a.spend >= 300 && a.buy === 0 ? ['QUEMA', RED] : a.buy > 0 ? ['RINDE', AMBER] : ['—', MUT];
-          const p = posterUrl(a);
-          return (
-            <figure className="cc" key={a.ad_id} onClick={() => setSel(i)}>
-              <div className="cph">
-                {p ? <img src={p} loading="lazy" alt="" /> : <div className="noimg">{short(a.name)}</div>}
-                {a.is_video && a.video_id ? <span className="play">▶</span> : null}
-                <span className={a.is_video ? 'vlabel' : 'ilabel'}>{a.is_video ? 'VIDEO' : 'IMG'}</span>
-                <span className="cbadge" style={{ background: tag[1] as string }}>{tag[0]}</span>
-                <span className="cmore">＋ detalle</span>
-              </div>
-              <figcaption>
-                <div className="cn">{short(a.name)}</div>
-                <div className="cmeta"><span className="cset">{a.adset.slice(0, 4)}</span></div>
-                <div className="cm"><b>{money(a.spend)}</b><b style={{ color: tag[1] as string }}>{a.roas}×</b><span>{a.buy} compras</span><span className="muted">CTR {a.ctr}%</span></div>
-              </figcaption>
-            </figure>
-          );
-        })}
-      </div></div>
-
-      {/* Pares */}
-      <h2><span className="nn">7</span>El par correcto · escalar / arreglar / cobrar</h2>
-      <div className="h2sub">Comportamiento (GA4) + venta real y cobro (Shopify) por par.</div>
-      <div className="card">
-        <table className="pairs"><thead><tr><th>Par</th><th>Vistas</th><th>Carrito</th><th>Checkout</th><th>Vend.</th><th>💰 Cobrado</th><th>⏳ Pendiente</th><th></th></tr></thead>
-          <tbody>{data.pairs.slice(0, 14).map((p, i) => {
-            const t = p.sold > 0 && p.rev_paid > 0 ? ['ESCALAR', GREEN] : p.sold > 0 ? ['COBRAR', AMBER] : p.views >= 80 ? ['ARREGLAR', RED] : ['observar', MUT];
-            return <tr key={i}><td className="pn">{p.name}</td><td>{kfmt(p.views)}</td><td>{p.atc}</td><td>{p.checkout}</td>
-              <td><b>{p.sold || '—'}</b></td><td style={{ color: GREEN }}>{p.rev_paid ? money(p.rev_paid) : '—'}</td><td style={{ color: AMBER }}>{p.rev_pend ? money(p.rev_pend) : '—'}</td>
-              <td><span className="tag" style={{ color: t[1] as string, background: (t[1] as string) + '14', borderColor: (t[1] as string) + '40' }}>{t[0]}</span></td></tr>;
-          })}</tbody></table>
-        <div style={{ marginTop: 14 }}>
-          <svg viewBox={`0 0 ${SW} ${SH}`} width="100%">
-            <line x1={PXo} y1={SH - PYo} x2={SW - 8} y2={SH - PYo} stroke={LINE} /><line x1={PXo} y1="8" x2={PXo} y2={SH - PYo} stroke={LINE} />
-            <text x={SW - 10} y={SH - 10} textAnchor="end" fontSize="10" fill={MUT}>más vistas →</text><text x="8" y="18" fontSize="10" fill={MUT}>↑ % convierte</text>
-            {data.pairs.map((p, i) => {
-              const x = sx(p.views), y = sy(p.rcvr); const rr = p.sold_rev ? 6 + Math.min(Math.sqrt(p.sold_rev) / 12, 15) : 5;
-              const c = p.sold > 0 && p.rev_paid > 0 ? GREEN : p.sold > 0 ? AMBER : p.views >= 80 ? RED : '#c3bcd4';
-              if (p.sold_rev >= 4000 || (p.views >= 150 && p.sold === 0)) labels.push([x, y - rr - 5, p.name.replace('TENIS ', '').replace('Tenis ', '').slice(0, 15), c]);
-              return <circle key={i} cx={x} cy={y} r={rr} fill={c} fillOpacity="0.5" stroke={c} strokeWidth="1.5" />;
-            })}
-            {labels.sort((a, b) => a[1] - b[1]).map((l, i, arr) => { let ly = l[1]; if (i > 0 && Math.abs(l[0] - arr[i - 1][0]) < 80 && ly - arr[i - 1][1] < 12) { ly = arr[i - 1][1] + 12; arr[i][1] = ly; }
-              return <text key={i} x={l[0]} y={Math.max(ly, 12)} textAnchor="middle" fontSize="9.5" fill={INK2} fontWeight="700" stroke="#fff" strokeWidth="2.4" paintOrder="stroke">{l[2]}</text>; })}
-          </svg>
-          <div className="legend">
-            <span><span className="dot" style={{ background: GREEN }} /><b>Escalar</b> — vende y cobra</span>
-            <span><span className="dot" style={{ background: AMBER }} /><b>Cobrar</b> — vende, pago pendiente</span>
-            <span><span className="dot" style={{ background: RED }} /><b>Arreglar</b> — mucha vista, 0 venta</span>
-          </div>
-        </div>
-      </div>
-
       {/* Páginas de aterrizaje (solo propiedad Shopify) */}
       {landing && landing.hasData && (() => {
         const S = landing.site;
@@ -370,7 +218,7 @@ export function ComprasDiagnostico() {
         };
         return (
           <div key="landing">
-            <h2><span className="nn">8</span>Páginas de aterrizaje · conversión vs las demás</h2>
+            <h2><span className="nn">2</span>Páginas de aterrizaje · conversión vs las demás</h2>
             <div className="h2sub">Por dónde entran las sesiones y qué tan bien convierten — solo propiedad Shopify (aísla el otro sitio GA4). Barra comparada vs el promedio del sitio (│).</div>
             <div className="card lp-kpis">
               <div className="lp-kpi"><b>{kfmt(S.sessions)}</b><span>Sesiones de entrada</span></div>
@@ -401,6 +249,174 @@ export function ComprasDiagnostico() {
           </div>
         );
       })()}
+
+      <div className="cap" id="cap2"><span className="cap-n">CAPÍTULO 2</span><span className="cap-t">El catálogo · qué productos funcionan</span></div>
+      {/* Pares */}
+      <h2><span className="nn">3</span>El par correcto · escalar / arreglar / cobrar</h2>
+      <div className="h2sub">Comportamiento (GA4) + venta real y cobro (Shopify) por par.</div>
+      <div className="card">
+        <table className="pairs"><thead><tr><th>Par</th><th>Vistas</th><th>Carrito</th><th>Checkout</th><th>Vend.</th><th>💰 Cobrado</th><th>⏳ Pendiente</th><th></th></tr></thead>
+          <tbody>{data.pairs.slice(0, 14).map((p, i) => {
+            const t = p.sold > 0 && p.rev_paid > 0 ? ['ESCALAR', GREEN] : p.sold > 0 ? ['COBRAR', AMBER] : p.views >= 80 ? ['ARREGLAR', RED] : ['observar', MUT];
+            return <tr key={i}><td className="pn">{p.name}</td><td>{kfmt(p.views)}</td><td>{p.atc}</td><td>{p.checkout}</td>
+              <td><b>{p.sold || '—'}</b></td><td style={{ color: GREEN }}>{p.rev_paid ? money(p.rev_paid) : '—'}</td><td style={{ color: AMBER }}>{p.rev_pend ? money(p.rev_pend) : '—'}</td>
+              <td><span className="tag" style={{ color: t[1] as string, background: (t[1] as string) + '14', borderColor: (t[1] as string) + '40' }}>{t[0]}</span></td></tr>;
+          })}</tbody></table>
+        <div style={{ marginTop: 14 }}>
+          <svg viewBox={`0 0 ${SW} ${SH}`} width="100%">
+            <line x1={PXo} y1={SH - PYo} x2={SW - 8} y2={SH - PYo} stroke={LINE} /><line x1={PXo} y1="8" x2={PXo} y2={SH - PYo} stroke={LINE} />
+            <text x={SW - 10} y={SH - 10} textAnchor="end" fontSize="10" fill={MUT}>más vistas →</text><text x="8" y="18" fontSize="10" fill={MUT}>↑ % convierte</text>
+            {data.pairs.map((p, i) => {
+              const x = sx(p.views), y = sy(p.rcvr); const rr = p.sold_rev ? 6 + Math.min(Math.sqrt(p.sold_rev) / 12, 15) : 5;
+              const c = p.sold > 0 && p.rev_paid > 0 ? GREEN : p.sold > 0 ? AMBER : p.views >= 80 ? RED : '#c3bcd4';
+              if (p.sold_rev >= 4000 || (p.views >= 150 && p.sold === 0)) labels.push([x, y - rr - 5, p.name.replace('TENIS ', '').replace('Tenis ', '').slice(0, 15), c]);
+              return <circle key={i} cx={x} cy={y} r={rr} fill={c} fillOpacity="0.5" stroke={c} strokeWidth="1.5" />;
+            })}
+            {labels.sort((a, b) => a[1] - b[1]).map((l, i, arr) => { let ly = l[1]; if (i > 0 && Math.abs(l[0] - arr[i - 1][0]) < 80 && ly - arr[i - 1][1] < 12) { ly = arr[i - 1][1] + 12; arr[i][1] = ly; }
+              return <text key={i} x={l[0]} y={Math.max(ly, 12)} textAnchor="middle" fontSize="9.5" fill={INK2} fontWeight="700" stroke="#fff" strokeWidth="2.4" paintOrder="stroke">{l[2]}</text>; })}
+          </svg>
+          <div className="legend">
+            <span><span className="dot" style={{ background: GREEN }} /><b>Escalar</b> — vende y cobra</span>
+            <span><span className="dot" style={{ background: AMBER }} /><b>Cobrar</b> — vende, pago pendiente</span>
+            <span><span className="dot" style={{ background: RED }} /><b>Arreglar</b> — mucha vista, 0 venta</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="cap" id="cap3"><span className="cap-n">CAPÍTULO 3</span><span className="cap-t">Los anuncios · qué creativo y cómo</span></div>
+      {/* Duelo */}
+      <h2><span className="nn">4</span>Duelo de conjuntos · quién escala y quién se audita</h2>
+      <div className="h2sub">Best Sellers gasta ~2× lo de Próximos. ¿Lo vale?</div>
+      <div className="card">
+        {BS && PX && (
+          <table className="duel"><thead><tr><th></th><th style={{ color: '#17b3c9' }}>Best Sellers</th><th style={{ color: ACC }}>Próximos lanzamientos</th></tr></thead>
+            <tbody>
+              {([['Inversión', money(BS.spend), money(PX.spend), 0], ['ROAS', `${BS.roas}×`, `${PX.roas}×`, BS.roas > PX.roas ? 1 : 2],
+              ['Costo/compra', money(BS.cost_purchase), money(PX.cost_purchase), BS.cost_purchase < PX.cost_purchase ? 1 : 2],
+              ['Ticket prom.', money(BS.aov), money(PX.aov), BS.aov > PX.aov ? 1 : 2],
+              ['CTR enlace', `${BS.ctr}%`, `${PX.ctr}%`, BS.ctr > PX.ctr ? 1 : 2], ['CPC', money(BS.cpc), money(PX.cpc), BS.cpc < PX.cpc ? 1 : 2],
+              ['Checkout→Compra', `${(100 * BS.purchases / (BS.checkout || 1)).toFixed(1)}%`, `${(100 * PX.purchases / (PX.checkout || 1)).toFixed(1)}%`, (BS.purchases / (BS.checkout || 1)) > (PX.purchases / (PX.checkout || 1)) ? 1 : 2]] as [string, string, string, number][]).map((row, i) => (
+                <tr key={i}><td>{row[0]}</td>
+                  <td className="dv">{row[3] === 1 ? <b style={{ color: GREEN }}>{row[1]} ▲</b> : row[1]}</td>
+                  <td className="dv">{row[3] === 2 ? <b style={{ color: GREEN }}>{row[2]} ▲</b> : row[2]}</td></tr>
+              ))}
+            </tbody></table>
+        )}
+        {BS && PX && (
+          <div className="verdict">
+            <div className="vc cut"><b style={{ color: RED }}>⚠ Best Sellers — auditar</b>Gasta {money(BS.spend)} para ROAS {BS.roas}× y costo/compra {money(BS.cost_purchase)}. Trae más clics (CTR {BS.ctr}%) pero de menor intención.</div>
+            <div className="vc win"><b style={{ color: GREEN }}>✓ Próximos — escalar</b>Mejor ROAS ({PX.roas}×) y costo/compra ({money(PX.cost_purchase)}) con la mitad del gasto. El motor más eficiente.</div>
+          </div>
+        )}
+      </div>
+
+      {/* Segmentos */}
+      <h2><span className="nn">5</span>Segmentos de público · Full Funnel</h2>
+      <div className="h2sub">A quién le llega: nuevos, activos (engaged) o compradores actuales.</div>
+      <div className="card">
+        {data.segments.filter((s) => s.spend >= 5).map((s, i) => {
+          const col = { Nuevos: '#5b9df9', 'Activos (engaged)': GREEN, 'Compradores actuales': AMBER, Automático: '#c3bcd4' }[s.name] || ACC;
+          const mxs = Math.max(...data.segments.map((x) => x.spend), 1);
+          return (
+            <div className="segrow" key={i}>
+              <div className="seglbl"><b>{s.name}</b><span>{s.pct}% del gasto</span></div>
+              <div className="segbarwrap"><div className="segbar" style={{ width: `${Math.max(Math.round(100 * s.spend / mxs), 6)}%`, background: col }} /><span className="segval">{money(s.spend)}</span></div>
+              <div className="segkpi"><b>{s.buy}</b><span>compras</span></div>
+              <div className="segkpi"><b style={{ color: col }}>{s.roas < 50 ? s.roas + '×' : '—'}</b><span>ROAS</span></div>
+            </div>
+          );
+        })}
+        <div className="note amber">La campaña es mayormente nuevos + activos. A los <b>compradores actuales</b> les dedica poco y venden poco — recomprar suele ser lo más barato. Es una palanca de LTV sin tomar.</div>
+      </div>
+
+      {/* Plataforma */}
+      <h2><span className="nn">6</span>Rendimiento por plataforma</h2>
+      <div className="h2sub">Dónde rinde cada peso.</div>
+      <div className="card">
+        {data.platforms.map((p, i) => {
+          const mxp = Math.max(...data.platforms.map((x) => x.spend), 1);
+          const col = platCol[p.key] || ACC;
+          return (
+            <div className="segrow" key={i}>
+              <div className="seglbl"><b>{platName[p.key] || p.key}</b><span>{money(p.spend)}</span></div>
+              <div className="segbarwrap"><div className="segbar" style={{ width: `${Math.max(Math.round(100 * p.spend / mxp), 5)}%`, background: col }} /></div>
+              <div className="segkpi"><b>{p.buy}</b><span>compras</span></div>
+              <div className="segkpi"><b style={{ color: p.roas >= 1 ? col : RED }}>{p.roas}×</b><span>ROAS</span></div>
+            </div>
+          );
+        })}
+        {fb && ig && <div className="note red"><b>Facebook manda:</b> {fb.roas}× vs {ig.roas}× en Instagram. Considera bajarle a IG (sobre todo en Próximos) y mover el peso a Facebook.</div>}
+        <table className="sptbl"><thead><tr><th>Conjunto</th><th>Plataforma</th><th>Gasto</th><th>Compras</th><th>ROAS</th></tr></thead>
+          <tbody>{['Best Sellers|facebook', 'Best Sellers|instagram', 'Próximos lanzamientos|facebook', 'Próximos lanzamientos|instagram'].map((k) => {
+            const v = data.segPlatform[k]; if (!v) return null; const [g, p] = k.split('|'); const roas = v.spend ? v.val / v.spend : 0;
+            return <tr key={k}><td>{g}</td><td>{platName[p]}</td><td>{money(v.spend)}</td><td>{v.buy}</td><td style={{ color: roas >= 4 ? GREEN : roas < 1 ? RED : AMBER, fontWeight: 700 }}>{roas.toFixed(2)}×</td></tr>;
+          })}</tbody></table>
+      </div>
+
+      {/* Creativos */}
+      <h2><span className="nn">7</span>Creativos · todos los activos, con datos</h2>
+      <div className="h2sub">{data.creatives.length} anuncios activos. Clic en una tarjeta para ver todo el detalle.</div>
+      <div className="cinsight"><b>Lectura:</b> el video promedia <b style={{ color: view.vroas >= view.iroas ? GREEN : RED }}>{view.vroas}×</b> vs <b>{view.iroas}×</b> de la imagen. Clic en cada anuncio para su embudo, costos y ventas por plataforma.</div>
+      <div className="card"><div className="cgrid">
+        {data.creatives.map((a, i) => {
+          const tag = a.buy > 0 && a.roas >= 5 ? ['GANADOR', GREEN] : a.spend >= 300 && a.buy === 0 ? ['QUEMA', RED] : a.buy > 0 ? ['RINDE', AMBER] : ['—', MUT];
+          const p = posterUrl(a);
+          return (
+            <figure className="cc" key={a.ad_id} onClick={() => setSel(i)}>
+              <div className="cph">
+                {p ? <img src={p} loading="lazy" alt="" /> : <div className="noimg">{short(a.name)}</div>}
+                {a.is_video && a.video_id ? <span className="play">▶</span> : null}
+                <span className={a.is_video ? 'vlabel' : 'ilabel'}>{a.is_video ? 'VIDEO' : 'IMG'}</span>
+                <span className="cbadge" style={{ background: tag[1] as string }}>{tag[0]}</span>
+                <span className="cmore">＋ detalle</span>
+              </div>
+              <figcaption>
+                <div className="cn">{short(a.name)}</div>
+                <div className="cmeta"><span className="cset">{a.adset.slice(0, 4)}</span></div>
+                <div className="cm"><b>{money(a.spend)}</b><b style={{ color: tag[1] as string }}>{a.roas}×</b><span>{a.buy} compras</span><span className="muted">CTR {a.ctr}%</span></div>
+              </figcaption>
+            </figure>
+          );
+        })}
+      </div></div>
+
+      <div className="cap" id="cap4"><span className="cap-n">CAPÍTULO 4</span><span className="cap-t">Tendencias y plan de acción</span></div>
+      {/* Tendencias */}
+      <h2><span className="nn">8</span>Tendencias · cómo se movió el mes</h2>
+      <div className="h2sub">Día a día. Ritmo, picos y si la venta acompaña a la inversión.</div>
+      <div className="card charts">
+        <div><h4>Inversión vs Valor de compra</h4><div className="cs">diario MXN</div>
+          <svg viewBox="0 0 520 130" width="100%">
+            <path d={`${pathd(rvPts)} L${rvPts.length ? rvPts[rvPts.length - 1][0].toFixed(0) : 24},114 L24,114 Z`} fill={GREEN} fillOpacity="0.1" />
+            <path d={pathd(rvPts)} fill="none" stroke={GREEN} strokeWidth="2.5" />
+            <path d={pathd(spPts)} fill="none" stroke={ACC} strokeWidth="2.5" />
+            <text x="24" y="12" fontSize="10" fill={ACC} fontWeight="700">■ Inversión</text>
+            <text x="120" y="12" fontSize="10" fill={GREEN} fontWeight="700">■ Valor de compra</text>
+          </svg></div>
+        <div><h4>Pagos iniciados vs Compras</h4><div className="cs">la brecha = la fuga del pago</div>
+          <svg viewBox="0 0 520 130" width="100%">
+            {D.map((x, i) => { const xx = 24 + (i / Math.max(D.length - 1, 1)) * 480; const hc = (x.checkout / mxb) * 100, hb = (x.purchases / mxb) * 100; const bw = 480 / D.length * 0.5;
+              return <g key={i}><rect x={xx} y={114 - hc} width={bw} height={hc} fill={AMBER} fillOpacity="0.35" /><rect x={xx} y={114 - hb} width={bw} height={hb} fill={ACC} /></g>; })}
+            <text x="24" y="12" fontSize="10" fill={AMBER} fontWeight="700">▮ Pagos iniciados</text>
+            <text x="150" y="12" fontSize="10" fill={ACC} fontWeight="700">▮ Compras</text>
+          </svg></div>
+      </div>
+
+      {/* IA */}
+      <div className="ai-wrap">
+        <div className="aihead"><div className="l"><span className="spark">✦</span>Análisis IA · nivel negocio</div>
+          <span className="badge">Hallazgo → hipótesis → acción · en vivo con IA (Gemini) al conectar la clave</span></div>
+        <div className="aigrid">
+          {AI.map((x, i) => (
+            <div className="aic" key={i}>
+              <div className="aic-h"><span className="aic-ic">{x.ic}</span><b>{x.t}</b><span className="aic-pri" style={{ background: x.pc + '1a', color: x.pc }}>{x.pri}</span></div>
+              <div className="aic-row"><span className="aic-lbl">Hallazgo</span><p>{x.h}</p></div>
+              <div className="aic-row"><span className="aic-lbl" style={{ color: ACCD }}>Hipótesis</span><p>{x.hip}</p></div>
+              <div className="aic-row"><span className="aic-lbl" style={{ color: GREEN }}>Acción</span><p>{x.ac}</p></div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="foot">Datos reales {data.from} → {data.to} · Meta (Advantage+ | Full funnel) · GA4 item-scoped · Shopify (pagado/pendiente). Segmentos/plataforma y creativos = snapshot del último ETL. Media de creativos: URLs de Meta refrescadas a diario.</div>
 
@@ -443,6 +459,15 @@ export function ComprasDiagnostico() {
       <style jsx>{`
         .cd{max-width:1140px;margin:0 auto;padding:6px 4px 60px;font-size:13px;color:${INK}}
         .cd-hd{padding:6px 0 6px}
+        .biblia{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:12px;background:linear-gradient(120deg,${INK},#3a2170 60%,${ACCD});border-radius:16px;padding:16px 20px}
+        .biblia-t{font-size:18px;font-weight:800;color:#fff}
+        .biblia-s{font-size:11.5px;color:#cfc7ea;margin-top:2px;max-width:520px}
+        .biblia-nav{display:flex;gap:8px;flex-wrap:wrap}
+        .bn-chip{font-family:inherit;cursor:pointer;font-size:11px;font-weight:800;color:#fff;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:20px;padding:7px 12px;transition:.15s}
+        .bn-chip:hover{background:${ACC};border-color:${ACC}}
+        .cap{display:flex;align-items:baseline;gap:12px;margin:34px 0 2px;padding-bottom:10px;border-bottom:2px solid ${LINE};scroll-margin-top:14px}
+        .cap-n{font-size:11px;font-weight:800;color:${ACC};letter-spacing:1.5px;background:${ACC}14;padding:4px 10px;border-radius:20px}
+        .cap-t{font-size:19px;font-weight:800;color:${INK}}
         .brand{font-weight:800;letter-spacing:.5px;font-size:12px}.brand small{color:${MUT};font-weight:600;letter-spacing:1.5px}
         .pill{display:inline-block;background:${ACC};color:#fff;font-size:9.5px;font-weight:800;border-radius:20px;padding:3px 9px;margin-left:8px;letter-spacing:.5px}
         .cd h1{font-size:23px;font-weight:800;margin:10px 0 3px;letter-spacing:-.3px}

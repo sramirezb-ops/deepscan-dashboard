@@ -231,7 +231,7 @@ export function ComprasDiagnostico() {
               <div className="lp-inc" style={{ borderColor: 'rgba(31,175,106,.3)' }}><b style={{ color: GREEN }}>🏆 La que mejor convierte</b>«{best.label}» lleva {best.chk_r}% a checkout ({(best.chk_r / Math.max(S.chk_r, 0.1)).toFixed(1)}× el promedio) con {kfmt(best.sessions)} sesiones. El molde a replicar (foto, precio, copy).</div>
             </div>
             <div className="card">
-              <table className="lp-tbl"><thead><tr><th>Página de entrada</th><th>Sesiones</th><th>Al carrito</th><th>Checkout</th><th>Compra</th><th>Rebote</th></tr></thead>
+              <div className="tscroll"><table className="lp-tbl"><thead><tr><th>Página de entrada</th><th>Sesiones</th><th>Al carrito</th><th>Checkout</th><th>Compra</th><th>Rebote</th></tr></thead>
                 <tbody>{landing.pages.map((p: LandingPage) => {
                   const isw = !!waste && p.path === waste.path, isb = p.path === best.path;
                   return (<tr key={p.path} className={isw ? 'lp-w' : isb ? 'lp-b' : ''}>
@@ -242,7 +242,7 @@ export function ComprasDiagnostico() {
                     <td className="lp-n2">{p.buy}<span className="muted"> · {p.buy_r}%</span></td>
                     <td className="lp-n2 muted">{p.bounce}%</td>
                   </tr>);
-                })}</tbody></table>
+                })}</tbody></table></div>
               <div className="lp-leg"><span><b>│</b> promedio del sitio ({S.atc_r}% carrito · {S.chk_r}% checkout)</span><span><b style={{ color: GREEN }}>verde</b> sobre promedio</span><span><b style={{ color: RED }}>rojo</b> debajo</span></div>
             </div>
             <div className="lp-note"><b>Solo Shopify:</b> GA4 tiene 2 propiedades cruzando datos; esta hoja aísla la de Shopify (rutas /products, /collections) y descarta el sitio custom, que ni siquiera rastrea checkout. Las compras de GA4 cuadran con los pedidos de Shopify → el tracking funciona; lo bajo es la conversión real. {landing.nPages} páginas con ≥12 sesiones; se muestran las {landing.pages.length} con más tráfico.</div>
@@ -255,13 +255,13 @@ export function ComprasDiagnostico() {
       <h2><span className="nn">3</span>El par correcto · escalar / arreglar / cobrar</h2>
       <div className="h2sub">Comportamiento (GA4) + venta real y cobro (Shopify) por par.</div>
       <div className="card">
-        <table className="pairs"><thead><tr><th>Par</th><th>Vistas</th><th>Carrito</th><th>Checkout</th><th>Vend.</th><th>💰 Cobrado</th><th>⏳ Pendiente</th><th></th></tr></thead>
+        <div className="tscroll"><table className="pairs"><thead><tr><th>Par</th><th>Vistas</th><th>Carrito</th><th>Checkout</th><th>Vend.</th><th>💰 Cobrado</th><th>⏳ Pendiente</th><th></th></tr></thead>
           <tbody>{data.pairs.slice(0, 14).map((p, i) => {
             const t = p.sold > 0 && p.rev_paid > 0 ? ['ESCALAR', GREEN] : p.sold > 0 ? ['COBRAR', AMBER] : p.views >= 80 ? ['ARREGLAR', RED] : ['observar', MUT];
             return <tr key={i}><td className="pn">{p.name}</td><td>{kfmt(p.views)}</td><td>{p.atc}</td><td>{p.checkout}</td>
               <td><b>{p.sold || '—'}</b></td><td style={{ color: GREEN }}>{p.rev_paid ? money(p.rev_paid) : '—'}</td><td style={{ color: AMBER }}>{p.rev_pend ? money(p.rev_pend) : '—'}</td>
               <td><span className="tag" style={{ color: t[1] as string, background: (t[1] as string) + '14', borderColor: (t[1] as string) + '40' }}>{t[0]}</span></td></tr>;
-          })}</tbody></table>
+          })}</tbody></table></div>
         <div style={{ marginTop: 14 }}>
           <svg viewBox={`0 0 ${SW} ${SH}`} width="100%">
             <line x1={PXo} y1={SH - PYo} x2={SW - 8} y2={SH - PYo} stroke={LINE} /><line x1={PXo} y1="8" x2={PXo} y2={SH - PYo} stroke={LINE} />
@@ -468,6 +468,9 @@ export function ComprasDiagnostico() {
         .cap{display:flex;align-items:baseline;gap:12px;margin:34px 0 2px;padding-bottom:10px;border-bottom:2px solid ${LINE};scroll-margin-top:14px}
         .cap-n{font-size:11px;font-weight:800;color:${ACC};letter-spacing:1.5px;background:${ACC}14;padding:4px 10px;border-radius:20px}
         .cap-t{font-size:19px;font-weight:800;color:${INK}}
+        .tscroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;max-width:100%}
+        .tscroll .lp-tbl,.tscroll .pairs{min-width:480px}
+        @media(max-width:640px){.biblia{flex-direction:column;align-items:flex-start;padding:14px 16px}.biblia-nav{width:100%}.bn-chip{flex:1;text-align:center}.cap{margin-top:26px}.cap-t{font-size:16px}}
         .brand{font-weight:800;letter-spacing:.5px;font-size:12px}.brand small{color:${MUT};font-weight:600;letter-spacing:1.5px}
         .pill{display:inline-block;background:${ACC};color:#fff;font-size:9.5px;font-weight:800;border-radius:20px;padding:3px 9px;margin-left:8px;letter-spacing:.5px}
         .cd h1{font-size:23px;font-weight:800;margin:10px 0 3px;letter-spacing:-.3px}

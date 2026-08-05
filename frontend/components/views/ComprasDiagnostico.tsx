@@ -12,6 +12,18 @@ import { EmptyState } from '@/components/ui/EmptyState';
 const INK = '#171226', INK2 = '#2b2440', MUT = '#77718a', ACC = '#7c5cff', ACCD = '#5a37e0';
 const RED = '#e5384d', AMBER = '#f5a524', GREEN = '#1faf6a', LINE = '#ebe7f4';
 const BERRY = '#b0466e', BLUE = '#5b9df9';
+
+// Sneakers Store tiene DOS webs bajo dos propiedades GA4 (son negocios distintos):
+//  · Basics · Shopify (523524806): tienda de checkout web (el embudo Meta → Shopify).
+//  · sneakerstore.com.mx (508597206): catálogo WhatsApp-first; la venta se cierra por
+//    chat (checkout web ≈ 0). Solo tiene datos GA4 (sin Meta Ads ni pedidos Shopify).
+// El switcher aísla cada una para no mezclar (los eventos/pares se filtran por property_id).
+const SNEAKERS_ID = 'bae8c125-19e0-46b4-b0f6-462b642658ac';
+const SHOPIFY_PROP = '523524806';
+const SNEAKERS_WEBS: { id: string; label: string }[] = [
+  { id: '523524806', label: 'Basics · Shopify' },
+  { id: '508597206', label: 'sneakerstore.com.mx' },
+];
 // Clasifica cada par por su MODO de éxito/fracaso (diferencia dónde muere la venta):
 // vende+cobra / vende-no cobra / llega a checkout pero 0 cerradas (cobro/COD) /
 // mucha vista sin intención (viral) / la página no convierte.
@@ -48,7 +60,11 @@ function posterUrl(c: Creative): string {
 export function ComprasDiagnostico() {
   const client = useClient();
   const { range, previous } = usePeriod();
-  const { data, loading, error } = useCompras(client.id, range, previous);
+  const isSneakers = client.id === SNEAKERS_ID;
+  const [web, setWeb] = useState(SHOPIFY_PROP);        // qué web ver (solo Sneakers tiene 2)
+  const activeProp = isSneakers ? web : undefined;      // filtra GA4 por propiedad solo en Sneakers
+  const isShopify = !isSneakers || web === SHOPIFY_PROP; // Basics/Shopify → Biblia completa
+  const { data, loading, error } = useCompras(client.id, range, previous, activeProp);
   const { data: landing } = useLanding(client.id, range, 12, 500);
   const { data: catalog } = useCatalog(client.id, range);
   const [sel, setSel] = useState<number | null>(null);
@@ -172,6 +188,66 @@ export function ComprasDiagnostico() {
           ))}
         </div>
       </div>
+      {isSneakers && (
+        <div className="websw" role="tablist" aria-label="Web a analizar">
+          <span className="websw-l">Web</span>
+          {SNEAKERS_WEBS.map((w) => (
+            <button key={w.id} role="tab" aria-selected={web === w.id} className={`websw-b${web === w.id ? ' on' : ''}`} onClick={() => setWeb(w.id)}>{w.label}</button>
+          ))}
+          <span className="websw-h">{isShopify ? 'checkout web · Meta → Shopify' : 'catálogo WhatsApp-first · solo GA4'}</span>
+        </div>
+      )}
+
+      {!isShopify ? (() => {
+        const totViews = data.pairs.reduce((s, p) => s + p.views, 0);
+        const totAtc = data.pairs.reduce((s, p) => s + p.atc, 0);
+        const totChk = data.pairs.reduce((s, p) => s + p.checkout, 0);
+        const wa = data.whatsapp, waPrev = data.whatsappPrev;
+        const delta = waPrev > 0 ? Math.round((100 * (wa - waPrev)) / waPrev) : null;
+        const atcR = totViews ? +((100 * totAtc) / totViews).toFixed(1) : 0;
+        const top = [...data.pairs].sort((a, b) => b.views - a.views).slice(0, 12);
+        const mxv = Math.max(...top.map((p) => p.views), 1);
+        return (
+        <>
+          <div className="ow-banner">
+            <span className="ow-bic">💬</span>
+            <div>
+              <b>sneakerstore.com.mx · catálogo WhatsApp-first</b>
+              Sitio <b>solo-GA4</b> (sin Meta Ads ni Shopify conectados en el dashboard). Aquí la venta <b>no se cierra en la web</b>:
+              el checkout web es casi nulo ({kfmt(totChk)} en el periodo) y la conversión ocurre <b>por WhatsApp</b>. Por eso mostramos
+              solo comportamiento GA4 — sin cobro, ROAS ni pares de venta (esos viven en «Basics · Shopify»).
+            </div>
+          </div>
+          <div className="ow-hero">
+            <div className="ow-hk">🟢 VÍA DE CONVERSIÓN · WHATSAPP</div>
+            <div className="ow-hbig">{kfmt(wa)}<small> clics a WhatsApp</small></div>
+            <p>Personas que, desde el catálogo, hicieron clic para comprar por chat{delta != null ? <> — <b style={{ color: delta >= 0 ? GREEN : RED }}>{delta >= 0 ? '+' : ''}{delta}%</b> vs. {data.prevFrom} → {data.prevTo}</> : null}. Es la conversión real de esta web.</p>
+          </div>
+          <h2><span className="nn">1</span>Comportamiento del catálogo · GA4</h2>
+          <div className="h2sub">El recorrido real de esta web: se ve producto, se agrega al carrito y se salta a WhatsApp (el checkout web casi no se usa).</div>
+          <div className="card ow-flow">
+            <div className="ow-step"><b>{kfmt(totViews)}</b><span>Vistas de producto</span></div>
+            <div className="ow-arr">→</div>
+            <div className="ow-step"><b style={{ color: ACC }}>{kfmt(totAtc)}</b><span>Al carrito</span><small>{atcR}% de las vistas</small></div>
+            <div className="ow-arr">→</div>
+            <div className="ow-step muted"><b>{kfmt(totChk)}</b><span>Checkout web</span><small>casi no se usa</small></div>
+            <div className="ow-arr ow-arr-g">⤳</div>
+            <div className="ow-step"><b style={{ color: GREEN }}>{kfmt(wa)}</b><span>Clic a WhatsApp</span><small>la venta se cierra aquí</small></div>
+          </div>
+          <h2><span className="nn">2</span>Productos más vistos · GA4</h2>
+          <div className="h2sub">Qué pares generan interés en este catálogo. Sin dato de venta (la compra ocurre por WhatsApp, fuera de GA4).</div>
+          <div className="card">
+            <div className="tscroll"><table className="pairs" style={{ minWidth: 380 }}><thead><tr><th>Par</th><th>Vistas</th><th>Al carrito</th><th></th></tr></thead>
+              <tbody>{top.map((p) => (
+                <tr key={p.name}><td className="pn">{p.name}</td><td>{kfmt(p.views)}</td><td>{kfmt(p.atc)}</td>
+                  <td style={{ width: 120 }}><span className="ow-vb"><span className="ow-vf" style={{ width: `${Math.max(Math.round((100 * p.views) / mxv), 3)}%` }} /></span></td></tr>
+              ))}{top.length === 0 ? <tr><td colSpan={4} className="muted">Sin productos con vistas en el periodo.</td></tr> : null}</tbody></table></div>
+          </div>
+          <div className="foot"><b>Honestidad:</b> esta vista es 100% GA4 de la propiedad <b>508597206</b> (sneakerstore.com.mx). No hay pedidos Shopify ni entrega Meta asociados a esta web en el dashboard, así que no se muestran cobro, ROAS ni ventas por par — sería inventar dato que no tenemos. La conversión real (compra por WhatsApp) ocurre fuera de GA4; medimos su antesala: el clic a WhatsApp. {data.from} → {data.to}.</div>
+        </>
+        );
+      })() : (
+      <>
       {/* Cobro */}
       <div className="card">
         <div className="cobro-head"><span>⚠️ Realidad de cobro · toda la tienda</span>
@@ -235,8 +311,8 @@ export function ComprasDiagnostico() {
         <div className="wa-path">
           <div className="wa-ic">💬</div>
           <div className="wa-body">
-            <div className="wa-t">Vía de conversión alterna · <b>WhatsApp</b></div>
-            <div className="wa-d">Además del checkout web, <b>{kfmt(data.whatsapp)} personas</b> hicieron clic a WhatsApp desde el sitio{data.whatsappPrev > 0 ? <> ({data.whatsapp >= data.whatsappPrev ? '+' : ''}{Math.round((100 * (data.whatsapp - data.whatsappPrev)) / data.whatsappPrev)}% vs. periodo anterior)</> : null}. El embudo web <b>no las cuenta</b> — es demanda que se cierra por chat (donde vive buena parte del cobro). Medir esta vía completa el circuito.</div>
+            <div className="wa-t">Vía de conversión alterna · <b>WhatsApp</b> <span className="wa-tag">recién instrumentado</span></div>
+            <div className="wa-d">En esta tienda la venta se cierra en el <b>checkout web</b>. El evento <b>Click_Whatsapp</b> se instaló hace poco: <b>{kfmt(data.whatsapp)} clic{data.whatsapp === 1 ? '' : 's'}</b> en el periodo — aún poco volumen para leerlo.{isSneakers ? <> El grueso del WhatsApp de la marca ocurre en <b>sneakerstore.com.mx</b> (catálogo WhatsApp-first) → cámbiala en el selector de arriba.</> : null}</div>
           </div>
           <div className="wa-big"><b>{kfmt(data.whatsapp)}</b><span>clics a WhatsApp</span></div>
         </div>
@@ -547,6 +623,8 @@ export function ComprasDiagnostico() {
       </div>
 
       <div className="foot">Datos reales {data.from} → {data.to} · Meta (Advantage+ | Full funnel) · GA4 item-scoped · Shopify (pagado/pendiente). Segmentos/plataforma y creativos = snapshot del último ETL. Media de creativos: URLs de Meta refrescadas a diario.</div>
+      </>
+      )}
 
       {/* Modal */}
       {selc && (
@@ -746,7 +824,33 @@ export function ComprasDiagnostico() {
         .wa-big{text-align:right;flex:none}
         .wa-big b{font-size:26px;font-weight:800;color:${GREEN};display:block;line-height:1}
         .wa-big span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+        .wa-tag{font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:${AMBER};background:${AMBER}1a;border:1px solid ${AMBER}44;border-radius:20px;padding:2px 7px;margin-left:6px;vertical-align:middle}
         @media(max-width:640px){.wa-path{flex-wrap:wrap}.wa-big{text-align:left;width:100%}}
+        /* Switcher de web (Sneakers: 2 propiedades GA4) */
+        .websw{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;background:#fff;border:1px solid ${LINE};border-radius:14px;padding:8px 12px;box-shadow:0 4px 18px rgba(60,40,120,.05)}
+        .websw-l{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:${MUT};margin-right:2px}
+        .websw-b{font-family:inherit;cursor:pointer;font-size:12px;font-weight:800;color:${INK2};background:#f4f2fb;border:1px solid ${LINE};border-radius:10px;padding:7px 14px;transition:.14s}
+        .websw-b:hover{border-color:${ACC};color:${ACC}}
+        .websw-b.on{background:${ACC};border-color:${ACC};color:#fff;box-shadow:0 4px 12px rgba(124,92,255,.28)}
+        .websw-h{font-size:10.5px;color:${MUT};font-style:italic;margin-left:auto}
+        @media(max-width:640px){.websw-h{width:100%;margin-left:0}}
+        /* Panel web solo-GA4 (sneakerstore.com.mx) */
+        .ow-banner{display:flex;gap:13px;margin-top:14px;background:#f0fbf5;border:1px solid #cdeede;border-left:4px solid ${GREEN};border-radius:14px;padding:14px 18px;font-size:12.5px;line-height:1.55;color:${INK2}}
+        .ow-banner b{color:${INK}}.ow-banner>div>b:first-child{display:block;font-size:13.5px;margin-bottom:3px}
+        .ow-bic{font-size:24px;flex:none}
+        .ow-hero{margin-top:14px;border:1px solid rgba(31,175,106,.28);border-left:4px solid ${GREEN};border-radius:16px;padding:18px 22px;background:linear-gradient(135deg,#fff,#f0fbf5);box-shadow:0 4px 18px rgba(60,40,120,.05)}
+        .ow-hk{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.8px;color:${GREEN};background:rgba(31,175,106,.1);padding:3px 9px;border-radius:20px}
+        .ow-hbig{font-size:38px;font-weight:800;color:${GREEN};margin-top:8px;line-height:1}.ow-hbig small{font-size:14px;color:${MUT};font-weight:700}
+        .ow-hero p{font-size:12.5px;line-height:1.6;color:${INK2};max-width:640px;margin-top:8px}
+        .ow-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        .ow-step{flex:1;min-width:110px;text-align:center}
+        .ow-step b{font-size:24px;font-weight:800;display:block;line-height:1;color:${INK}}
+        .ow-step span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700;display:block;margin-top:4px}
+        .ow-step small{font-size:10px;color:${MUT};display:block;margin-top:2px}
+        .ow-step.muted b{color:${MUT}}
+        .ow-arr{font-size:20px;color:${LINE};flex:none;font-weight:800}.ow-arr-g{color:${GREEN}}
+        .ow-vb{display:block;height:8px;background:#f1eef8;border-radius:5px;overflow:hidden}.ow-vf{display:block;height:100%;background:${ACC};border-radius:5px}
+        @media(max-width:640px){.ow-flow{flex-direction:column}.ow-arr{transform:rotate(90deg)}}
         .foot{margin-top:26px;font-size:10px;color:${MUT};border-top:1px solid ${LINE};padding-top:12px;line-height:1.5}
         .lp-kpis{display:flex;gap:26px;flex-wrap:wrap}
         .lp-kpi b{font-size:24px;font-weight:800;display:block;line-height:1}.lp-kpi span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.5px}.lp-kpi small{font-size:11px;color:${MUT};font-weight:600;display:block;margin-top:1px}

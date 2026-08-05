@@ -87,7 +87,7 @@ function toks(s: string): Set<string> {
   return new Set(x.split(/\s+/).filter((w) => w.length > 1));
 }
 
-export function useCompras(clientId: string, range: DateRange, previous?: DateRange) {
+export function useCompras(clientId: string, range: DateRange, previous?: DateRange, property?: string) {
   const [data, setData] = useState<ComprasData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +108,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
             clientId, (q) => q.gte('date', from).lte('date', to)),
           page<any>('shopify_products', 'period_end,title,units_sold,revenue,revenue_paid,revenue_pending,units_paid,units_pending', clientId),
           page<any>('ga4_items', 'item_name,items_viewed,items_added_to_cart,items_checked_out,items_purchased,item_revenue',
-            clientId, (q) => q.gte('date', from).lte('date', to)),
+            clientId, (q) => { const qq = q.gte('date', from).lte('date', to); return property ? qq.eq('property_id', property) : qq; }),
           page<any>('meta_breakdowns', 'level,breakdown_type,breakdown_value,campaign_name,adset_name,entity_id,spend,impressions,add_to_cart,initiate_checkout,purchases,purchase_value', clientId),
           page<any>('meta_ad_creatives', 'ad_id,ad_name,adset_name,campaign_name,is_video,image_url,thumbnail_url,video_id,title,body,cta', clientId),
           // Periodo de comparación (para Δ por paso del embudo): solo el embudo Advantage+ y el cobro.
@@ -116,8 +116,8 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           page<any>('shopify_orders', 'date,orders,orders_paid,orders_pending,revenue,revenue_pending', clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
           // Vía WhatsApp: clics a WhatsApp desde el sitio (GA4 ga4_events). Suma todos los
           // eventos cuyo nombre contiene 'whatsapp' (flotante_whatsapp, Click_Whatsapp, …).
-          page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => q.gte('date', from).lte('date', to).ilike('event_name', '%whatsapp%')),
-          page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo).ilike('event_name', '%whatsapp%')),
+          page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => { const qq = q.gte('date', from).lte('date', to).ilike('event_name', '%whatsapp%'); return property ? qq.eq('property_id', property) : qq; }),
+          page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => { const qq = q.gte('date', prevFrom).lte('date', prevTo).ilike('event_name', '%whatsapp%'); return property ? qq.eq('property_id', property) : qq; }),
         ]);
 
         // ---- META por conjunto + totales + diario + por anuncio ----
@@ -293,7 +293,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
       }
     })();
     return () => { alive = false; };
-  }, [clientId, range.from, range.to, prevFrom, prevTo]);
+  }, [clientId, range.from, range.to, prevFrom, prevTo, property]);
 
   return { data, loading, error };
 }

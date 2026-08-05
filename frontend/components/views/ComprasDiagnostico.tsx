@@ -11,6 +11,18 @@ import { EmptyState } from '@/components/ui/EmptyState';
 
 const INK = '#171226', INK2 = '#2b2440', MUT = '#77718a', ACC = '#7c5cff', ACCD = '#5a37e0';
 const RED = '#e5384d', AMBER = '#f5a524', GREEN = '#1faf6a', LINE = '#ebe7f4';
+const BERRY = '#b0466e', BLUE = '#5b9df9';
+// Clasifica cada par por su MODO de éxito/fracaso (diferencia dónde muere la venta):
+// vende+cobra / vende-no cobra / llega a checkout pero 0 cerradas (cobro/COD) /
+// mucha vista sin intención (viral) / la página no convierte.
+function pairTag(p: { sold: number; rev_paid: number; checkout: number; views: number }): [string, string] {
+  if (p.sold > 0 && p.rev_paid > 0) return ['ESCALAR', GREEN];
+  if (p.sold > 0) return ['COBRAR', AMBER];
+  if (p.checkout >= 5) return ['MUERE EN COBRO', BERRY];
+  if (p.views >= 150 && p.checkout < 3) return ['VIRAL · NO VENDE', BLUE];
+  if (p.views >= 80) return ['ARREGLAR PÁGINA', RED];
+  return ['observar', MUT];
+}
 
 const money = (v: number | null | undefined) => {
   const x = Math.round(((v || 0) as number) * 100) / 100;
@@ -302,7 +314,7 @@ export function ComprasDiagnostico() {
         </div>
         <div className="tscroll"><table className="pairs"><thead><tr><th {...parSorted.headerProps(0)}>Par</th><th {...parSorted.headerProps(1)}>Vistas</th><th {...parSorted.headerProps(2)}>Carrito</th><th {...parSorted.headerProps(3)}>Checkout</th><th {...parSorted.headerProps(4)}>Vend.</th><th {...parSorted.headerProps(5)}>💰 Cobrado</th><th {...parSorted.headerProps(6)}>⏳ Pendiente</th><th></th></tr></thead>
           <tbody>{parSorted.rows.slice((parPage - 1) * parSize, parPage * parSize).map((p) => {
-            const t = p.sold > 0 && p.rev_paid > 0 ? ['ESCALAR', GREEN] : p.sold > 0 ? ['COBRAR', AMBER] : p.views >= 80 ? ['ARREGLAR', RED] : ['observar', MUT];
+            const t = pairTag(p);
             return <tr key={p.name}><td className="pn">{p.name}</td><td>{kfmt(p.views)}</td><td>{p.atc}</td><td>{p.checkout}</td>
               <td><b>{p.sold || '—'}</b></td><td style={{ color: GREEN }}>{p.rev_paid ? money(p.rev_paid) : '—'}</td><td style={{ color: AMBER }}>{p.rev_pend ? money(p.rev_pend) : '—'}</td>
               <td><span className="tag" style={{ color: t[1] as string, background: (t[1] as string) + '14', borderColor: (t[1] as string) + '40' }}>{t[0]}</span></td></tr>;
@@ -313,8 +325,8 @@ export function ComprasDiagnostico() {
             <text x={SW - 10} y={SH - 10} textAnchor="end" fontSize="10" fill={MUT}>más vistas →</text><text x="8" y="18" fontSize="10" fill={MUT}>↑ % convierte</text>
             {data.pairs.map((p, i) => {
               const x = sx(p.views), y = sy(p.rcvr); const rr = p.sold_rev ? 6 + Math.min(Math.sqrt(p.sold_rev) / 12, 15) : 5;
-              const c = p.sold > 0 && p.rev_paid > 0 ? GREEN : p.sold > 0 ? AMBER : p.views >= 80 ? RED : '#c3bcd4';
-              if (p.sold_rev >= 4000 || (p.views >= 150 && p.sold === 0)) labels.push([x, y - rr - 5, p.name.replace('TENIS ', '').replace('Tenis ', '').slice(0, 15), c]);
+              const c = pairTag(p)[1];
+              if (p.sold_rev >= 8000 || (p.views >= 350 && p.sold === 0)) labels.push([x, y - rr - 5, p.name.replace('TENIS ', '').replace('Tenis ', '').slice(0, 15), c]);
               return <circle key={i} cx={x} cy={y} r={rr} fill={c} fillOpacity="0.5" stroke={c} strokeWidth="1.5" />;
             })}
             {labels.sort((a, b) => a[1] - b[1]).map((l, i, arr) => { let ly = l[1]; if (i > 0 && Math.abs(l[0] - arr[i - 1][0]) < 80 && ly - arr[i - 1][1] < 12) { ly = arr[i - 1][1] + 12; arr[i][1] = ly; }
@@ -323,8 +335,11 @@ export function ComprasDiagnostico() {
           <div className="legend">
             <span><span className="dot" style={{ background: GREEN }} /><b>Escalar</b> — vende y cobra</span>
             <span><span className="dot" style={{ background: AMBER }} /><b>Cobrar</b> — vende, pago pendiente</span>
-            <span><span className="dot" style={{ background: RED }} /><b>Arreglar</b> — mucha vista, 0 venta</span>
+            <span><span className="dot" style={{ background: BERRY }} /><b>Muere en cobro</b> — llega a checkout, 0 cerradas</span>
+            <span><span className="dot" style={{ background: BLUE }} /><b>Viral</b> — mucha vista, sin intención</span>
+            <span><span className="dot" style={{ background: RED }} /><b>Arreglar página</b> — no convierte</span>
           </div>
+          <div className="pares-note">🔎 <b>La clave del embudo:</b> los pares en <b style={{ color: BERRY }}>«muere en cobro»</b> llegan a checkout pero cierran <b>0</b> — su fuga <b>no es la página, es el cobro</b> (COD / pago pendiente): el mismo <b>{ST.paid_pct}%</b> cobrado de la tira de arriba. Ahí se ataca con precio / MSI / confirmación por WhatsApp, no con otro creativo. Los <b style={{ color: BLUE }}>«virales»</b> (mucha vista, sin checkout) son curiosidad, no fracaso de pauta.</div>
         </div>
       </div>
 
@@ -712,6 +727,7 @@ export function ComprasDiagnostico() {
         .pairs{width:100%;border-collapse:collapse;font-size:12px}.pairs th{text-align:left;color:${MUT};font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.4px;padding:6px;border-bottom:2px solid ${LINE}}.pairs td{padding:7px 6px;border-bottom:1px solid #f2effa}.pn{font-weight:600;max-width:200px}
         .tag{font-size:9px;font-weight:800;border:1px solid;border-radius:20px;padding:2px 8px;letter-spacing:.3px}
         .legend{display:flex;gap:15px;font-size:11px;color:${MUT};margin-top:10px;flex-wrap:wrap}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+        .pares-note{margin-top:14px;background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:${INK2};line-height:1.55}
         .foot{margin-top:26px;font-size:10px;color:${MUT};border-top:1px solid ${LINE};padding-top:12px;line-height:1.5}
         .lp-kpis{display:flex;gap:26px;flex-wrap:wrap}
         .lp-kpi b{font-size:24px;font-weight:800;display:block;line-height:1}.lp-kpi span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.5px}.lp-kpi small{font-size:11px;color:${MUT};font-weight:600;display:block;margin-top:1px}

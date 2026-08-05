@@ -231,6 +231,16 @@ export function ComprasDiagnostico() {
         })}
         <div className="fnl-leg"><span><b>│</b> objetivo</span><span><b style={{ color: GREEN }}>▲</b> mejora vs anterior</span><span><b style={{ color: RED }}>▼</b> empeora</span><span><b>pp</b> = puntos porcentuales</span></div>
       </div>
+      {data.whatsapp > 0 && (
+        <div className="wa-path">
+          <div className="wa-ic">💬</div>
+          <div className="wa-body">
+            <div className="wa-t">Vía de conversión alterna · <b>WhatsApp</b></div>
+            <div className="wa-d">Además del checkout web, <b>{kfmt(data.whatsapp)} personas</b> hicieron clic a WhatsApp desde el sitio{data.whatsappPrev > 0 ? <> ({data.whatsapp >= data.whatsappPrev ? '+' : ''}{Math.round((100 * (data.whatsapp - data.whatsappPrev)) / data.whatsappPrev)}% vs. periodo anterior)</> : null}. El embudo web <b>no las cuenta</b> — es demanda que se cierra por chat (donde vive buena parte del cobro). Medir esta vía completa el circuito.</div>
+          </div>
+          <div className="wa-big"><b>{kfmt(data.whatsapp)}</b><span>clics a WhatsApp</span></div>
+        </div>
+      )}
       {second ? (
         <div className="alert2"><span className="a2ic">🟠</span><div><b>Fuga que apareció este periodo · {({ lpv: 'Clics', cart: 'Visitas', chk: 'Carrito', buy: 'Inician pago' } as Record<string, string>)[second.key]} → {second.lbl}</b> cayó de <b>{second.pconv}%</b> a <b style={{ color: RED }}>{second.conv}%</b> ({second.delta}pp). Llega tráfico pero casi nadie avanza — señal de <b>menor calidad de tráfico o mismatch anuncio ↔ producto/precio</b>. Solo se ve gracias a la comparación vs. periodo anterior.</div></div>
       ) : null}
@@ -728,6 +738,15 @@ export function ComprasDiagnostico() {
         .tag{font-size:9px;font-weight:800;border:1px solid;border-radius:20px;padding:2px 8px;letter-spacing:.3px}
         .legend{display:flex;gap:15px;font-size:11px;color:${MUT};margin-top:10px;flex-wrap:wrap}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
         .pares-note{margin-top:14px;background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:${INK2};line-height:1.55}
+        .wa-path{display:flex;align-items:center;gap:16px;margin-top:14px;background:#f0fbf5;border:1px solid #cdeede;border-left:4px solid ${GREEN};border-radius:14px;padding:14px 18px}
+        .wa-ic{font-size:26px;flex:none}
+        .wa-body{flex:1;min-width:0}
+        .wa-t{font-size:13px;font-weight:800;color:${INK}}
+        .wa-d{font-size:12px;color:${INK2};line-height:1.5;margin-top:3px}
+        .wa-big{text-align:right;flex:none}
+        .wa-big b{font-size:26px;font-weight:800;color:${GREEN};display:block;line-height:1}
+        .wa-big span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+        @media(max-width:640px){.wa-path{flex-wrap:wrap}.wa-big{text-align:left;width:100%}}
         .foot{margin-top:26px;font-size:10px;color:${MUT};border-top:1px solid ${LINE};padding-top:12px;line-height:1.5}
         .lp-kpis{display:flex;gap:26px;flex-wrap:wrap}
         .lp-kpi b{font-size:24px;font-weight:800;display:block;line-height:1}.lp-kpi span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.5px}.lp-kpi small{font-size:11px;color:${MUT};font-weight:600;display:block;margin-top:1px}

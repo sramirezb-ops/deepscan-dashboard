@@ -61,6 +61,8 @@ export interface ComprasData {
   segPlatform: Record<string, { spend: number; buy: number; val: number }>;
   creatives: Creative[];
   daily: DailyRow[];
+  whatsapp: number;      // clics a WhatsApp (GA4) en el periodo — vía de conversión alterna
+  whatsappPrev: number;  // mismo, periodo de comparación (para Δ)
 }
 
 async function page<T>(table: string, cols: string, clientId: string, extra?: (q: any) => any): Promise<T[]> {
@@ -98,7 +100,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
       try {
         const from = range.from, to = range.to;
         const cfCols = 'campaign_name,adset_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value';
-        const [mc, so, sp, gi, bd, cr, mcPrev, soPrev] = await Promise.all([
+        const [mc, so, sp, gi, bd, cr, mcPrev, soPrev, waEv, waEvPrev] = await Promise.all([
           page<any>('meta_campaigns',
             'date,campaign_name,adset_name,ad_id,ad_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value,thruplay,ctr',
             clientId, (q) => q.gte('date', from).lte('date', to)),
@@ -112,6 +114,10 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           // Periodo de comparación (para Δ por paso del embudo): solo el embudo Advantage+ y el cobro.
           page<any>('meta_campaigns', 'date,' + cfCols, clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
           page<any>('shopify_orders', 'date,orders,orders_paid,orders_pending,revenue,revenue_pending', clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
+          // Vía WhatsApp: clics a WhatsApp desde el sitio (GA4 ga4_events). Suma todos los
+          // eventos cuyo nombre contiene 'whatsapp' (flotante_whatsapp, Click_Whatsapp, …).
+          page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => q.gte('date', from).lte('date', to).ilike('event_name', '%whatsapp%')),
+          page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo).ilike('event_name', '%whatsapp%')),
         ]);
 
         // ---- META por conjunto + totales + diario + por anuncio ----
@@ -274,9 +280,12 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           })
           .sort((a, b) => (b.thumbnail_url || b.image_url ? 1 : 0) - (a.thumbnail_url || a.image_url ? 1 : 0) || b.spend - a.spend);
 
+        const whatsapp = waEv.reduce((s: number, r: any) => s + n(r.event_count), 0);
+        const whatsappPrev = waEvPrev.reduce((s: number, r: any) => s + n(r.event_count), 0);
         const out: ComprasData = {
           from, to, prevFrom, prevTo, sets, totals, prevTotals, store, prevStore, pairs, segments, platforms, segPlatform, creatives,
           daily: Object.values(daily).sort((a, b) => a.date.localeCompare(b.date)),
+          whatsapp, whatsappPrev,
         };
         if (alive) { setData(out); setLoading(false); }
       } catch (e: any) {

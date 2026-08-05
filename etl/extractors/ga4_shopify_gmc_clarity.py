@@ -267,6 +267,7 @@ def extract_ga4_items(
             continue  # eventos sin producto asociado: no aportan al análisis por par
         rows.append({
             "date":                dims[0],
+            "property_id":         str(property_id),  # separa las webs (Shopify vs otra)
             "item_name":           item_name,
             "items_viewed":        int(float(mets[0] or 0)),
             "items_added_to_cart": int(float(mets[1] or 0)),
@@ -333,6 +334,7 @@ def extract_ga4_events(
         key_events = float(mets[2] or 0)
         rows.append({
             "date":         dims[0],
+            "property_id":  str(property_id),  # separa las webs (Shopify vs otra)
             "event_name":   dims[1] or "(unknown)",
             "event_count":  int(mets[0] or 0),
             "total_users":  int(mets[1] or 0),

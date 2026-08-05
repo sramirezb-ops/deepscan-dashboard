@@ -424,7 +424,9 @@ def run_etl(client_id: str, days_back: int = 30):
 
     # Conteo diario de eventos por nombre (fecha×evento). Alimenta el funnel
     # de leads del dashboard (Escribir Correo / Descargar Catálogo / Clics a
-    # WhatsApp). Se agrega entre propiedades sumando por la clave de conflicto.
+    # WhatsApp). Se mantiene SEPARADO por property_id: cada propiedad GA4 es una
+    # web distinta (p.ej. la tienda Shopify vs otro sitio) y sumarlas nubla la
+    # interpretación. La vista decide qué propiedad mostrar.
     ga4_events_merge: dict[tuple, dict] = {}
     for property_id in GA4_PROPERTIES:
         try:
@@ -435,7 +437,7 @@ def run_etl(client_id: str, days_back: int = 30):
                 date_to=date_to
             )
             for r in event_rows:
-                key = (r["date"], r["event_name"])
+                key = (r["date"], r["property_id"], r["event_name"])
                 acc = ga4_events_merge.get(key)
                 if acc is None:
                     ga4_events_merge[key] = dict(r)
@@ -502,7 +504,8 @@ def run_etl(client_id: str, days_back: int = 30):
 
     # Detalle POR PRODUCTO (item-scoped): vistas, add-to-cart, checkout, compras
     # y revenue por par de tenis. Alimenta el análisis "qué pares se ven y cuáles
-    # convierten" de la hoja de Compras. Se agrega entre propiedades.
+    # convierten" de la hoja de Compras. Se mantiene SEPARADO por property_id
+    # (cada propiedad GA4 = una web distinta); la vista aísla la que quiere ver.
     ga4_items_merge: dict[tuple, dict] = {}
     for property_id in GA4_PROPERTIES:
         try:
@@ -513,7 +516,7 @@ def run_etl(client_id: str, days_back: int = 30):
                 date_to=date_to
             )
             for r in item_rows:
-                key = (r["date"], r["item_name"])
+                key = (r["date"], r["property_id"], r["item_name"])
                 acc = ga4_items_merge.get(key)
                 if acc is None:
                     ga4_items_merge[key] = dict(r)

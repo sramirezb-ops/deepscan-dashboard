@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
     ? order.line_items.reduce((s: number, li: any) => s + Number(li.quantity || 0), 0)
     : undefined;
 
-  const user_data: Record<string, string[]> = {};
+  const user_data: Record<string, any> = {};
   const put = (k: string, v?: string[]) => { if (v) user_data[k] = v; };
   put('em', hashEmail(order.email || cust.email));
   put('ph', hashPhone(order.phone || cust.phone || addr.phone));
@@ -111,6 +111,23 @@ export async function POST(req: NextRequest) {
   put('zp', hashText(addr.zip));
   put('country', hashCountry(addr.country_code || addr.country));
   if (cust.id) put('external_id', [sha256(String(cust.id))]);
+
+  // ── Señales de navegador: suben mucho el Event Match Quality (van SIN hashear) ──
+  // IP y user-agent ya vienen en el pedido de Shopify (client_details).
+  const cd = order.client_details || {};
+  if (cd.browser_ip) user_data.client_ip_address = cd.browser_ip;
+  if (cd.user_agent) user_data.client_user_agent = cd.user_agent;
+  // _fbc (click id, la señal más potente) y _fbp (browser id) se capturan en el
+  // checkout y llegan como atributos del pedido (note_attributes).
+  const notes = Array.isArray(order.note_attributes) ? order.note_attributes : [];
+  const noteVal = (k: string) => {
+    const n = notes.find((a: any) => String(a?.name || '').toLowerCase() === k);
+    return n && n.value ? String(n.value) : '';
+  };
+  const fbc = noteVal('_fbc') || noteVal('fbc');
+  const fbp = noteVal('_fbp') || noteVal('fbp');
+  if (fbc) user_data.fbc = fbc;
+  if (fbp) user_data.fbp = fbp;
 
   // Meta exige ≥1 dato de cliente para el match. Si el pedido no trae ninguno
   // (p.ej. borrador sin cliente o notificación de prueba vacía), lo omitimos en

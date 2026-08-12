@@ -661,7 +661,12 @@ def extract_shopify(
     for order in orders_raw:
         d = order["created_at"][:10]   # YYYY-MM-DD
         price = float(order.get("total_price", 0) or 0)
-        is_new = not order.get("customer", {}).get("orders_count", 0) > 1
+        # OJO: order.get("customer", {}) NO protege contra customer=None (pedidos
+        # "sin cliente" / de prueba traen customer:null, no la clave ausente).
+        # `or {}` sí lo cubre. Este era el bug que congelaba Shopify al toparse
+        # con el primer pedido sin cliente.
+        cust = order.get("customer") or {}
+        is_new = not (cust.get("orders_count", 0) > 1)
         status = (order.get("financial_status") or "").lower()  # paid/pending/voided/...
 
         if d not in orders_by_date:
@@ -699,7 +704,7 @@ def extract_shopify(
         is_paid    = status == "paid"
         is_pending = status == "pending"
 
-        for item in order.get("line_items", []):
+        for item in (order.get("line_items") or []):
             pid = str(item.get("product_id", ""))
             qty = int(item.get("quantity", 0))
             item_price = float(item.get("price", 0) or 0) * qty

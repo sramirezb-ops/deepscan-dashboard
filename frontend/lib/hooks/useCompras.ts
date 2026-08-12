@@ -35,8 +35,10 @@ export interface Pair {
 export interface SegRow { name: string; spend: number; buy: number; val: number; roas: number; pct: number; }
 export interface PlatRow { key: string; spend: number; buy: number; val: number; roas: number; }
 export interface PlacementRow { label: string; spend: number; impr: number; atc: number; chk: number; buy: number; }
+export interface AdComment { author: string; content: string; likes: number; created_at: string | null; sentiment: string; }
 export interface Creative {
   ad_id: string; name: string; adset: string; is_video: boolean;
+  media_id: string; comments: AdComment[];
   image_url: string; thumbnail_url: string; video_id: string;
   title: string; body: string; cta: string;
   spend: number; impr: number; reach: number; link: number; ctr: number; cpm: number; freq: number;
@@ -100,7 +102,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
       try {
         const from = range.from, to = range.to;
         const cfCols = 'campaign_name,adset_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value';
-        const [mc, so, sp, gi, bd, cr, mcPrev, soPrev, waEv, waEvPrev] = await Promise.all([
+        const [mc, so, sp, gi, bd, cr, mcPrev, soPrev, waEv, waEvPrev, mcom] = await Promise.all([
           page<any>('meta_campaigns',
             'date,campaign_name,adset_name,ad_id,ad_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value,thruplay,ctr',
             clientId, (q) => q.gte('date', from).lte('date', to)),
@@ -110,7 +112,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           page<any>('ga4_items', 'item_name,items_viewed,items_added_to_cart,items_checked_out,items_purchased,item_revenue',
             clientId, (q) => { const qq = q.gte('date', from).lte('date', to); return property ? qq.eq('property_id', property) : qq; }),
           page<any>('meta_breakdowns', 'level,breakdown_type,breakdown_value,campaign_name,adset_name,entity_id,spend,impressions,add_to_cart,initiate_checkout,purchases,purchase_value', clientId),
-          page<any>('meta_ad_creatives', 'ad_id,ad_name,adset_name,campaign_name,is_video,image_url,thumbnail_url,video_id,title,body,cta', clientId),
+          page<any>('meta_ad_creatives', 'ad_id,ad_name,adset_name,campaign_name,is_video,image_url,thumbnail_url,video_id,title,body,cta,instagram_media_id', clientId),
           // Periodo de comparación (para Δ por paso del embudo): solo el embudo Advantage+ y el cobro.
           page<any>('meta_campaigns', 'date,' + cfCols, clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
           page<any>('shopify_orders', 'date,orders,orders_paid,orders_pending,revenue,revenue_pending', clientId, (q) => q.gte('date', prevFrom).lte('date', prevTo)),
@@ -118,6 +120,9 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           // eventos cuyo nombre contiene 'whatsapp' (flotante_whatsapp, Click_Whatsapp, …).
           page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => { const qq = q.gte('date', from).lte('date', to).ilike('event_name', '%whatsapp%'); return property ? qq.eq('property_id', property) : qq; }),
           page<any>('ga4_events', 'date,event_name,event_count', clientId, (q) => { const qq = q.gte('date', prevFrom).lte('date', prevTo).ilike('event_name', '%whatsapp%'); return property ? qq.eq('property_id', property) : qq; }),
+          // Comentarios de IG por anuncio (texto + sentimiento). No van por fecha:
+          // se acumulan; el modal del creativo los muestra agrupados por ad_id.
+          page<any>('meta_comments', 'ad_id,author,content,likes,created_at,sentiment', clientId).catch(() => [] as any[]),
         ]);
 
         // ---- META por conjunto + totales + diario + por anuncio ----
@@ -257,6 +262,14 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
             .sort((a, b) => b.spend - a.spend);
         }
 
+        // ---- Comentarios de IG agrupados por anuncio (más nuevos primero) ----
+        const commentsByAd: Record<string, AdComment[]> = {};
+        for (const r of mcom) {
+          const id = r.ad_id; if (!id) continue;
+          (commentsByAd[id] ||= []).push({ author: r.author || '', content: r.content || '', likes: n(r.likes), created_at: r.created_at || null, sentiment: r.sentiment || 'neutral' });
+        }
+        for (const id of Object.keys(commentsByAd)) commentsByAd[id].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
         // ---- Creativos: driven por los anuncios que GASTARON, media donde exista ----
         const mediaByAd: Record<string, any> = {};
         for (const c of cr) mediaByAd[c.ad_id] = c;
@@ -266,6 +279,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
             const c = mediaByAd[A.ad_id] || {};
             return {
               ad_id: A.ad_id, name: A.name || c.ad_name || '', adset: A.adset, is_video: !!c.is_video,
+              media_id: c.instagram_media_id || '', comments: commentsByAd[A.ad_id] || [],
               image_url: c.image_url || '', thumbnail_url: c.thumbnail_url || '', video_id: c.video_id || '',
               title: c.title || '', body: c.body || '', cta: c.cta || '',
               spend: +A.spend.toFixed(2), impr: A.impr, reach: A.reach, link: A.link,

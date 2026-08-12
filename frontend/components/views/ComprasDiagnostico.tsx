@@ -671,6 +671,25 @@ export function ComprasDiagnostico() {
                 <div className="plc-note">El <b>Feed</b> suele cerrar la venta; Reels/Stories gastan pero rara vez compran. Palanca de eficiencia: concentrar o excluir ubicaciones que no cierran.</div>
               </>}
               {selc.body && <><div className="adm-sec">Texto del anuncio</div><div className="copybox">{(selc.title ? selc.title + '\n\n' : '') + selc.body + (selc.cta ? `\n\n[ ${selc.cta.replace(/_/g, ' ')} ]` : '')}</div></>}
+              <div className="adm-sec">💬 Comentarios · Instagram {selc.comments.length > 0 ? `(${selc.comments.length})` : ''}<span className="cm-id">ad {selc.ad_id}{selc.media_id ? ` · post ${selc.media_id}` : ''}</span></div>
+              {selc.comments.length === 0 ? (
+                <div className="muted" style={{ fontSize: 11.5 }}>Sin comentarios en el post de Instagram de este anuncio.</div>
+              ) : (
+                <div className="cm-list">
+                  {selc.comments.map((k, i) => {
+                    const col = k.sentiment === 'positive' ? GREEN : k.sentiment === 'negative' ? RED : MUT;
+                    return (
+                      <div className="cm-row" key={i}>
+                        <span className="cm-sent" style={{ background: col + '1a', color: col }}>{k.sentiment === 'positive' ? '＋' : k.sentiment === 'negative' ? '－' : '·'}</span>
+                        <div className="cm-cbody">
+                          <div className="cm-txt">{k.content || <span className="muted">(sin texto)</span>}</div>
+                          <div className="cm-meta">{k.author ? '@' + k.author : 'anónimo'}{k.likes > 0 ? ` · ♥ ${k.likes}` : ''}{k.created_at ? ` · ${k.created_at.slice(0, 10)}` : ''}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -881,6 +900,13 @@ export function ComprasDiagnostico() {
         .mtab{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}.mcell{background:#faf9ff;border:1px solid #eee;border-radius:10px;padding:9px 11px}.mcell b{font-size:15px;font-weight:800;display:block}.mcell span{font-size:9.5px;color:${MUT}}.mcell small{font-size:9.5px;color:${ACCD};font-weight:700;display:block;margin-top:1px}
         .pl2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.plcard{border:1px solid ${LINE};border-radius:11px;padding:11px 13px}.plcard .pn{font-weight:800;font-size:12px;display:flex;align-items:center;gap:6px}.plcard .pm{display:flex;gap:12px;margin-top:6px;font-size:11px;font-weight:700}
         .copybox{background:#faf9fe;border:1px solid #ece8f6;border-radius:11px;padding:11px 13px;font-size:11.5px;color:${INK2};line-height:1.5;white-space:pre-wrap;max-height:150px;overflow:auto}
+        .cm-id{font-size:9px;font-weight:600;color:${MUT};margin-left:8px;text-transform:none;letter-spacing:0}
+        .cm-list{display:flex;flex-direction:column;gap:8px;max-height:230px;overflow:auto;padding-right:4px}
+        .cm-row{display:flex;gap:9px;align-items:flex-start;border:1px solid ${LINE};border-radius:11px;padding:9px 11px}
+        .cm-sent{flex:none;width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+        .cm-cbody{flex:1;min-width:0}
+        .cm-txt{font-size:12px;color:${INK};line-height:1.45}
+        .cm-meta{font-size:10px;color:${MUT};margin-top:3px}
         #adm-close{position:absolute;top:8px;right:10px;font-size:20px;color:#fff;background:rgba(0,0,0,.35);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2}
         @media(max-width:720px){.aigrid,.charts,.verdict,.cgrid{grid-template-columns:1fr}.adm-top{flex-direction:column}.adm-media{width:100%}}
       `}</style>

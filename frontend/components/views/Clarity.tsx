@@ -65,6 +65,28 @@ function deadColor(rate: number): string {
   return CRO_GREEN;
 }
 
+// Sparkline: forma de la tendencia (sin ejes) para un stat tile. Una sola serie
+// → una línea de un color; área tenue + punto final. min 2 puntos.
+function Spark({ values, color }: { values: number[]; color: string }) {
+  if (!values || values.length < 2) return null;
+  const W = 116, H = 26, pad = 3;
+  const mn = Math.min(...values), mx = Math.max(...values);
+  const rng = mx - mn || 1;
+  const pts = values.map((v, i) => [
+    pad + (i / (values.length - 1)) * (W - 2 * pad),
+    H - pad - ((v - mn) / rng) * (H - 2 * pad),
+  ] as [number, number]);
+  const d = 'M' + pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L');
+  const last = pts[pts.length - 1];
+  return (
+    <svg className="cro-spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      <path d={`${d} L${last[0].toFixed(1)},${H} L${pts[0][0].toFixed(1)},${H} Z`} fill={color} opacity="0.09" />
+      <path d={d} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={last[0]} cy={last[1]} r="2.2" fill={color} />
+    </svg>
+  );
+}
+
 export function Clarity() {
   const client = useClient();
   const { range } = usePeriod();
@@ -218,10 +240,10 @@ export function Clarity() {
           )}
         </div>
         <div className="cro-health">
-          <div className="cro-hchip"><b style={{ color: deadColor(t.deadClickRate) }}>{formatPercent(t.deadClickRate, 1)}</b><span>dead clicks</span></div>
-          <div className="cro-hchip"><b style={{ color: t.quickBackRate >= 0.15 ? CRO_RED : CRO_AMBER }}>{formatPercent(t.quickBackRate, 1)}</b><span>quickback</span></div>
-          <div className="cro-hchip"><b>{formatPercent(t.scrollDepth, 0)}</b><span>scroll medio</span></div>
-          <div className="cro-hchip"><b>{formatInt(t.sessions)}</b><span>sesiones</span></div>
+          <div className="cro-hchip"><b style={{ color: deadColor(t.deadClickRate) }}>{formatPercent(t.deadClickRate, 1)}</b><span>dead clicks</span><Spark values={data.daily.map((d) => d.deadClickRate)} color={deadColor(t.deadClickRate)} /></div>
+          <div className="cro-hchip"><b style={{ color: t.quickBackRate >= 0.15 ? CRO_RED : CRO_AMBER }}>{formatPercent(t.quickBackRate, 1)}</b><span>quickback</span><Spark values={data.daily.map((d) => d.quickBackRate)} color={t.quickBackRate >= 0.15 ? CRO_RED : CRO_AMBER} /></div>
+          <div className="cro-hchip"><b>{formatPercent(t.scrollDepth, 0)}</b><span>scroll medio</span><Spark values={data.daily.map((d) => d.scrollDepth)} color={CRO_ACC} /></div>
+          <div className="cro-hchip"><b>{formatInt(t.sessions)}</b><span>sesiones</span><Spark values={data.daily.map((d) => d.sessions)} color={CRO_ACC} /></div>
         </div>
       </div>
       <div className="cro-verdict">{mobilePct >= 80 ? <><b>{mobilePct}% móvil</b> — cada decisión de UX se juzga en el celular. </> : null}Scroll medio <b>{formatPercent(t.scrollDepth, 0)}</b>: lo crítico (precio, talla, MSI, botón de compra) debe ir <b>arriba del pliegue</b>.</div>
@@ -460,6 +482,7 @@ export function Clarity() {
         .cro-health{flex:2;min-width:280px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
         .cro-hchip{background:#fff;border:1px solid #ebe7f4;border-radius:14px;padding:14px 12px;text-align:center;box-shadow:0 4px 18px rgba(60,40,120,.05);display:flex;flex-direction:column;justify-content:center}
         .cro-hchip b{font-size:24px;font-weight:800;line-height:1;color:#171226}.cro-hchip span{font-size:10px;color:${CRO_MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-top:5px}
+        .cro-spark{width:100%;height:22px;margin-top:8px;display:block}
         .cro-verdict{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12.5px;color:#2b2440;line-height:1.55;margin-top:12px}
         .cro-h{font-size:16px;font-weight:800;color:#171226;margin:26px 0 12px}
         .cro-matrix{margin-bottom:14px;padding:16px 18px 8px}

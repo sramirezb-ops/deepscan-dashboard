@@ -348,6 +348,33 @@ export function ComprasDiagnostico() {
           </div>
         );
       })()}
+      {/* Anatomía de la ROTURA · el cuello real es el cobro, no el checkout */}
+      {ST.orders > 0 && (() => {
+        const priceQ = data.creatives.reduce((s, c) => s + c.comments.filter((k) => /precio|cu[aá]nto|\$|talla|vale|cost/i.test(k.content)).length, 0);
+        const pend = ST.orders_pending;
+        return (
+          <div className="rota">
+            <div className="rota-hd"><span className="rota-k">🔬 ANATOMÍA DE LA ROTURA</span>
+              <div className="rota-t">El embudo dice "no compran". El dato honesto de Shopify dice: <b>compran y no pagan.</b></div></div>
+            <div className="rota-flow">
+              <div className="rota-step"><b>{kfmt(T.checkout)}</b><span>Inician pago</span><small>Meta · píxel</small></div>
+              <div className="rota-arr">→</div>
+              <div className="rota-step"><b>{kfmt(ST.orders)}</b><span>Pedidos reales</span><small>Shopify · todos</small></div>
+              <div className="rota-arr">→</div>
+              <div className="rota-step"><b style={{ color: GREEN }}>{kfmt(ST.orders_paid)}</b><span>Cobrados</span><small>{ST.paid_pct}% · {money(ST.revenue_paid)}</small></div>
+              <div className="rota-arr rota-arr-r">⚠</div>
+              <div className="rota-step"><b style={{ color: RED }}>{money(ST.revenue_pending)}</b><span>En el aire</span><small>{kfmt(pend)} pend/vencido</small></div>
+            </div>
+            <div className="rota-diag">De los pedidos que <b>sí entran</b>, la tienda solo cobra <b>{ST.paid_pct}%</b>. El cuello no es el checkout de Meta (que además <b>infla</b> sus compras) — es el <b>cobro</b>: <b>{money(ST.revenue_pending)}</b> en {kfmt(pend)} pedidos pendientes/vencidos (COD sin confirmar o apartados que no pagan). <b>Ahí está el dinero, no en otro creativo.</b></div>
+            <div className="rota-hyp">
+              <div className="rota-h"><b style={{ color: ACCD }}>💳 Falta pago flexible</b>Un ticket de ~{money(view.aov)} sin MSI ni efectivo se cae en el pago. <span className="rota-ac">Activar meses sin intereses + OXXO/SPEI en el checkout.</span></div>
+              <div className="rota-h"><b style={{ color: AMBER }}>📦 COD sin confirmar</b>{kfmt(pend)} pedidos pendientes/vencidos = contra-entrega o apartado que no se concreta. <span className="rota-ac">Confirmación obligatoria por WhatsApp + anticipo en preventa.</span></div>
+              <div className="rota-h"><b style={{ color: BERRY }}>🏷️ Precio/envío poco claro</b>{priceQ > 0 ? <><b>{priceQ}</b> comentarios de IG preguntan precio o talla</> : 'La gente pregunta precio en vez de comprar'} → la ficha no resuelve la objeción antes del checkout. <span className="rota-ac">Precio y envío visibles, y talla en stock.</span></div>
+            </div>
+          </div>
+        );
+      })()}
+
       {data.whatsapp > 0 && (
         <div className="wa-path">
           <div className="wa-ic">💬</div>
@@ -905,6 +932,22 @@ export function ComprasDiagnostico() {
         .recon-trust{margin-top:14px;background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:${INK2};display:flex;flex-wrap:wrap;gap:6px 20px;align-items:center}
         .recon-trust>b{width:100%;font-size:12.5px;color:${INK}}
         @media(max-width:720px){.recon-reads{grid-template-columns:1fr}}
+        /* Anatomía de la ROTURA */
+        .rota{margin-top:14px;border:1px solid rgba(229,56,77,.22);border-left:4px solid ${RED};border-radius:16px;padding:18px 20px;background:linear-gradient(135deg,#fff,#fdf2f4);box-shadow:0 4px 18px rgba(60,40,120,.05)}
+        .rota-k{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.8px;color:${RED};background:rgba(229,56,77,.1);padding:3px 9px;border-radius:20px}
+        .rota-t{font-size:16px;font-weight:800;color:${INK};margin-top:8px}
+        .rota-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0}
+        .rota-step{flex:1;min-width:105px;text-align:center;background:#fff;border:1px solid ${LINE};border-radius:12px;padding:10px 8px}
+        .rota-step b{font-size:20px;font-weight:800;display:block;line-height:1;color:${INK}}
+        .rota-step span{font-size:10.5px;color:${INK2};font-weight:700;display:block;margin-top:4px}
+        .rota-step small{font-size:9.5px;color:${MUT};display:block;margin-top:2px}
+        .rota-arr{font-size:18px;color:${LINE};flex:none;font-weight:800}.rota-arr-r{color:${RED}}
+        .rota-diag{font-size:12.5px;line-height:1.6;color:${INK2};background:#fff;border:1px solid ${LINE};border-radius:12px;padding:12px 14px}
+        .rota-hyp{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+        .rota-h{border:1px solid ${LINE};border-radius:12px;padding:11px 13px;font-size:11.5px;line-height:1.5;color:${INK2};background:#fff}
+        .rota-h>b:first-child{display:block;margin-bottom:3px;font-size:12px}
+        .rota-ac{display:block;margin-top:5px;color:${GREEN};font-weight:700}
+        @media(max-width:720px){.rota-hyp{grid-template-columns:1fr}.rota-flow{flex-direction:column}.rota-arr{transform:rotate(90deg)}}
         @media(max-width:640px){.wa-path{flex-wrap:wrap}.wa-big{text-align:left;width:100%}}
         /* Switcher de web (Sneakers: 2 propiedades GA4) */
         .websw{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;background:#fff;border:1px solid ${LINE};border-radius:14px;padding:8px 12px;box-shadow:0 4px 18px rgba(60,40,120,.05)}

@@ -26,6 +26,7 @@ from extractors.meta_ads          import (
 )
 from extractors.tiktok_ads        import extract_tiktok_ads, extract_tiktok_creatives
 from extractors.tiktok_comments   import extract_tiktok_comments
+from extractors.meta_comments      import extract_meta_comments
 from extractors.instagram_organic import extract_instagram_organic
 from extractors.ga4             import (
     extract_ga4,
@@ -266,6 +267,7 @@ def run_etl(client_id: str, days_back: int = 30):
 
     # ── 5b3. META CREATIVOS (media + copy de los anuncios que gastaron) ──
     log.info("── Meta Ads creativos (media)")
+    cre_rows: list[dict] = []
     try:
         # ad_ids de los anuncios que corrieron con gasto en el período (activos o
         # pausados) → así el grid de Compras tiene media en todos, no solo activos.
@@ -280,6 +282,18 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Meta creativos: {len(cre_rows)} filas (de {len(spent_ids)} con gasto)")
     except Exception as e:
         log.error(f"   ✗ Meta creativos error: {e}")
+
+    # ── 5b-bis. META ADS · COMENTARIOS (Instagram) ──────────────
+    # Lee los comentarios del post de IG de cada creativo (texto + sentimiento).
+    # Best-effort: si el token no tiene instagram_manage_comments, aborta limpio.
+    log.info("── Meta Ads · comentarios (Instagram)")
+    try:
+        mc_rows = extract_meta_comments(os.environ["META_ACCESS_TOKEN"], cre_rows)
+        if mc_rows:
+            loader.upsert("meta_comments", mc_rows, client_id)
+        log.info(f"   ✓ Meta comentarios: {len(mc_rows)} comentarios")
+    except Exception as e:
+        log.error(f"   ✗ Meta comentarios error: {e}")
 
     # ── 5c. META ADS · MENSAJES / CONVERSACIONES ────────────────
     log.info("── Meta Ads · mensajes (conversaciones iniciadas)")

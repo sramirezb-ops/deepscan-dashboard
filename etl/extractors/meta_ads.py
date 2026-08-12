@@ -426,6 +426,9 @@ def _creative_row(a: dict) -> dict:
         "title":          cr.get("title", "") or "",
         "body":           cr.get("body", "") or "",
         "cta":            cr.get("call_to_action_type", "") or "",
+        # IDs del post subyacente → permiten leer sus comentarios (IG) por ad.
+        "instagram_media_id": cr.get("effective_instagram_media_id", "") or "",
+        "fb_post_id":         cr.get("effective_object_story_id", "") or "",
     }
 
 
@@ -442,7 +445,8 @@ def extract_meta_ad_creatives(
     firmadas de Meta se refrescan en cada corrida diaria del ETL.
     """
     CFIELDS = ("id,name,effective_status,adset{name},campaign{name},"
-               "creative{object_type,image_url,thumbnail_url,video_id,title,body,call_to_action_type}")
+               "creative{object_type,image_url,thumbnail_url,video_id,title,body,call_to_action_type,"
+               "effective_instagram_media_id,effective_object_story_id}")
     rows: list[dict] = []
 
     ids = sorted({str(a) for a in (ad_ids or []) if a})

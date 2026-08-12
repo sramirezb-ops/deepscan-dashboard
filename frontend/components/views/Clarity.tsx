@@ -23,6 +23,10 @@ import { useSortableTable, type SortAccessor } from '@/components/ui/useSortable
 
 const CLARITY_BLUE = '#4f6bed'; // azul Clarity
 
+// Sneakers tiene 2 propiedades GA4; el embudo on-site se filtra a la de Shopify (Basics).
+const SNEAKERS_ID = 'bae8c125-19e0-46b4-b0f6-462b642658ac';
+const SHOPIFY_PROP = '523524806';
+
 const PAGE_LIMIT = 30;
 
 function fmtDay(iso: string): string {
@@ -53,7 +57,7 @@ function pageType(path: string): string {
   if (path.startsWith('/checkout')) return 'Checkout';
   return 'Otra';
 }
-const CRO_RED = '#e5384d', CRO_AMBER = '#f5a524', CRO_GREEN = '#1faf6a', CRO_MUT = '#77718a';
+const CRO_RED = '#e5384d', CRO_AMBER = '#f5a524', CRO_GREEN = '#1faf6a', CRO_MUT = '#77718a', CRO_ACC = '#7c5cff';
 // Semáforo de tasa de dead-click por página (fricción): menor es mejor.
 function deadColor(rate: number): string {
   if (rate >= 0.08) return CRO_RED;
@@ -64,7 +68,7 @@ function deadColor(rate: number): string {
 export function Clarity() {
   const client = useClient();
   const { range } = usePeriod();
-  const { data, loading, error } = useClarity(client.id, range);
+  const { data, loading, error } = useClarity(client.id, range, client.id === SNEAKERS_ID ? SHOPIFY_PROP : undefined);
 
   const rangeLabel = formatRangeLabel(range);
 
@@ -221,6 +225,50 @@ export function Clarity() {
         </div>
       </div>
       <div className="cro-verdict">{mobilePct >= 80 ? <><b>{mobilePct}% móvil</b> — cada decisión de UX se juzga en el celular. </> : null}Scroll medio <b>{formatPercent(t.scrollDepth, 0)}</b>: lo crítico (precio, talla, MSI, botón de compra) debe ir <b>arriba del pliegue</b>.</div>
+
+      {/* 1b · EMBUDO DE COMPORTAMIENTO (GA4) */}
+      {data.funnel && (() => {
+        const f = data.funnel;
+        const stages = [
+          { label: 'Vistas de producto', n: f.views },
+          { label: 'Al carrito', n: f.atc },
+          { label: 'Checkout iniciado', n: f.checkout },
+          { label: 'Compra (GA4)', n: f.purchases },
+        ];
+        const mx = f.views || 1;
+        const conv = stages.map((s, i) => (i === 0 ? null : stages[i - 1].n ? s.n / stages[i - 1].n : 0));
+        // El "peor paso" excluye Checkout→Compra: ese salto es artefacto de medición
+        // (GA4 pierde la compra offsite), no una fuga real de UX.
+        let worst = -1, wv = 2;
+        conv.forEach((c, i) => { if (i < stages.length - 1 && c != null && c < wv) { wv = c; worst = i; } });
+        return (
+          <>
+            <h3 className="cro-h">🔻 Embudo de comportamiento · ¿dónde caen dentro del sitio?</h3>
+            <div className="card cro-fnl">
+              {stages.map((s, i) => {
+                const w = Math.max(2, Math.round((100 * s.n) / mx));
+                const isWorst = i === worst;
+                const isLast = i === stages.length - 1;
+                return (
+                  <div className="cro-fnl-row" key={s.label}>
+                    <div className="cro-fnl-lbl">{s.label}</div>
+                    <div className="cro-fnl-track">
+                      <span className="cro-fnl-bar" style={{ width: `${w}%`, background: isWorst ? CRO_RED : isLast ? '#c3bcd4' : CRO_ACC }} />
+                      <span className="cro-fnl-n">{formatInt(s.n)}</span>
+                    </div>
+                    <div className="cro-fnl-conv">
+                      {i === 0 ? <span className="cro-fnl-base">arranque</span>
+                        : isLast ? <span className="cro-fnl-off">offsite · sub-medido</span>
+                          : <><b style={{ color: isWorst ? CRO_RED : '#171226' }}>{formatPercent(conv[i]!, 1)}</b>{isWorst ? <span className="cro-fnl-worst"> ← mayor caída</span> : ' del paso anterior'}</>}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="cro-fnl-note"><b>Fuente: GA4</b> (comportamiento en sitio). ⚠️ La <b>compra</b> está sub-medida — el checkout de Shopify es offsite y GA4 no lo ve; la venta real de caja vive en Shopify. La lectura útil es <b>dónde caen dentro del sitio</b>{worst >= 0 ? <>: el mayor salto se pierde en <b>{stages[worst].label.toLowerCase()}</b>.</> : '.'}</div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* 2 · RAYOS-X POR SECCIÓN */}
       <h3 className="cro-h">🩻 Rayos-X por sección · ¿qué parte del sitio funciona?</h3>
@@ -417,6 +465,18 @@ export function Clarity() {
         .cro-matrix{margin-bottom:14px;padding:16px 18px 8px}
         .cro-mx-cap{font-size:11.5px;color:${CRO_MUT};line-height:1.5;margin-bottom:4px}
         .cro-matrix :global(svg) text{font-family:inherit}
+        .cro-fnl{padding:16px 18px}
+        .cro-fnl-row{display:grid;grid-template-columns:150px 1fr 190px;gap:14px;align-items:center;padding:7px 0}
+        .cro-fnl-lbl{font-size:12.5px;font-weight:700;color:#171226}
+        .cro-fnl-track{position:relative;background:#f2eff8;border-radius:8px;height:26px;display:flex;align-items:center}
+        .cro-fnl-bar{position:absolute;left:0;top:0;height:100%;border-radius:8px;min-width:6px}
+        .cro-fnl-n{position:relative;z-index:1;margin-left:10px;font-size:12.5px;font-weight:800;color:#171226;mix-blend-mode:normal}
+        .cro-fnl-conv{font-size:11.5px;color:${CRO_MUT}}.cro-fnl-conv b{font-size:14px}
+        .cro-fnl-base{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:${CRO_MUT};font-weight:700}
+        .cro-fnl-worst{color:${CRO_RED};font-weight:800}
+        .cro-fnl-off{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:${CRO_MUT};font-weight:700;background:#f0eef7;padding:2px 8px;border-radius:20px}
+        .cro-fnl-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:10px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-fnl-note b{color:#2b2440}
+        @media(max-width:640px){.cro-fnl-row{grid-template-columns:1fr;gap:4px}.cro-fnl-conv{padding-left:0}}
         .cro-secs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
         .cro-sec{background:#fff;border:1px solid #ebe7f4;border-radius:14px;padding:14px 15px;box-shadow:0 4px 18px rgba(60,40,120,.05)}
         .cro-sec-t{font-size:11px;font-weight:800;color:#5a37e0;text-transform:uppercase;letter-spacing:.4px}

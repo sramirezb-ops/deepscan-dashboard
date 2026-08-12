@@ -44,10 +44,14 @@ export interface ClarityTotals {
   deviceTablet: number;
 }
 
+// Embudo de comportamiento on-site (GA4 item-scoped). GA4 sub-mide la compra
+// (checkout offsite en Shopify) → el último paso es piso, no verdad de caja.
+export interface ClarityFunnel { views: number; atc: number; checkout: number; purchases: number; }
 export interface ClarityData {
   daily: ClarityDailyRow[]; // ordenadas por fecha asc
   pages: ClarityPageRow[]; // ordenadas por sesiones desc
   totals: ClarityTotals;
+  funnel: ClarityFunnel | null; // embudo GA4 (null si no hay dato)
   from: string;
   to: string;
 }
@@ -153,6 +157,34 @@ async function fetchDevices(clientId: string, from: string, to: string): Promise
   }
 }
 
+async function fetchFunnel(clientId: string, from: string, to: string, property?: string): Promise<ClarityFunnel | null> {
+  try {
+    const acc = { views: 0, atc: 0, checkout: 0, purchases: 0 };
+    let off = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let q = supabase.from('ga4_items')
+        .select('items_viewed, items_added_to_cart, items_checked_out, items_purchased')
+        .eq('client_id', clientId).gte('date', from).lte('date', to).range(off, off + PAGE - 1);
+      if (property) q = q.eq('property_id', property);
+      const { data, error } = await q;
+      if (error) throw error;
+      const batch = (data || []) as any[];
+      for (const r of batch) {
+        acc.views += Number(r.items_viewed) || 0;
+        acc.atc += Number(r.items_added_to_cart) || 0;
+        acc.checkout += Number(r.items_checked_out) || 0;
+        acc.purchases += Number(r.items_purchased) || 0;
+      }
+      if (batch.length < PAGE) break;
+      off += PAGE;
+    }
+    return acc.views > 0 ? acc : null;
+  } catch {
+    return null;
+  }
+}
+
 function buildDaily(rows: RawMetric[]): ClarityDailyRow[] {
   const list: ClarityDailyRow[] = rows
     .filter((r) => r.date)
@@ -226,7 +258,7 @@ function buildPages(rows: RawPage[]): ClarityPageRow[] {
   return list;
 }
 
-export function useClarity(clientId: string, range: DateRange): UseClarityResult {
+export function useClarity(clientId: string, range: DateRange, property?: string): UseClarityResult {
   const [data, setData] = useState<ClarityData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -240,10 +272,11 @@ export function useClarity(clientId: string, range: DateRange): UseClarityResult
       setLoading(true);
       setError(null);
       try {
-        const [metricRows, pageRows, devices] = await Promise.all([
+        const [metricRows, pageRows, devices, funnel] = await Promise.all([
           fetchMetrics(clientId, range.from, range.to),
           fetchPages(clientId, range.from, range.to),
           fetchDevices(clientId, range.from, range.to),
+          fetchFunnel(clientId, range.from, range.to, property),
         ]);
         if (cancelled) return;
 
@@ -254,7 +287,7 @@ export function useClarity(clientId: string, range: DateRange): UseClarityResult
         totals.deviceTablet = devices.tablet;
         const pages = buildPages(pageRows);
 
-        setData({ daily, pages, totals, from: range.from, to: range.to });
+        setData({ daily, pages, totals, funnel, from: range.from, to: range.to });
       } catch (e: any) {
         if (cancelled) return;
         console.error('[useClarity]', e);
@@ -268,7 +301,7 @@ export function useClarity(clientId: string, range: DateRange): UseClarityResult
     return () => {
       cancelled = true;
     };
-  }, [clientId, range.from, range.to, tick]);
+  }, [clientId, range.from, range.to, tick, property]);
 
   return { data, loading, error, refresh: () => setTick((x) => x + 1) };
 }

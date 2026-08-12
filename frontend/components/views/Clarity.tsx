@@ -176,6 +176,20 @@ export function Clarity() {
   const worstPdp = pdps.length ? pdps.reduce((w, p) => (p.deadRate > w.deadRate ? p : w)) : null;
   const pdpName = (path: string) => path.replace('/products/', '').replace(/-/g, ' ').slice(0, 30);
 
+  // ── Matriz de salud por sección (scatter tráfico × fricción) ────
+  // Job: magnitud + prioridad en 2D. X=tráfico (escala sqrt por el rango enorme),
+  // Y=fricción (lineal). Color=estado (verde/ámbar/rojo) SIEMPRE con etiqueta directa.
+  const MW = 640, MH = 300, mL = 48, mR = 104, mT = 16, mB = 42;
+  const mxSess = Math.max(...sections.map((s) => s.sessions), 1);
+  const mxFr = Math.max(...sections.map((s) => s.deadRate), 0.06);
+  const yTop = mxFr * 1.15; // headroom: la burbuja más alta no toca el borde
+  const msx = (s: number) => mL + (Math.sqrt(s) / Math.sqrt(mxSess)) * (MW - mL - mR);
+  const msy = (f: number) => MH - mB - (f / yTop) * (MH - mB - mT);
+  const mrad = (s: number) => 9 + (Math.sqrt(s) / Math.sqrt(mxSess)) * 15; // 9–24px
+  const FR_HI = 0.08; // umbral de fricción alta
+  const SESS_HI = mxSess * 0.16; // umbral de "mucho tráfico" (~raíz media)
+  const yTicks = [0, mxFr / 2, mxFr];
+
   return (
     <div className="view on">
       <div className="hero">
@@ -210,6 +224,35 @@ export function Clarity() {
 
       {/* 2 · RAYOS-X POR SECCIÓN */}
       <h3 className="cro-h">🩻 Rayos-X por sección · ¿qué parte del sitio funciona?</h3>
+      <div className="cro-matrix card">
+        <div className="cro-mx-cap">Cada burbuja es una sección · <b>eje X</b> = tráfico · <b>eje Y</b> = fricción (dead-click) · tamaño = sesiones. <b style={{ color: CRO_RED }}>Arriba-derecha</b> = mucho tráfico + mucha fricción → <b>arreglar primero</b>.</div>
+        <svg viewBox={`0 0 ${MW} ${MH}`} width="100%" role="img" aria-label="Matriz de secciones: tráfico vs fricción">
+          <rect x={msx(SESS_HI)} y={mT} width={Math.max(0, MW - mR - msx(SESS_HI))} height={Math.max(0, msy(FR_HI) - mT)} fill={CRO_RED} opacity="0.045" />
+          {yTicks.map((f, i) => (
+            <g key={i}>
+              <line x1={mL} y1={msy(f)} x2={MW - mR} y2={msy(f)} stroke="#ebe7f4" strokeWidth="1" />
+              <text x={mL - 8} y={msy(f) + 3} textAnchor="end" fontSize="10" fill={CRO_MUT}>{Math.round(f * 100)}%</text>
+            </g>
+          ))}
+          <line x1={mL} y1={msy(FR_HI)} x2={MW - mR} y2={msy(FR_HI)} stroke={CRO_RED} strokeWidth="1" strokeDasharray="4 4" opacity="0.4" />
+          <line x1={msx(SESS_HI)} y1={mT} x2={msx(SESS_HI)} y2={MH - mB} stroke={CRO_MUT} strokeWidth="1" strokeDasharray="4 4" opacity="0.3" />
+          <text x={MW - mR - 6} y={mT + 13} textAnchor="end" fontSize="10" fontWeight="800" fill={CRO_RED} opacity="0.75">arreglar ya ↗</text>
+          <text x={MW - mR} y={MH - 8} textAnchor="end" fontSize="10" fill={CRO_MUT}>más tráfico →</text>
+          <text x={13} y={(MH - mB + mT) / 2} transform={`rotate(-90 13 ${(MH - mB + mT) / 2})`} textAnchor="middle" fontSize="10" fill={CRO_MUT}>fricción ↑</text>
+          {sections.map((s) => {
+            const x = msx(s.sessions), y = msy(s.deadRate), r = mrad(s.sessions), c = deadColor(s.deadRate);
+            const left = x > MW - mR - 52;
+            return (
+              <g key={s.type}>
+                <circle cx={x} cy={y} r={r} fill={c} fillOpacity="0.5" stroke="#fff" strokeWidth="2" />
+                <circle cx={x} cy={y} r={r} fill="none" stroke={c} strokeWidth="1.5" />
+                <title>{`${s.type}: ${formatInt(s.sessions)} sesiones · ${formatPercent(s.deadRate, 1)} fricción · scroll ${formatPercent(s.scroll, 0)}`}</title>
+                <text x={left ? x - r - 5 : x + r + 5} y={y + 3.5} textAnchor={left ? 'end' : 'start'} fontSize="10.5" fontWeight="700" fill="#171226" stroke="#fff" strokeWidth="2.6" paintOrder="stroke">{s.type.replace(' (producto)', '')}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
       <div className="cro-secs">
         {sections.map((s) => (
           <div className="cro-sec" key={s.type}>
@@ -371,6 +414,9 @@ export function Clarity() {
         .cro-hchip b{font-size:24px;font-weight:800;line-height:1;color:#171226}.cro-hchip span{font-size:10px;color:${CRO_MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-top:5px}
         .cro-verdict{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12.5px;color:#2b2440;line-height:1.55;margin-top:12px}
         .cro-h{font-size:16px;font-weight:800;color:#171226;margin:26px 0 12px}
+        .cro-matrix{margin-bottom:14px;padding:16px 18px 8px}
+        .cro-mx-cap{font-size:11.5px;color:${CRO_MUT};line-height:1.5;margin-bottom:4px}
+        .cro-matrix :global(svg) text{font-family:inherit}
         .cro-secs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
         .cro-sec{background:#fff;border:1px solid #ebe7f4;border-radius:14px;padding:14px 15px;box-shadow:0 4px 18px rgba(60,40,120,.05)}
         .cro-sec-t{font-size:11px;font-weight:800;color:#5a37e0;text-transform:uppercase;letter-spacing:.4px}

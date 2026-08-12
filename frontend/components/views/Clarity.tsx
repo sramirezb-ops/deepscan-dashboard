@@ -336,6 +336,26 @@ export function Clarity() {
         ))}
       </div>
 
+      {/* 2b · SCROLL / FOLD POR SECCIÓN */}
+      <h3 className="cro-h">📜 Profundidad de scroll · ¿ven lo importante?</h3>
+      <div className="card cro-scroll">
+        {[...sections].sort((a, b) => a.scroll - b.scroll).map((s) => {
+          const pct = Math.round(s.scroll * 100);
+          const shallow = s.scroll < 0.5;
+          return (
+            <div className="cro-sc-row" key={s.type}>
+              <div className="cro-sc-lbl">{s.type.replace(' (producto)', '')}</div>
+              <div className="cro-sc-track">
+                <span className="cro-sc-bar" style={{ width: `${Math.max(2, pct)}%` }} />
+                <span className="cro-sc-ref" />
+              </div>
+              <div className="cro-sc-val" style={{ color: shallow ? CRO_AMBER : '#171226' }}>{pct}%</div>
+            </div>
+          );
+        })}
+        <div className="cro-sc-note">La barra = hasta dónde llega el usuario promedio (línea <b>│</b> = 50%). <b>En PDP y Home el scroll es ~40%</b> → precio, talla, <b>MSI</b> y botón de compra <b>tienen que ir arriba del pliegue</b> o se pierden. En listas (Colección/Búsqueda) scrollean más porque están buscando — ahí el scroll alto es normal, no un logro.</div>
+      </div>
+
       {/* 3 · DUELO DE PDP */}
       {bestPdp && worstPdp && bestPdp.path !== worstPdp.path && (
         <>
@@ -505,6 +525,14 @@ export function Clarity() {
         .cro-sec-t{font-size:11px;font-weight:800;color:#5a37e0;text-transform:uppercase;letter-spacing:.4px}
         .cro-sec-n{font-size:26px;font-weight:800;color:#171226;margin:6px 0 2px;line-height:1}.cro-sec-n span{font-size:10px;color:${CRO_MUT};font-weight:700;margin-left:6px;text-transform:uppercase}
         .cro-sec-m{display:flex;justify-content:space-between;font-size:11px;color:${CRO_MUT};margin-top:8px;border-top:1px solid #f4f2f9;padding-top:8px}.cro-sec-m b{color:#171226}
+        .cro-scroll{padding:16px 18px}
+        .cro-sc-row{display:grid;grid-template-columns:120px 1fr 48px;gap:14px;align-items:center;padding:6px 0}
+        .cro-sc-lbl{font-size:12px;font-weight:700;color:#171226}
+        .cro-sc-track{position:relative;background:#f2eff8;border-radius:7px;height:16px}
+        .cro-sc-bar{position:absolute;left:0;top:0;height:100%;border-radius:7px;background:${CRO_ACC};min-width:4px}
+        .cro-sc-ref{position:absolute;left:50%;top:-3px;height:22px;width:2px;background:${CRO_MUT};opacity:.5}
+        .cro-sc-val{font-size:13px;font-weight:800;text-align:right}
+        .cro-sc-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:10px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-sc-note b{color:#2b2440}
         .cro-duel{display:grid;grid-template-columns:1fr 1fr;gap:14px}
         .cro-duel-c{border-radius:14px;padding:16px 18px;border:1px solid #ebe7f4}
         .cro-duel-c.win{background:rgba(31,175,106,.06);border-color:rgba(31,175,106,.3)}
@@ -514,6 +542,17 @@ export function Clarity() {
         .cro-duel-m{font-size:12px;color:#2b2440}
         .cro-duel-note{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:#2b2440;line-height:1.55;margin-top:12px}
         .cro-badge{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#5a37e0;background:rgba(124,92,255,.12);border-radius:5px;padding:2px 6px;margin-right:8px;white-space:nowrap}
+        /* #4 · micro-interacciones y pulido — sutil, rápido, físico */
+        .cro-hchip,.cro-sec,.cro-duel-c{transition:box-shadow .18s ease,border-color .18s ease,transform .18s ease}
+        .cro-hchip:hover,.cro-sec:hover{box-shadow:0 10px 26px rgba(60,40,120,.11);border-color:#d9d2ee;transform:translateY(-2px)}
+        .cro-duel-c:hover{box-shadow:0 10px 26px rgba(60,40,120,.10)}
+        .cro-fnl-row,.cro-sc-row{transition:background .15s ease;border-radius:8px}
+        .cro-fnl-row:hover,.cro-sc-row:hover{background:#faf9ff}
+        .cro-fnl-bar,.cro-sc-bar,.cro-dev-bar span{transition:width .5s cubic-bezier(.22,1,.36,1)}
+        .cro-matrix :global(svg) circle{transition:fill-opacity .18s ease}
+        .cro-matrix :global(svg) g{cursor:default}
+        .cro-matrix :global(svg) g:hover circle{fill-opacity:.72}
+        .cro-spark path,.cro-spark circle{transition:opacity .18s ease}
         @media(max-width:640px){.cro-health{grid-template-columns:repeat(2,1fr)}.cro-duel{grid-template-columns:1fr}}
       `}</style>
     </div>

@@ -42,6 +42,25 @@ function shortPath(url: string): string {
   }
 }
 
+// Clasifica una ruta en su sección de tienda — para el rayos-X "qué sección funciona".
+function pageType(path: string): string {
+  if (path === '/' || path === '(inicio)' || path === '') return 'Home';
+  if (path.startsWith('/products/')) return 'PDP (producto)';
+  if (path.startsWith('/collections/')) return 'Colección';
+  if (path.startsWith('/cart')) return 'Carrito';
+  if (path.startsWith('/search')) return 'Búsqueda';
+  if (path.startsWith('/pages/')) return 'Info';
+  if (path.startsWith('/checkout')) return 'Checkout';
+  return 'Otra';
+}
+const CRO_RED = '#e5384d', CRO_AMBER = '#f5a524', CRO_GREEN = '#1faf6a', CRO_MUT = '#77718a';
+// Semáforo de tasa de dead-click por página (fricción): menor es mejor.
+function deadColor(rate: number): string {
+  if (rate >= 0.08) return CRO_RED;
+  if (rate >= 0.04) return CRO_AMBER;
+  return CRO_GREEN;
+}
+
 export function Clarity() {
   const client = useClient();
   const { range } = usePeriod();
@@ -133,6 +152,30 @@ export function Clarity() {
   const pages = sortedPages;
   const maxPageSessions = Math.max(1, ...pageSource.map((p) => p.sessions));
 
+  // ── Cómputos CRO ────────────────────────────────────────────────
+  const devTotal = t.deviceMobile + t.devicePc + t.deviceTablet;
+  const mobilePct = devTotal > 0 ? Math.round((100 * t.deviceMobile) / devTotal) : 0;
+
+  // Rayos-X por sección: agrega TODAS las páginas (no solo el top) por tipo.
+  const secAgg: Record<string, { sessions: number; dead: number; rage: number; scrollW: number }> = {};
+  for (const p of data.pages) {
+    const ty = pageType(shortPath(p.pageUrl));
+    const a = (secAgg[ty] ||= { sessions: 0, dead: 0, rage: 0, scrollW: 0 });
+    a.sessions += p.sessions; a.dead += p.deadClicks; a.rage += p.rageClicks; a.scrollW += p.scrollDepth * p.sessions;
+  }
+  const SEC_ORDER = ['Home', 'PDP (producto)', 'Colección', 'Búsqueda', 'Carrito', 'Checkout', 'Info', 'Otra'];
+  const sections = SEC_ORDER.filter((k) => secAgg[k] && secAgg[k].sessions >= 20).map((k) => {
+    const a = secAgg[k];
+    return { type: k, sessions: a.sessions, scroll: a.sessions ? a.scrollW / a.sessions : 0, deadRate: a.sessions ? a.dead / a.sessions : 0 };
+  });
+
+  // Duelo de PDP: entre fichas con tráfico suficiente, la de menor vs mayor fricción.
+  const pdps = data.pages.filter((p) => pageType(shortPath(p.pageUrl)) === 'PDP (producto)' && p.sessions >= 100)
+    .map((p) => ({ path: shortPath(p.pageUrl), sessions: p.sessions, scroll: p.scrollDepth, deadRate: p.deadClicks / p.sessions }));
+  const bestPdp = pdps.length ? pdps.reduce((b, p) => (p.deadRate < b.deadRate ? p : b)) : null;
+  const worstPdp = pdps.length ? pdps.reduce((w, p) => (p.deadRate > w.deadRate ? p : w)) : null;
+  const pdpName = (path: string) => path.replace('/products/', '').replace(/-/g, ' ').slice(0, 30);
+
   return (
     <div className="view on">
       <div className="hero">
@@ -143,37 +186,62 @@ export function Clarity() {
         </div>
       </div>
 
-      {/* KPIs reales */}
-      <div className="kpis">
-        <div className="kpi k-green">
-          <div className="kpi-lbl">Sesiones</div>
-          <div className="kpi-val">{formatInt(t.sessions)}</div>
-          <div className="kpi-bot">
-            <span className="dcmp">{formatInt(t.daysWithData)} días con datos</span>
-          </div>
+      {/* 1 · PULSO CRO — dispositivo + salud de fricción */}
+      <div className="cro-pulse">
+        <div className="cro-dev">
+          {devTotal > 0 ? (
+            <>
+              <div className="cro-dev-big">{mobilePct}%<span>móvil</span></div>
+              <div className="cro-dev-bar"><span style={{ width: `${mobilePct}%` }} /></div>
+              <div className="cro-dev-leg">{formatInt(t.deviceMobile)} móvil · {formatInt(t.devicePc)} PC · {formatInt(t.deviceTablet)} tablet</div>
+            </>
+          ) : (
+            <div className="cro-dev-pend">📱 <b>Split por dispositivo pendiente</b><span>Corre la migración 0022 + el ETL para poblar mobile/PC/tablet.</span></div>
+          )}
         </div>
-        <div className="kpi">
-          <div className="kpi-lbl">Scroll depth</div>
-          <div className="kpi-val">{formatPercent(t.scrollDepth, 1)}</div>
-          <div className="kpi-bot">
-            <span className="dcmp">profundidad promedio de página</span>
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-lbl">Dead clicks</div>
-          <div className="kpi-val">{formatPercent(t.deadClickRate, 2)}</div>
-          <div className="kpi-bot">
-            <span className="dcmp">{formatPercent(t.rageClickRate, 2)} rage clicks</span>
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-lbl">Quickback</div>
-          <div className="kpi-val">{formatPercent(t.quickBackRate, 2)}</div>
-          <div className="kpi-bot">
-            <span className="dcmp">vuelven atrás rápido (fricción)</span>
-          </div>
+        <div className="cro-health">
+          <div className="cro-hchip"><b style={{ color: deadColor(t.deadClickRate) }}>{formatPercent(t.deadClickRate, 1)}</b><span>dead clicks</span></div>
+          <div className="cro-hchip"><b style={{ color: t.quickBackRate >= 0.15 ? CRO_RED : CRO_AMBER }}>{formatPercent(t.quickBackRate, 1)}</b><span>quickback</span></div>
+          <div className="cro-hchip"><b>{formatPercent(t.scrollDepth, 0)}</b><span>scroll medio</span></div>
+          <div className="cro-hchip"><b>{formatInt(t.sessions)}</b><span>sesiones</span></div>
         </div>
       </div>
+      <div className="cro-verdict">{mobilePct >= 80 ? <><b>{mobilePct}% móvil</b> — cada decisión de UX se juzga en el celular. </> : null}Scroll medio <b>{formatPercent(t.scrollDepth, 0)}</b>: lo crítico (precio, talla, MSI, botón de compra) debe ir <b>arriba del pliegue</b>.</div>
+
+      {/* 2 · RAYOS-X POR SECCIÓN */}
+      <h3 className="cro-h">🩻 Rayos-X por sección · ¿qué parte del sitio funciona?</h3>
+      <div className="cro-secs">
+        {sections.map((s) => (
+          <div className="cro-sec" key={s.type}>
+            <div className="cro-sec-t">{s.type}</div>
+            <div className="cro-sec-n">{formatInt(s.sessions)}<span>sesiones</span></div>
+            <div className="cro-sec-m">
+              <span>scroll <b>{formatPercent(s.scroll, 0)}</b></span>
+              <span>fricción <b style={{ color: deadColor(s.deadRate) }}>{formatPercent(s.deadRate, 1)}</b></span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 3 · DUELO DE PDP */}
+      {bestPdp && worstPdp && bestPdp.path !== worstPdp.path && (
+        <>
+          <h3 className="cro-h">⚔️ Duelo de PDP · el molde que convierte vs el que traba</h3>
+          <div className="cro-duel">
+            <div className="cro-duel-c win">
+              <div className="cro-duel-tag" style={{ color: CRO_GREEN }}>🟢 MENOS FRICCIÓN · el molde a replicar</div>
+              <div className="cro-duel-n">{pdpName(bestPdp.path)}</div>
+              <div className="cro-duel-m"><b style={{ color: CRO_GREEN }}>{formatPercent(bestPdp.deadRate, 1)}</b> fricción · {formatPercent(bestPdp.scroll, 0)} scroll · {formatInt(bestPdp.sessions)} ses.</div>
+            </div>
+            <div className="cro-duel-c lose">
+              <div className="cro-duel-tag" style={{ color: CRO_RED }}>🔴 MÁS FRICCIÓN · auditar ya</div>
+              <div className="cro-duel-n">{pdpName(worstPdp.path)}</div>
+              <div className="cro-duel-m"><b style={{ color: CRO_RED }}>{formatPercent(worstPdp.deadRate, 1)}</b> fricción · {formatPercent(worstPdp.scroll, 0)} scroll · {formatInt(worstPdp.sessions)} ses.</div>
+            </div>
+          </div>
+          <div className="cro-duel-note">La ficha de <b>{pdpName(worstPdp.path)}</b> tiene <b>{(worstPdp.deadRate / Math.max(bestPdp.deadRate, 0.001)).toFixed(1)}×</b> la fricción de <b>{pdpName(bestPdp.path)}</b> — algo se ve clickeable y no lo es. Audita ese elemento y replica el molde de la ganadora.</div>
+        </>
+      )}
 
       {/* Comportamiento por día — datos reales */}
       <div className="card" style={{ marginTop: '20px' }}>
@@ -231,6 +299,7 @@ export function Clarity() {
               <th {...pageHeaderProps(1)}>Sesiones</th>
               <th {...pageHeaderProps(2)}>Scroll</th>
               <th {...pageHeaderProps(3)}>Dead clicks</th>
+              <th>Fricción</th>
               <th {...pageHeaderProps(4)}>Rage clicks</th>
               <th>Sesiones (rel.)</th>
             </tr>
@@ -247,12 +316,14 @@ export function Clarity() {
                       rel="noopener noreferrer"
                       style={{ color: 'inherit', textDecoration: 'none' }}
                     >
+                      <span className="cro-badge">{pageType(shortPath(p.pageUrl))}</span>
                       <b>{shortPath(p.pageUrl)}</b>
                     </a>
                   </td>
                   <td>{formatInt(p.sessions)}</td>
                   <td>{formatPercent(p.scrollDepth, 1)}</td>
                   <td>{formatInt(p.deadClicks)}</td>
+                  <td><b style={{ color: deadColor(p.sessions ? p.deadClicks / p.sessions : 0) }}>{formatPercent(p.sessions ? p.deadClicks / p.sessions : 0, 1)}</b></td>
                   <td>{formatInt(p.rageClicks)}</td>
                   <td>
                     <span className="hb">
@@ -287,6 +358,35 @@ export function Clarity() {
           cada sincronización diaria — no hay backfill de fechas anteriores.
         </div>
       </div>
+
+      <style jsx>{`
+        .cro-pulse{display:flex;gap:16px;flex-wrap:wrap;align-items:stretch;margin-top:6px}
+        .cro-dev{flex:1;min-width:230px;background:linear-gradient(135deg,#151226,#3a2170 70%,#5a37e0);border-radius:16px;padding:18px 22px;color:#fff;display:flex;flex-direction:column;justify-content:center}
+        .cro-dev-big{font-size:44px;font-weight:800;line-height:1}.cro-dev-big span{font-size:16px;font-weight:700;margin-left:8px;opacity:.9}
+        .cro-dev-bar{height:8px;background:rgba(255,255,255,.2);border-radius:5px;overflow:hidden;margin:12px 0 8px}.cro-dev-bar span{display:block;height:100%;background:#fff;border-radius:5px}
+        .cro-dev-leg{font-size:11px;opacity:.85}
+        .cro-dev-pend{font-size:13px;line-height:1.5}.cro-dev-pend b{display:block;font-size:15px;margin:2px 0}.cro-dev-pend span{opacity:.8;font-size:11.5px}
+        .cro-health{flex:2;min-width:280px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+        .cro-hchip{background:#fff;border:1px solid #ebe7f4;border-radius:14px;padding:14px 12px;text-align:center;box-shadow:0 4px 18px rgba(60,40,120,.05);display:flex;flex-direction:column;justify-content:center}
+        .cro-hchip b{font-size:24px;font-weight:800;line-height:1;color:#171226}.cro-hchip span{font-size:10px;color:${CRO_MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-top:5px}
+        .cro-verdict{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12.5px;color:#2b2440;line-height:1.55;margin-top:12px}
+        .cro-h{font-size:16px;font-weight:800;color:#171226;margin:26px 0 12px}
+        .cro-secs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+        .cro-sec{background:#fff;border:1px solid #ebe7f4;border-radius:14px;padding:14px 15px;box-shadow:0 4px 18px rgba(60,40,120,.05)}
+        .cro-sec-t{font-size:11px;font-weight:800;color:#5a37e0;text-transform:uppercase;letter-spacing:.4px}
+        .cro-sec-n{font-size:26px;font-weight:800;color:#171226;margin:6px 0 2px;line-height:1}.cro-sec-n span{font-size:10px;color:${CRO_MUT};font-weight:700;margin-left:6px;text-transform:uppercase}
+        .cro-sec-m{display:flex;justify-content:space-between;font-size:11px;color:${CRO_MUT};margin-top:8px;border-top:1px solid #f4f2f9;padding-top:8px}.cro-sec-m b{color:#171226}
+        .cro-duel{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+        .cro-duel-c{border-radius:14px;padding:16px 18px;border:1px solid #ebe7f4}
+        .cro-duel-c.win{background:rgba(31,175,106,.06);border-color:rgba(31,175,106,.3)}
+        .cro-duel-c.lose{background:rgba(229,56,77,.05);border-color:rgba(229,56,77,.28)}
+        .cro-duel-tag{font-size:10px;font-weight:800;letter-spacing:.4px}
+        .cro-duel-n{font-size:16px;font-weight:800;color:#171226;margin:6px 0 6px;text-transform:capitalize}
+        .cro-duel-m{font-size:12px;color:#2b2440}
+        .cro-duel-note{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:#2b2440;line-height:1.55;margin-top:12px}
+        .cro-badge{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#5a37e0;background:rgba(124,92,255,.12);border-radius:5px;padding:2px 6px;margin-right:8px;white-space:nowrap}
+        @media(max-width:640px){.cro-health{grid-template-columns:repeat(2,1fr)}.cro-duel{grid-template-columns:1fr}}
+      `}</style>
     </div>
   );
 }

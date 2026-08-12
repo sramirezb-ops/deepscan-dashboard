@@ -39,6 +39,9 @@ export interface ClarityTotals {
   rageClickRate: number;
   quickBackRate: number;
   daysWithData: number;
+  deviceMobile: number; // sesiones por dispositivo (0 si el ETL aún no lo pobló)
+  devicePc: number;
+  deviceTablet: number;
 }
 
 export interface ClarityData {
@@ -63,6 +66,9 @@ interface RawMetric {
   dead_click_rate: number | null;
   rage_click_rate: number | null;
   quick_back_rate: number | null;
+  sessions_mobile: number | null;
+  sessions_pc: number | null;
+  sessions_tablet: number | null;
 }
 
 interface RawPage {
@@ -76,6 +82,9 @@ interface RawPage {
 
 const METRIC_SELECT =
   'date, sessions, scroll_depth, dead_click_rate, rage_click_rate, quick_back_rate';
+// Se pide aparte y blindado: si las columnas de device aún no existen (migración
+// 0022 sin correr), el fetch falla y se ignora — la vista no se rompe.
+const DEVICE_SELECT = 'sessions_mobile, sessions_pc, sessions_tablet';
 const PAGE_SELECT = 'date, page_url, sessions, scroll_depth, dead_clicks, rage_clicks';
 const PAGE = 1000;
 
@@ -123,6 +132,27 @@ async function fetchPages(clientId: string, from: string, to: string): Promise<R
   return all;
 }
 
+async function fetchDevices(clientId: string, from: string, to: string): Promise<{ mobile: number; pc: number; tablet: number }> {
+  try {
+    const { data, error } = await supabase
+      .from('clarity_metrics')
+      .select(DEVICE_SELECT)
+      .eq('client_id', clientId)
+      .gte('date', from)
+      .lte('date', to);
+    if (error) throw error;
+    const acc = { mobile: 0, pc: 0, tablet: 0 };
+    for (const r of (data || []) as any[]) {
+      acc.mobile += Number(r.sessions_mobile) || 0;
+      acc.pc += Number(r.sessions_pc) || 0;
+      acc.tablet += Number(r.sessions_tablet) || 0;
+    }
+    return acc;
+  } catch {
+    return { mobile: 0, pc: 0, tablet: 0 }; // columnas aún no existen → sin device
+  }
+}
+
 function buildDaily(rows: RawMetric[]): ClarityDailyRow[] {
   const list: ClarityDailyRow[] = rows
     .filter((r) => r.date)
@@ -159,6 +189,9 @@ function sumTotals(daily: ClarityDailyRow[]): ClarityTotals {
     rageClickRate: rageW / denom,
     quickBackRate: quickW / denom,
     daysWithData: daily.length,
+    deviceMobile: 0,
+    devicePc: 0,
+    deviceTablet: 0,
   };
 }
 
@@ -207,14 +240,18 @@ export function useClarity(clientId: string, range: DateRange): UseClarityResult
       setLoading(true);
       setError(null);
       try {
-        const [metricRows, pageRows] = await Promise.all([
+        const [metricRows, pageRows, devices] = await Promise.all([
           fetchMetrics(clientId, range.from, range.to),
           fetchPages(clientId, range.from, range.to),
+          fetchDevices(clientId, range.from, range.to),
         ]);
         if (cancelled) return;
 
         const daily = buildDaily(metricRows);
         const totals = sumTotals(daily);
+        totals.deviceMobile = devices.mobile;
+        totals.devicePc = devices.pc;
+        totals.deviceTablet = devices.tablet;
         const pages = buildPages(pageRows);
 
         setData({ daily, pages, totals, from: range.from, to: range.to });

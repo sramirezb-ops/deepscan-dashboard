@@ -1079,6 +1079,26 @@ def extract_clarity_api(token: str, run_date: date, num_days: int = 1) -> tuple[
     except Exception as e:
         log.warning(f"   Clarity API · detalle por URL falló: {e}")
 
+    # ── 3. Split por DISPOSITIVO (dimension1=Device) — señal CRO clave ──
+    # En ecommerce el % mobile define toda la optimización. Best-effort.
+    try:
+        per_dev = _clarity_get(token, {"numOfDays": str(num_days), "dimension1": "Device"})
+        dev = {"mobile": 0, "pc": 0, "tablet": 0}
+        for row in _clarity_metric(per_dev, "traffic"):
+            name = ""
+            for k, v in row.items():
+                if isinstance(v, str) and v.lower() in ("mobile", "pc", "desktop", "tablet", "other"):
+                    name = v.lower(); break
+            s = int(_clarity_pick([row], "totalsessioncount", "sessionscount") or 0)
+            if name in ("pc", "desktop"): dev["pc"] += s
+            elif name == "tablet": dev["tablet"] += s
+            elif name == "mobile": dev["mobile"] += s
+        metrics_rows[0]["sessions_mobile"] = dev["mobile"]
+        metrics_rows[0]["sessions_pc"] = dev["pc"]
+        metrics_rows[0]["sessions_tablet"] = dev["tablet"]
+    except Exception as e:
+        log.warning(f"   Clarity API · split por dispositivo falló: {e}")
+
     log.info(f"   Clarity API: {len(metrics_rows)} día(s), {len(pages_rows)} páginas, {sessions} sesiones")
     return metrics_rows, pages_rows
 

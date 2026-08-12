@@ -307,6 +307,47 @@ export function ComprasDiagnostico() {
         })}
         <div className="fnl-leg"><span><b>│</b> objetivo</span><span><b style={{ color: GREEN }}>▲</b> mejora vs anterior</span><span><b style={{ color: RED }}>▼</b> empeora</span><span><b>pp</b> = puntos porcentuales</span></div>
       </div>
+
+      {/* Reconciliación · 3 fuentes de verdad (Meta ≠ GA4 ≠ Shopify) */}
+      {landing?.hasData && (() => {
+        const S = landing.site;
+        const metaShareOrders = ST.orders ? Math.round((100 * T.purchases) / ST.orders) : 0;
+        const clicksGap = T.link_clicks ? Math.round((100 * (T.link_clicks - S.sessions)) / T.link_clicks) : 0;
+        const rows: Array<[string, string, string, string]> = [
+          ['Tráfico al sitio', `${kfmt(T.link_clicks)} clics → ${kfmt(T.landing)} LPV`, `${kfmt(S.sessions)} sesiones`, '—'],
+          ['Agregan al carrito', kfmt(T.cart), kfmt(S.atc), '—'],
+          ['Inician pago', kfmt(T.checkout), kfmt(S.chk), '—'],
+          ['Compras', kfmt(T.purchases), kfmt(S.buy), `${kfmt(ST.orders)} ped. · ${kfmt(ST.orders_paid)} pag.`],
+          ['Ingreso', money(T.purchase_value), money(S.rev), `${money(ST.revenue)} · ${money(ST.revenue_paid)} cob.`],
+        ];
+        return (
+          <div className="recon">
+            <div className="recon-hd"><span className="recon-t">🔍 Las 3 verdades del embudo · <b>Meta ≠ GA4 ≠ Shopify</b></span>
+              <span className="recon-s">Cada paso se mide con una fuente distinta y cada una ve solo un pedazo. La brecha <b>es</b> el diagnóstico.</span></div>
+            <div className="tscroll">
+              <table className="recon-tbl"><thead><tr>
+                <th>Paso</th>
+                <th><span className="src src-m">Ⓜ Meta</span><small>píxel · solo pauta Advantage+</small></th>
+                <th><span className="src src-g">Ⓖ GA4</span><small>sitio · todo el tráfico</small></th>
+                <th><span className="src src-s">Ⓢ Shopify</span><small>caja · todos los canales</small></th>
+              </tr></thead>
+              <tbody>{rows.map((r) => (
+                <tr key={r[0]}><td className="rn">{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td className={r[3] === '—' ? 'muted' : 'rs'}>{r[3]}</td></tr>
+              ))}</tbody></table>
+            </div>
+            <div className="recon-reads">
+              <div className="recon-r" style={{ borderColor: 'rgba(229,56,77,.3)' }}><b style={{ color: RED }}>⚠️ Sobre-atribución de Meta</b>Meta se cuelga <b>{kfmt(T.purchases)}</b> compras, pero la tienda tuvo <b>{kfmt(ST.orders)}</b> pedidos ({kfmt(ST.orders_paid)} pagados). Meta cuenta ventana de 7 días + view-through de <b>su</b> tráfico → infla. {metaShareOrders > 0 ? <>Equivale a atribuirse el <b>{metaShareOrders}%</b> de los pedidos. </> : null}La caja real es Shopify.</div>
+              <div className="recon-r" style={{ borderColor: 'rgba(91,157,249,.3)' }}><b style={{ color: BLUE }}>📉 GA4 pierde la compra</b>GA4 registra <b>{kfmt(S.buy)}</b> compras vs <b>{kfmt(ST.orders)}</b> pedidos de Shopify: el checkout de Shopify vive en <b>otro dominio</b> que GA4 no rastrea. Por eso GA4 sirve para <b>comportamiento</b> (hasta carrito), no para ventas.</div>
+              <div className="recon-r" style={{ borderColor: 'rgba(245,165,36,.3)' }}><b style={{ color: AMBER }}>🔎 Meta infla el clic</b>Meta reporta <b>{kfmt(T.link_clicks)}</b> clics y <b>{kfmt(T.landing)}</b> LPV, pero GA4 solo ve <b>{kfmt(S.sessions)}</b> sesiones — y GA4 cuenta <b>todo</b> el tráfico (orgánico + directo + otros), no solo Meta. Que la pauta reporte más "visitas" que <b>todas</b> las sesiones del sitio significa inflación: {clicksGap > 0 ? <>~<b>{clicksGap}%</b> de </> : null}sus clics nunca se vuelven sesión real (toques accidentales, bots, rebotes &lt;1s). El "25% que no carga" del embudo es en buena parte esto, no una landing rota.</div>
+            </div>
+            <div className="recon-trust"><b>¿Qué número creo para qué?</b>
+              <span><b className="src-m">Ⓜ</b> Eficiencia de pauta → <b>Meta</b> (ROAS colocado)</span>
+              <span><b className="src-s">Ⓢ</b> Ingreso real / caja → <b>Shopify</b> (cobrado)</span>
+              <span><b className="src-g">Ⓖ</b> Dónde se traba el usuario → <b>GA4</b> (comportamiento)</span>
+            </div>
+          </div>
+        );
+      })()}
       {data.whatsapp > 0 && (
         <div className="wa-path">
           <div className="wa-ic">💬</div>
@@ -844,6 +885,26 @@ export function ComprasDiagnostico() {
         .wa-big b{font-size:26px;font-weight:800;color:${GREEN};display:block;line-height:1}
         .wa-big span{font-size:10px;color:${MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700}
         .wa-tag{font-size:8.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:${AMBER};background:${AMBER}1a;border:1px solid ${AMBER}44;border-radius:20px;padding:2px 7px;margin-left:6px;vertical-align:middle}
+        /* Reconciliación 3 fuentes */
+        .recon{margin-top:14px;background:#fff;border:1px solid ${LINE};border-radius:16px;box-shadow:0 4px 18px rgba(60,40,120,.05);padding:18px 20px}
+        .recon-hd{margin-bottom:12px}
+        .recon-t{font-size:14px;font-weight:800;color:${INK};display:block}
+        .recon-s{font-size:11.5px;color:${MUT};margin-top:2px;display:block}
+        .recon-tbl{width:100%;border-collapse:collapse;min-width:520px}
+        .recon-tbl th{text-align:left;padding:8px 10px;border-bottom:2px solid ${LINE};vertical-align:top}
+        .recon-tbl th:first-child{color:${MUT};font-size:10px;text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+        .recon-tbl th small{display:block;font-size:9px;color:${MUT};font-weight:600;margin-top:3px;text-transform:none;letter-spacing:0}
+        .recon-tbl td{padding:9px 10px;border-bottom:1px solid #f4f2f9;font-size:13px;font-weight:700;color:${INK2}}
+        .recon-tbl td.rn{font-weight:700;color:${INK};font-size:12px}
+        .recon-tbl td.rs{color:${GREEN}}
+        .src{font-size:12px;font-weight:800}.src small{font-weight:600}
+        .src-m{color:${ACCD}}.src-g{color:#e8843d}.src-s{color:${GREEN}}
+        .recon-reads{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:14px}
+        .recon-r{border:1px solid ${LINE};border-radius:12px;padding:11px 13px;font-size:11.5px;line-height:1.5;color:${INK2}}
+        .recon-r b{display:inline}.recon-r>b:first-child{display:block;margin-bottom:3px;font-size:12px}
+        .recon-trust{margin-top:14px;background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:${INK2};display:flex;flex-wrap:wrap;gap:6px 20px;align-items:center}
+        .recon-trust>b{width:100%;font-size:12.5px;color:${INK}}
+        @media(max-width:720px){.recon-reads{grid-template-columns:1fr}}
         @media(max-width:640px){.wa-path{flex-wrap:wrap}.wa-big{text-align:left;width:100%}}
         /* Switcher de web (Sneakers: 2 propiedades GA4) */
         .websw{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;background:#fff;border:1px solid ${LINE};border-radius:14px;padding:8px 12px;box-shadow:0 4px 18px rgba(60,40,120,.05)}

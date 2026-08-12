@@ -125,7 +125,7 @@ export function ComprasDiagnostico() {
     const nm = data.pairs.find((p) => p.name.includes('MIND 001 SLIDE BLACK')) || { views: 0, atc: 0, checkout: 0 };
     const pend = data.pairs.filter((p) => p.sold > 0 && p.rev_paid === 0).slice(0, 3).map((p) => p.name.replace('TENIS ', ''));
     const existing = data.segments.find((s) => s.name === 'Compradores actuales') || { pct: 0, buy: 0, spend: 0 };
-    const vids = data.creatives.filter((c) => c.is_video), imgs = data.creatives.filter((c) => !c.is_video);
+    const vids = data.creatives.filter((c) => c.is_video && c.conv), imgs = data.creatives.filter((c) => !c.is_video && c.conv);
     const avgroas = (x: Creative[]) => { const s = x.reduce((a, c) => a + c.spend, 0); return s ? +(x.reduce((a, c) => a + c.pv, 0) / s).toFixed(2) : 0; };
     const vroas = avgroas(vids), iroas = avgroas(imgs);
     const fb = data.platforms.find((p) => p.key === 'facebook'), ig = data.platforms.find((p) => p.key === 'instagram');
@@ -563,7 +563,7 @@ export function ComprasDiagnostico() {
       <div className="cinsight"><b>Lectura:</b> el video promedia <b style={{ color: view.vroas >= view.iroas ? GREEN : RED }}>{view.vroas}×</b> vs <b>{view.iroas}×</b> de la imagen. Clic en cada anuncio para su embudo, costos y ventas por plataforma.</div>
       <div className="card"><div className="cgrid">
         {data.creatives.map((a, i) => {
-          const tag = a.buy > 0 && a.roas >= 5 ? ['GANADOR', GREEN] : a.spend >= 300 && a.buy === 0 ? ['QUEMA', RED] : a.buy > 0 ? ['RINDE', AMBER] : ['—', MUT];
+          const tag = !a.conv ? ['ENGAGEMENT', BLUE] : a.buy > 0 && a.roas >= 5 ? ['GANADOR', GREEN] : a.spend >= 300 && a.buy === 0 ? ['QUEMA', RED] : a.buy > 0 ? ['RINDE', AMBER] : ['—', MUT];
           const p = posterUrl(a);
           return (
             <figure className="cc" key={a.ad_id} onClick={() => setSel(i)}>
@@ -634,7 +634,7 @@ export function ComprasDiagnostico() {
             <div className="adm-top">
               <div className="adm-media">{posterUrl(selc) ? <img src={posterUrl(selc)} alt="" /> : null}{selc.is_video && selc.video_id ? <a className="play" href={`https://www.facebook.com/sneakerstorecdmx/videos/${selc.video_id}/`} target="_blank" rel="noreferrer">▶</a> : null}</div>
               <div className="adm-head">
-                <span className="badge" style={{ background: selc.buy > 0 && selc.roas >= 5 ? GREEN : selc.spend >= 300 && selc.buy === 0 ? RED : AMBER }}>{selc.buy > 0 && selc.roas >= 5 ? 'GANADOR' : selc.spend >= 300 && selc.buy === 0 ? 'QUEMA' : 'RINDE'}</span>
+                <span className="badge" style={{ background: !selc.conv ? BLUE : selc.buy > 0 && selc.roas >= 5 ? GREEN : selc.spend >= 300 && selc.buy === 0 ? RED : AMBER }}>{!selc.conv ? 'ENGAGEMENT' : selc.buy > 0 && selc.roas >= 5 ? 'GANADOR' : selc.spend >= 300 && selc.buy === 0 ? 'QUEMA' : 'RINDE'}</span>
                 <h3>{selc.name}</h3>
                 <div className="adm-chips"><span>Conjunto: {selc.adset}</span><span>{selc.is_video ? 'Video' : 'Imagen'}</span></div>
                 <div className="adm-big"><div><b>{money(selc.spend)}</b><span>Invertido</span></div><div><b style={{ color: GREEN }}>{selc.roas}×</b><span>ROAS</span></div><div><b>{selc.buy}</b><span>Compras</span></div><div><b>{money(selc.pv)}</b><span>Valor</span></div></div>

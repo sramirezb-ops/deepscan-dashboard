@@ -38,6 +38,7 @@ export interface PlacementRow { label: string; spend: number; impr: number; atc:
 export interface AdComment { author: string; content: string; likes: number; created_at: string | null; sentiment: string; }
 export interface Creative {
   ad_id: string; name: string; adset: string; is_video: boolean;
+  conv: boolean; campaign: string;   // conv=Advantage+ (embudo); si no, es awareness/perfil
   media_id: string; comments: AdComment[];
   image_url: string; thumbnail_url: string; video_id: string;
   title: string; body: string; cta: string;
@@ -139,7 +140,19 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           S.purchases += n(r.purchases); S.purchase_value += n(r.purchase_value);
           const d = (daily[r.date] ||= { date: r.date, spend: 0, purchase_value: 0, purchases: 0, checkout: 0 });
           d.spend += n(r.spend); d.purchase_value += n(r.purchase_value); d.purchases += n(r.purchases); d.checkout += n(r.initiate_checkout);
-          const A = (adAcc[r.ad_id] ||= { ad_id: r.ad_id, name: r.ad_name || '', adset: g, spend: 0, impr: 0, reach: 0, link: 0, landing: 0, atc: 0, chk: 0, buy: 0, pv: 0, thru: 0 });
+        }
+        // ---- Creativos: Advantage+ + CUALQUIER anuncio con comentarios ----
+        // El embudo y los segmentos de arriba son SOLO Advantage+. El grid de
+        // creativos, en cambio, suma también los ads (awareness / visitas al perfil)
+        // que tienen comentarios, para poder abrir su modal y leerlos. `conv` marca
+        // si el ad es del embudo de conversión (Advantage+) o no.
+        const commentAdIds = new Set<string>((mcom as any[]).map((r) => r.ad_id).filter(Boolean));
+        for (const r of mc) {
+          const id = r.ad_id; if (!id) continue;
+          const g = grp(r.adset_name);
+          const isAdv = (r.campaign_name || '').startsWith(CAMP_PREFIX) && !!g;
+          if (!isAdv && !commentAdIds.has(id)) continue;   // solo Advantage+ o con comentarios
+          const A = (adAcc[id] ||= { ad_id: id, name: r.ad_name || '', adset: g || (r.campaign_name || '').split('|')[0].trim().slice(0, 18) || 'Otro', conv: isAdv, campaign: r.campaign_name || '', spend: 0, impr: 0, reach: 0, link: 0, landing: 0, atc: 0, chk: 0, buy: 0, pv: 0, thru: 0 });
           A.spend += n(r.spend); A.impr += n(r.impressions); A.reach += n(r.reach); A.link += n(r.link_clicks);
           A.landing += n(r.landing_page_views); A.atc += n(r.add_to_cart); A.chk += n(r.initiate_checkout);
           A.buy += n(r.purchases); A.pv += n(r.purchase_value); A.thru += n(r.thruplay);
@@ -279,6 +292,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
             const c = mediaByAd[A.ad_id] || {};
             return {
               ad_id: A.ad_id, name: A.name || c.ad_name || '', adset: A.adset, is_video: !!c.is_video,
+              conv: A.conv !== false, campaign: A.campaign || '',
               media_id: c.instagram_media_id || '', comments: commentsByAd[A.ad_id] || [],
               image_url: c.image_url || '', thumbnail_url: c.thumbnail_url || '', video_id: c.video_id || '',
               title: c.title || '', body: c.body || '', cta: c.cta || '',

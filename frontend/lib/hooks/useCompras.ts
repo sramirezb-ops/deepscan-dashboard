@@ -66,7 +66,9 @@ export interface ComprasData {
   daily: DailyRow[];
   whatsapp: number;      // clics a WhatsApp (GA4) en el periodo — vía de conversión alterna
   whatsappPrev: number;  // mismo, periodo de comparación (para Δ)
+  clarity: ClarityFriction | null;  // fricción del sitio (Clarity) para la ROTURA
 }
+export interface ClarityFriction { sessions: number; dead: number; rage: number; quick: number; scroll: number; }
 
 async function page<T>(table: string, cols: string, clientId: string, extra?: (q: any) => any): Promise<T[]> {
   const all: T[] = [];
@@ -103,7 +105,7 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
       try {
         const from = range.from, to = range.to;
         const cfCols = 'campaign_name,adset_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value';
-        const [mc, so, sp, gi, bd, cr, mcPrev, soPrev, waEv, waEvPrev, mcom] = await Promise.all([
+        const [mc, so, sp, gi, bd, cr, mcPrev, soPrev, waEv, waEvPrev, mcom, clar] = await Promise.all([
           page<any>('meta_campaigns',
             'date,campaign_name,adset_name,ad_id,ad_name,spend,impressions,reach,link_clicks,landing_page_views,add_to_cart,initiate_checkout,purchases,purchase_value,thruplay,ctr',
             clientId, (q) => q.gte('date', from).lte('date', to)),
@@ -124,6 +126,8 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
           // Comentarios de IG por anuncio (texto + sentimiento). No van por fecha:
           // se acumulan; el modal del creativo los muestra agrupados por ad_id.
           page<any>('meta_comments', 'ad_id,author,content,likes,created_at,sentiment', clientId).catch(() => [] as any[]),
+          // Fricción del sitio (Microsoft Clarity) — evidencia del abandono en la ROTURA.
+          page<any>('clarity_metrics', 'date,sessions,dead_click_rate,rage_click_rate,quick_back_rate,scroll_depth', clientId, (q) => q.gte('date', from).lte('date', to)).catch(() => [] as any[]),
         ]);
 
         // ---- META por conjunto + totales + diario + por anuncio ----
@@ -310,10 +314,20 @@ export function useCompras(clientId: string, range: DateRange, previous?: DateRa
 
         const whatsapp = waEv.reduce((s: number, r: any) => s + n(r.event_count), 0);
         const whatsappPrev = waEvPrev.reduce((s: number, r: any) => s + n(r.event_count), 0);
+        // Fricción Clarity: promedio ponderado por sesiones sobre los días del periodo.
+        const clS = clar.reduce((s: number, r: any) => s + n(r.sessions), 0);
+        const wavg = (f: string) => (clS ? clar.reduce((s: number, r: any) => s + n(r[f]) * n(r.sessions), 0) / clS : 0);
+        const clarity: ClarityFriction | null = clS > 0 ? {
+          sessions: clS,
+          dead: +(100 * wavg('dead_click_rate')).toFixed(1),
+          rage: +(100 * wavg('rage_click_rate')).toFixed(1),
+          quick: +(100 * wavg('quick_back_rate')).toFixed(1),
+          scroll: Math.round(100 * wavg('scroll_depth')),
+        } : null;
         const out: ComprasData = {
           from, to, prevFrom, prevTo, sets, totals, prevTotals, store, prevStore, pairs, segments, platforms, segPlatform, creatives,
           daily: Object.values(daily).sort((a, b) => a.date.localeCompare(b.date)),
-          whatsapp, whatsappPrev,
+          whatsapp, whatsappPrev, clarity,
         };
         if (alive) { setData(out); setLoading(false); }
       } catch (e: any) {

@@ -371,6 +371,18 @@ export function ComprasDiagnostico() {
               <div className="rota-h"><b style={{ color: AMBER }}>📦 COD sin confirmar</b>{kfmt(pend)} pedidos pendientes/vencidos = contra-entrega o apartado que no se concreta. <span className="rota-ac">Confirmación obligatoria por WhatsApp + anticipo en preventa.</span></div>
               <div className="rota-h"><b style={{ color: BERRY }}>🏷️ Precio/envío poco claro</b>{priceQ > 0 ? <><b>{priceQ}</b> comentarios de IG preguntan precio o talla</> : 'La gente pregunta precio en vez de comprar'} → la ficha no resuelve la objeción antes del checkout. <span className="rota-ac">Precio y envío visibles, y talla en stock.</span></div>
             </div>
+            {data.clarity && (
+              <div className="rota-clar">
+                <div className="rota-clar-h">🎥 Evidencia de comportamiento · <b>Clarity</b> <span className="muted">· {kfmt(data.clarity.sessions)} sesiones</span></div>
+                <div className="rota-clar-m">
+                  <span><b style={{ color: data.clarity.quick >= 15 ? RED : AMBER }}>{data.clarity.quick}%</b><small>quickback · clic y se devuelven</small></span>
+                  <span><b style={{ color: data.clarity.dead >= 7 ? AMBER : MUT }}>{data.clarity.dead}%</b><small>dead clicks · tocan lo que no es botón</small></span>
+                  <span><b style={{ color: MUT }}>{data.clarity.rage}%</b><small>rage clicks</small></span>
+                  <span><b style={{ color: MUT }}>{data.clarity.scroll}%</b><small>scroll medio</small></span>
+                </div>
+                <div className="rota-clar-note">Las grabaciones confirman el patrón: entran y salen del <b>carrito sin cerrar</b>, y hay quienes <b>buscan “meses”</b> (pago a plazos) antes de irse — coincide con la fuga Carrito→Checkout.{isSneakers ? <> <a className="rota-clar-lk" href="https://clarity.microsoft.com/projects/view/vd7wj3aec9/recordings" target="_blank" rel="noreferrer">Ver grabaciones de abandono ↗</a></> : null}</div>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -948,6 +960,14 @@ export function ComprasDiagnostico() {
         .rota-h>b:first-child{display:block;margin-bottom:3px;font-size:12px}
         .rota-ac{display:block;margin-top:5px;color:${GREEN};font-weight:700}
         @media(max-width:720px){.rota-hyp{grid-template-columns:1fr}.rota-flow{flex-direction:column}.rota-arr{transform:rotate(90deg)}}
+        .rota-clar{margin-top:12px;background:#fff;border:1px solid ${LINE};border-radius:12px;padding:12px 14px}
+        .rota-clar-h{font-size:12px;font-weight:800;color:${INK};margin-bottom:9px}
+        .rota-clar-m{display:flex;gap:10px;flex-wrap:wrap}
+        .rota-clar-m>span{flex:1;min-width:120px;background:#faf9ff;border:1px solid #ece7fb;border-radius:10px;padding:8px 11px}
+        .rota-clar-m b{font-size:19px;font-weight:800;display:block;line-height:1}
+        .rota-clar-m small{font-size:9.5px;color:${MUT};display:block;margin-top:3px}
+        .rota-clar-note{font-size:11.5px;color:${INK2};line-height:1.5;margin-top:10px}
+        .rota-clar-lk{color:${ACCD};font-weight:700;white-space:nowrap}
         @media(max-width:640px){.wa-path{flex-wrap:wrap}.wa-big{text-align:left;width:100%}}
         /* Switcher de web (Sneakers: 2 propiedades GA4) */
         .websw{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;background:#fff;border:1px solid ${LINE};border-radius:14px;padding:8px 12px;box-shadow:0 4px 18px rgba(60,40,120,.05)}

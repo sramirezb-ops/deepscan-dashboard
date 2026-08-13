@@ -53,12 +53,15 @@ export interface ProductPerf {
   conv: number; // ventas Shopify ÷ vistas GA4 (tasa de conversión real por producto)
   verdict: 'escalar' | 'arreglar' | 'explorar' | 'observar';
 }
+// Rebote por página de entrada (GA4 ga4_landing): dónde entran y se van sin interactuar.
+export interface BounceRow { page: string; sessions: number; bounce: number; }
 export interface ClarityData {
   daily: ClarityDailyRow[]; // ordenadas por fecha asc
   pages: ClarityPageRow[]; // ordenadas por sesiones desc
   totals: ClarityTotals;
   funnel: ClarityFunnel | null; // embudo GA4 (null si no hay dato)
   products: ProductPerf[] | null; // cruce tráfico×venta por producto
+  bounce: BounceRow[] | null; // rebote por landing (GA4)
   from: string;
   to: string;
 }
@@ -288,6 +291,40 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
   }
 }
 
+async function fetchBounce(clientId: string, from: string, to: string, property?: string): Promise<BounceRow[] | null> {
+  try {
+    const map = new Map<string, { sessions: number; bw: number }>();
+    let off = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let q = supabase.from('ga4_landing')
+        .select('landing_page, sessions, bounce_rate')
+        .eq('client_id', clientId).gte('date', from).lte('date', to).range(off, off + PAGE - 1);
+      if (property) q = q.eq('property_id', property);
+      const { data, error } = await q;
+      if (error) throw error;
+      const batch = (data || []) as any[];
+      for (const r of batch) {
+        const p = r.landing_page; if (!p || p === '(not set)') continue;
+        const s = Number(r.sessions) || 0;
+        const cur = map.get(p) || { sessions: 0, bw: 0 };
+        cur.sessions += s; cur.bw += (Number(r.bounce_rate) || 0) * s;
+        map.set(p, cur);
+      }
+      if (batch.length < PAGE) break;
+      off += PAGE;
+    }
+    const rows: BounceRow[] = [...map.entries()]
+      .map(([page, v]) => ({ page, sessions: v.sessions, bounce: v.sessions ? v.bw / v.sessions : 0 }))
+      .filter((r) => r.sessions >= 50)
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 10);
+    return rows.length ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
 function buildDaily(rows: RawMetric[]): ClarityDailyRow[] {
   const list: ClarityDailyRow[] = rows
     .filter((r) => r.date)
@@ -375,12 +412,13 @@ export function useClarity(clientId: string, range: DateRange, property?: string
       setLoading(true);
       setError(null);
       try {
-        const [metricRows, pageRows, devices, funnel, products] = await Promise.all([
+        const [metricRows, pageRows, devices, funnel, products, bounce] = await Promise.all([
           fetchMetrics(clientId, range.from, range.to),
           fetchPages(clientId, range.from, range.to),
           fetchDevices(clientId, range.from, range.to),
           fetchFunnel(clientId, range.from, range.to, property),
           fetchSales(clientId, range.from, range.to, property),
+          fetchBounce(clientId, range.from, range.to, property),
         ]);
         if (cancelled) return;
 
@@ -391,7 +429,7 @@ export function useClarity(clientId: string, range: DateRange, property?: string
         totals.deviceTablet = devices.tablet;
         const pages = buildPages(pageRows);
 
-        setData({ daily, pages, totals, funnel, products, from: range.from, to: range.to });
+        setData({ daily, pages, totals, funnel, products, bounce, from: range.from, to: range.to });
       } catch (e: any) {
         if (cancelled) return;
         console.error('[useClarity]', e);

@@ -73,6 +73,23 @@ function deadColor(rate: number): string {
   return CRO_GREEN;
 }
 
+// Veredicto conclusivo por sección: semáforo + etiqueta + "por qué" (no un scatter
+// que hay que interpretar). Combina fricción (dead-click) con el scroll donde aplica.
+function sectionVerdict(type: string, scroll: number, deadRate: number): { label: string; color: string; reason: string } {
+  let label: string, color: string;
+  if (deadRate >= 0.08) { label = 'ARREGLAR'; color = CRO_RED; }
+  else if (deadRate >= 0.05) { label = 'OJO'; color = CRO_AMBER; }
+  else { label = 'FUNCIONA'; color = CRO_GREEN; }
+  let reason: string;
+  if (deadRate >= 0.08) reason = 'Fricción alta: la gente toca elementos que no responden. Es la prioridad de esta zona.';
+  else if (deadRate >= 0.05) reason = 'Fricción media — funciona pero conviene vigilar.';
+  else reason = 'Baja fricción — la sección funciona bien.';
+  if (scroll < 0.45 && (type.startsWith('PDP') || type === 'Home')) {
+    reason += ' Scroll bajo: sube precio, talla, MSI y botón de compra arriba del pliegue.';
+  }
+  return { label, color, reason };
+}
+
 // Sparkline: forma de la tendencia (sin ejes) para un stat tile. Una sola serie
 // → una línea de un color; área tenue + punto final. min 2 puntos.
 function Spark({ values, color }: { values: number[]; color: string }) {
@@ -366,17 +383,24 @@ export function Clarity() {
           })}
         </svg>
       </div>
-      <div className="cro-secs">
-        {sections.map((s) => (
-          <div className="cro-sec" key={s.type}>
-            <div className="cro-sec-t">{s.type}</div>
-            <div className="cro-sec-n">{formatInt(s.sessions)}<span>sesiones</span></div>
-            <div className="cro-sec-m">
-              <span>scroll <b>{formatPercent(s.scroll, 0)}</b></span>
-              <span>fricción <b style={{ color: deadColor(s.deadRate) }}>{formatPercent(s.deadRate, 1)}</b></span>
+      <div className="card cro-score">
+        {sections.map((s) => {
+          const v = sectionVerdict(s.type, s.scroll, s.deadRate);
+          return (
+            <div className="cro-sc2-row" key={s.type}>
+              <span className="cro-sc2-dot" style={{ background: v.color }} />
+              <div className="cro-sc2-main">
+                <div className="cro-sc2-hd"><b>{s.type.replace(' (producto)', '')}</b><span className="cro-sc2-badge" style={{ color: v.color, background: v.color + '18', borderColor: v.color + '44' }}>{v.label}</span></div>
+                <div className="cro-sc2-reason">{v.reason}</div>
+              </div>
+              <div className="cro-sc2-stats">
+                <span><b>{formatInt(s.sessions)}</b> sesiones</span>
+                <span>scroll <b>{formatPercent(s.scroll, 0)}</b></span>
+                <span>fricción <b style={{ color: deadColor(s.deadRate) }}>{formatPercent(s.deadRate, 1)}</b></span>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* 2b · SCROLL / FOLD POR SECCIÓN */}
@@ -398,6 +422,35 @@ export function Clarity() {
         })}
         <div className="cro-sc-note">La barra = hasta dónde llega el usuario promedio (línea <b>│</b> = 50%). <b>En PDP y Home el scroll es ~40%</b> → precio, talla, <b>MSI</b> y botón de compra <b>tienen que ir arriba del pliegue</b> o se pierden. En listas (Colección/Búsqueda) scrollean más porque están buscando — ahí el scroll alto es normal, no un logro.</div>
       </div>
+
+      {/* 2c · ¿DÓNDE REBOTAN? (GA4 landing bounce) */}
+      {data.bounce && data.bounce.length > 0 && (() => {
+        const bs = data.bounce;
+        const mxs = Math.max(...bs.map((b) => b.sessions), 1);
+        const bcolor = (r: number) => (r >= 0.55 ? CRO_RED : r >= 0.4 ? CRO_AMBER : CRO_GREEN);
+        const worst = [...bs].filter((b) => b.sessions >= 100).sort((a, b) => b.bounce - a.bounce)[0] || bs[0];
+        return (
+          <>
+            <h3 className="cro-h">🚪 ¿Dónde rebotan? <span className="cro-sub2">entran y se van sin interactuar (GA4)</span></h3>
+            {worst && (
+              <div className="cro-bnc-head">Donde más rebotan con volumen: <b>{shortPath(worst.page)}</b> — <b style={{ color: bcolor(worst.bounce) }}>{formatPercent(worst.bounce, 0)}</b> de {formatInt(worst.sessions)} entradas se van sin tocar nada.{worst.bounce >= 0.5 ? ' La pauta trae gente que no engancha con esa página.' : ''}</div>
+            )}
+            <div className="card cro-bnc">
+              {bs.map((b) => {
+                const c = bcolor(b.bounce);
+                return (
+                  <div className="cro-bnc-row" key={b.page}>
+                    <div className="cro-bnc-n">{shortPath(b.page)}</div>
+                    <div className="cro-bnc-bar"><span style={{ width: `${Math.max(3, Math.round((100 * b.sessions) / mxs))}%` }} /><small>{formatInt(b.sessions)}</small></div>
+                    <div className="cro-bnc-v" style={{ color: c }}>{formatPercent(b.bounce, 0)}<small> rebote</small></div>
+                  </div>
+                );
+              })}
+              <div className="cro-bnc-note">Rebote = % de entradas que se van sin ninguna interacción. 🔴 ≥55% · 🟡 40–55% · 🟢 &lt;40%. Rebote alto en una landing pagada = <b>mismatch anuncio↔página</b> o la ficha no engancha en los primeros segundos.</div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* 3 · DUELO DE PDP */}
       {bestPdp && worstPdp && bestPdp.path !== worstPdp.path && (
@@ -583,6 +636,25 @@ export function Clarity() {
         .cro-sec-t{font-size:11px;font-weight:800;color:#5a37e0;text-transform:uppercase;letter-spacing:.4px}
         .cro-sec-n{font-size:26px;font-weight:800;color:#171226;margin:6px 0 2px;line-height:1}.cro-sec-n span{font-size:10px;color:${CRO_MUT};font-weight:700;margin-left:6px;text-transform:uppercase}
         .cro-sec-m{display:flex;justify-content:space-between;font-size:11px;color:${CRO_MUT};margin-top:8px;border-top:1px solid #f4f2f9;padding-top:8px}.cro-sec-m b{color:#171226}
+        .cro-score{padding:6px 18px}
+        .cro-sc2-row{display:grid;grid-template-columns:12px 1fr 190px;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid #f4f2f9}
+        .cro-sc2-row:last-child{border-bottom:0}
+        .cro-sc2-dot{width:12px;height:12px;border-radius:50%}
+        .cro-sc2-hd{display:flex;align-items:center;gap:9px}.cro-sc2-hd b{font-size:13.5px;color:#171226}
+        .cro-sc2-badge{font-size:8.5px;font-weight:800;border:1px solid;border-radius:20px;padding:2px 8px;letter-spacing:.4px}
+        .cro-sc2-reason{font-size:11.5px;color:${CRO_MUT};line-height:1.5;margin-top:3px}
+        .cro-sc2-stats{display:flex;flex-direction:column;gap:2px;font-size:10.5px;color:${CRO_MUT};text-align:right}.cro-sc2-stats b{color:#171226}
+        @media(max-width:640px){.cro-sc2-row{grid-template-columns:12px 1fr}.cro-sc2-stats{grid-column:2;flex-direction:row;gap:12px;text-align:left;margin-top:4px}}
+        .cro-bnc-head{background:linear-gradient(135deg,#fff,#fdf2f4);border:1px solid rgba(229,56,77,.22);border-left:4px solid ${CRO_RED};border-radius:14px;padding:13px 17px;font-size:12.5px;line-height:1.55;color:#2b2440;margin-bottom:12px}
+        .cro-bnc{padding:14px 18px}
+        .cro-bnc-row{display:grid;grid-template-columns:1.4fr 1fr 88px;gap:14px;align-items:center;padding:7px 0}
+        .cro-bnc-n{font-size:12px;font-weight:700;color:#171226;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .cro-bnc-bar{position:relative;background:#f2eff8;border-radius:6px;height:16px;display:flex;align-items:center}
+        .cro-bnc-bar span{position:absolute;left:0;top:0;height:100%;border-radius:6px;background:${CRO_ACC};opacity:.7}
+        .cro-bnc-bar small{position:relative;margin-left:8px;font-size:10.5px;font-weight:700;color:#171226}
+        .cro-bnc-v{font-size:14px;font-weight:800;text-align:right}.cro-bnc-v small{font-size:9px;color:${CRO_MUT};font-weight:700;text-transform:uppercase}
+        .cro-bnc-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:10px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-bnc-note b{color:#2b2440}
+        @media(max-width:640px){.cro-bnc-row{grid-template-columns:1fr 70px}.cro-bnc-bar{display:none}}
         .cro-scroll{padding:16px 18px}
         .cro-sc-row{display:grid;grid-template-columns:120px 1fr 48px;gap:14px;align-items:center;padding:6px 0}
         .cro-sc-lbl{font-size:12px;font-weight:700;color:#171226}

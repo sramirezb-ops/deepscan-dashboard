@@ -51,6 +51,9 @@ export interface ClarityFunnel { views: number; atc: number; checkout: number; p
 export interface ProductPerf {
   name: string; sessions: number; sold: number; revenue: number;
   conv: number; // ventas Shopify ÷ sesiones PDP de Clarity (tasa real sesión→compra, aprox.)
+  carts: number; // añadir-al-carrito (GA4 items_added_to_cart) del producto
+  atcRate: number; // carritos ÷ vistas GA4 = tasa add-to-cart estándar (interna GA4, no mezcla)
+  gaViews: number; // vistas GA4 del producto (denominador del atcRate; 0 si no emparejó en GA4)
   matched: boolean; // si se emparejó con un producto de Shopify (para no juzgar sin dato de venta)
   verdict: 'escalar' | 'arreglar' | 'explorar' | 'observar';
 }
@@ -295,6 +298,7 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
     }
     const prods = [...salesByTitle.entries()].map(([title, v]) => ({
       name: title, sold: v.sold, revenue: v.revenue, tk: stoks(title), sessions: 0, hit: false,
+      carts: 0, gaViews: 0,
     }));
 
     // 3) ANCLAR EN EL PRODUCTO: cada slug de Clarity se asigna a su mejor producto Shopify
@@ -316,14 +320,51 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
       else leftover.push({ slug, sessions });
     }
 
+    // 3b) CARRITOS por producto (GA4 items_added_to_cart). Métrica INTERNA de GA4:
+    //     atcRate = carritos ÷ vistas GA4 = tasa add-to-cart estándar (no mezcla con Clarity,
+    //     para no fabricar un embudo roto). Se empareja cada producto con su mejor nombre GA4.
+    try {
+      const gmap = new Map<string, { views: number; atc: number }>();
+      let og = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        let q = supabase.from('ga4_items')
+          .select('item_name, items_viewed, items_added_to_cart')
+          .eq('client_id', clientId).gte('date', from).lte('date', to).range(og, og + PAGE - 1);
+        if (property) q = q.eq('property_id', property);
+        const { data, error } = await q;
+        if (error) throw error;
+        const batch = (data || []) as any[];
+        for (const r of batch) {
+          const n = (r.item_name || '').trim(); if (!n) continue;
+          const cur = gmap.get(n) || { views: 0, atc: 0 };
+          cur.views += Number(r.items_viewed) || 0; cur.atc += Number(r.items_added_to_cart) || 0;
+          gmap.set(n, cur);
+        }
+        if (batch.length < PAGE) break;
+        og += PAGE;
+      }
+      const gaItems = [...gmap.entries()].map(([n, v]) => ({ views: v.views, atc: v.atc, tk: stoks(n) }));
+      for (const p of prods) {
+        let best = -1, bestSc = 0;
+        gaItems.forEach((g, gi) => {
+          let inter = 0; p.tk.forEach((t) => { if (g.tk.has(t)) inter++; });
+          if (inter < 2) return;
+          const uni = new Set([...p.tk, ...g.tk]).size; const sc = inter / (uni || 1);
+          if (sc > bestSc) { bestSc = sc; best = gi; }
+        });
+        if (best >= 0 && bestSc >= 0.4) { p.carts = gaItems[best].atc; p.gaViews = gaItems[best].views; }
+      }
+    } catch { /* GA4 no disponible → carritos quedan en 0 */ }
+
     // 4) Filas: un producto real por fila (tráfico Clarity sumado × venta Shopify). Los slugs
     //    con tráfico alto que NO casaron con el catálogo se muestran aparte (sin dato de venta).
     const rows: ProductPerf[] = [];
     for (const p of prods) if (p.sessions >= MIN_SESS) {
-      rows.push({ name: p.name, sessions: p.sessions, sold: p.sold, revenue: p.revenue, conv: p.sessions ? p.sold / p.sessions : 0, matched: true, verdict: 'observar' });
+      rows.push({ name: p.name, sessions: p.sessions, sold: p.sold, revenue: p.revenue, conv: p.sessions ? p.sold / p.sessions : 0, carts: p.carts, atcRate: p.gaViews ? p.carts / p.gaViews : 0, gaViews: p.gaViews, matched: true, verdict: 'observar' });
     }
     for (const l of leftover) if (l.sessions >= 150) {
-      rows.push({ name: prettySlug(l.slug), sessions: l.sessions, sold: 0, revenue: 0, conv: 0, matched: false, verdict: 'observar' });
+      rows.push({ name: prettySlug(l.slug), sessions: l.sessions, sold: 0, revenue: 0, conv: 0, carts: 0, atcRate: 0, gaViews: 0, matched: false, verdict: 'observar' });
     }
     rows.sort((a, b) => b.sessions - a.sessions);
     if (!rows.length) return null;

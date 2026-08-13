@@ -8,10 +8,12 @@ import {
   useClarity,
   type ClarityDailyRow,
   type ClarityPageRow,
+  type ProductPerf,
+  type BounceRow,
 } from '@/lib/hooks/useClarity';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatInt, formatPercent } from '@/lib/utils';
-import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
+import { DataTable, type DataColumn } from '@/components/ui/DataTable';
 
 // ============================================================
 // Clarity · CRO — comportamiento real del sitio
@@ -26,8 +28,6 @@ const CLARITY_BLUE = '#4f6bed'; // azul Clarity
 // Sneakers tiene 2 propiedades GA4; el embudo on-site se filtra a la de Shopify (Basics).
 const SNEAKERS_ID = 'bae8c125-19e0-46b4-b0f6-462b642658ac';
 const SHOPIFY_PROP = '523524806';
-
-const PAGE_LIMIT = 30;
 
 function fmtDay(iso: string): string {
   // 2026-06-16 → "16 jun" (sin depender de zona horaria)
@@ -141,36 +141,9 @@ export function Clarity() {
 
   const rangeLabel = formatRangeLabel(range);
 
-  // Sorting Looker. Orden por defecto: diario más reciente primero (daily invertido),
-  // páginas por sesiones desc (ya vienen así). El hook conserva ese orden hasta el clic.
-  const dailySource = data ? [...data.daily].reverse() : [];
-  const dailyAccessors: SortAccessor<ClarityDailyRow>[] = [
-    (r) => r.date,
-    (r) => r.sessions,
-    (r) => r.scrollDepth,
-    (r) => r.deadClickRate,
-    (r) => r.rageClickRate,
-    (r) => r.quickBackRate,
-    null, // barra relativa
-  ];
-  const { rows: sortedDaily, headerProps: dailyHeaderProps } = useSortableTable(
-    dailySource,
-    dailyAccessors,
-  );
-
-  const pageSource = data ? data.pages.slice(0, PAGE_LIMIT) : [];
-  const pageAccessors: SortAccessor<ClarityPageRow>[] = [
-    (r) => r.pageUrl,
-    (r) => r.sessions,
-    (r) => r.scrollDepth,
-    (r) => r.deadClicks,
-    (r) => r.rageClicks,
-    null, // barra relativa
-  ];
-  const { rows: sortedPages, headerProps: pageHeaderProps } = useSortableTable(
-    pageSource,
-    pageAccessors,
-  );
+  // Tablas: orden/filtro/paginado los maneja <DataTable>. Diario más reciente primero
+  // (daily invertido); páginas y rebote se pasan completas y la tabla pagina.
+  const dailyRows = data ? [...data.daily].reverse() : [];
 
   if (loading && !data) {
     return (
@@ -219,11 +192,6 @@ export function Clarity() {
   }
 
   const t = data.totals;
-  // Tabla diaria: más reciente primero (orden por defecto), ya ordenable.
-  const dailyRows = sortedDaily;
-  const maxDailySessions = Math.max(1, ...data.daily.map((d) => d.sessions));
-  const pages = sortedPages;
-  const maxPageSessions = Math.max(1, ...pageSource.map((p) => p.sessions));
 
   // ── Cómputos CRO ────────────────────────────────────────────────
   const devTotal = t.deviceMobile + t.devicePc + t.deviceTablet;
@@ -365,18 +333,31 @@ export function Clarity() {
       {data.products && data.products.length > 0 && (() => {
         const ps = data.products;
         const mxSess = Math.max(...ps.map((p) => p.sessions), 1);
-        // Ordenado por TRÁFICO (tus productos más pauteados y si convierten) — no por
-        // veredicto, para no esconder a los que sí vendieron con conversión modesta.
-        const top = [...ps].sort((a, b) => b.sessions - a.sessions).slice(0, 12);
-        // Garantiza que los ganadores (escalar/explorar) sean visibles aunque sean de bajo
-        // tráfico — si no, el titular recomienda un producto que no aparece en la tabla.
-        const gems = ps.filter((p) => (p.verdict === 'escalar' || p.verdict === 'explorar') && !top.includes(p)).sort((a, b) => b.conv - a.conv);
-        const sorted = [...top, ...gems];
         const waste = [...ps].filter((p) => p.verdict === 'arreglar').sort((a, b) => b.sessions - a.sessions)[0];
-        const win = [...ps].filter((p) => p.sold > 0).sort((a, b) => b.conv - a.conv)[0];
         // Promedio real de la tienda (compras ÷ sesiones sobre lo emparejado) para colorear conv.
         const mm = ps.filter((p) => p.matched);
         const base = mm.reduce((s, p) => s + p.sessions, 0) ? mm.reduce((s, p) => s + p.sold, 0) / mm.reduce((s, p) => s + p.sessions, 0) : 0;
+        const vrank: Record<string, number> = { escalar: 4, explorar: 3, observar: 2, arreglar: 1 };
+        const opCols: DataColumn<ProductPerf>[] = [
+          { key: 'name', header: 'Producto', align: 'left', width: '22%', text: (p) => tidy(p.name), sortValue: (p) => tidy(p.name),
+            render: (p) => <span style={{ fontWeight: 700 }}>{tidy(p.name)}</span> },
+          { key: 'sess', header: 'Tráfico (sesiones)', align: 'left', width: '24%', text: (p) => String(p.sessions), sortValue: (p) => p.sessions,
+            render: (p) => { const col = VERDICT[p.verdict][1]; return (
+              <div style={{ position: 'relative', height: 16, background: '#f1eef8', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
+                <span style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.max(3, Math.round((100 * p.sessions) / mxSess))}%`, background: col, borderRadius: 6, opacity: 0.72 }} />
+                <small style={{ position: 'relative', marginLeft: 8, fontSize: 10.5, fontWeight: 800 }}>{formatInt(p.sessions)}</small>
+              </div>); } },
+          { key: 'carts', header: 'Carritos (GA4)', align: 'right', hideOnMobile: true, text: (p) => String(p.carts), sortValue: (p) => p.carts,
+            render: (p) => p.gaViews > 0 ? <b>{formatInt(p.carts)}</b> : <span style={{ color: CRO_MUT }}>—</span> },
+          { key: 'atc', header: '% carrito (GA4)', align: 'right', hideOnMobile: true, text: (p) => String(p.atcRate), sortValue: (p) => p.atcRate,
+            render: (p) => p.gaViews > 0 ? <span style={{ fontWeight: 700, color: p.atcRate >= 0.05 ? CRO_GREEN : '#171226' }}>{formatPercent(p.atcRate, 1)}</span> : <span style={{ color: CRO_MUT }}>—</span> },
+          { key: 'sold', header: 'Vende', align: 'right', text: (p) => String(p.sold), sortValue: (p) => p.sold,
+            render: (p) => p.sold > 0 ? <span><b>{p.sold} uds</b>{p.revenue > 0 ? <small style={{ color: CRO_MUT }}> · {money(p.revenue)}</small> : null}</span> : <span style={{ color: CRO_MUT }}>—</span> },
+          { key: 'conv', header: 'Conv.', align: 'right', text: (p) => String(p.conv), sortValue: (p) => p.conv,
+            render: (p) => { const good = p.verdict === 'escalar' || p.verdict === 'explorar'; return <b style={{ color: good ? CRO_GREEN : p.sold > 0 ? '#171226' : CRO_MUT }}>{p.matched ? formatPercent(p.conv, 1) : '—'}</b>; } },
+          { key: 'verdict', header: 'Veredicto', align: 'left', width: '150px', text: (p) => VERDICT[p.verdict][0], sortValue: (p) => vrank[p.verdict],
+            render: (p) => { const [lbl, col] = VERDICT[p.verdict]; return <span style={{ display: 'inline-block', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color: col, background: col + '18', border: `1px solid ${col}44`, borderRadius: 20, padding: '3px 9px', whiteSpace: 'nowrap' }}>{lbl}</span>; } },
+        ];
         return (
           <>
             <h3 className="cro-h">🎯 ¿Qué vende y hacia dónde llevar la pauta? <span className="cro-sub2">sesiones PDP (Clarity) × venta (Shopify)</span></h3>
@@ -391,21 +372,16 @@ export function Clarity() {
               return null;
             })()}
             <div className="card cro-op">
-              <div className="cro-op-hd"><span>Producto</span><span>Tráfico (sesiones)</span><span>Vende</span><span>Conv.</span><span>Veredicto</span></div>
-              {sorted.map((p) => {
-                const [lbl, col] = VERDICT[p.verdict];
-                const good = p.verdict === 'escalar' || p.verdict === 'explorar';
-                return (
-                  <div className="cro-op-row" key={p.name}>
-                    <div className="cro-op-n">{tidy(p.name)}</div>
-                    <div className="cro-op-bar"><span style={{ width: `${Math.max(3, Math.round((100 * p.sessions) / mxSess))}%`, background: col }} /><small>{formatInt(p.sessions)}</small></div>
-                    <div className="cro-op-v">{p.sold > 0 ? <b>{p.sold} uds</b> : <span className="muted">—</span>}{p.revenue > 0 ? <small> · {money(p.revenue)}</small> : null}</div>
-                    <div className="cro-op-c" style={{ color: good ? CRO_GREEN : p.sold > 0 ? '#171226' : CRO_MUT }}>{p.matched ? formatPercent(p.conv, 1) : '—'}</div>
-                    <div><span className="cro-op-badge" style={{ color: col, background: col + '18', borderColor: col + '44' }}>{lbl}</span></div>
-                  </div>
-                );
-              })}
-              <div className="cro-op-note">🟢 <b>Escalar</b>: convierte arriba del promedio con volumen. 🔴 <b>No escalar</b>: mucho tráfico, convierte muy por debajo → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte bien → prueba subirle pauta. <b>Tráfico</b> = sesiones PDP de <b>Clarity</b> (mismas de la tabla de páginas → los dos cuadros cuadran). <b>Conv.</b> = ventas Shopify ÷ esas sesiones = tasa real <b>sesión→compra</b>{base > 0 ? <> (promedio tienda <b>{formatPercent(base, 1)}</b>; el veredicto es relativo a ese promedio)</> : null}. {data.salesDated ? <>La venta suma el <b>rango exacto</b> seleccionado (ventas Shopify por día).</> : <>⚠️ La venta es el <b>snapshot Shopify</b> más reciente (~30 d, no el rango exacto — corre el ETL con ventas por día para respetar el rango).</>} Son unidades chicas → úsalo como señal, <b>verifica los movimientos grandes</b> antes de ejecutar. El cruce empareja slug↔título por nombre (sin ID compartido).</div>
+              <DataTable
+                rows={ps}
+                columns={opCols}
+                rowKey={(p) => p.name}
+                initialSort={{ key: 'sess', dir: 'desc' }}
+                initialPageSize={10}
+                searchPlaceholder="Filtrar producto…"
+                toolbarLeft={`${ps.length} productos`}
+              />
+              <div className="cro-op-note">🟢 <b>Escalar</b>: convierte arriba del promedio con volumen. 🔴 <b>No escalar</b>: mucho tráfico, convierte muy por debajo → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte bien → prueba subirle pauta. <b>Tráfico</b> = sesiones PDP de <b>Clarity</b> (mismas de la tabla de páginas → los dos cuadros cuadran). <b>Conv.</b> = ventas Shopify ÷ esas sesiones = tasa real <b>sesión→compra</b>{base > 0 ? <> (promedio tienda <b>{formatPercent(base, 1)}</b>; el veredicto es relativo a ese promedio)</> : null}. <b>Carritos</b> y <b>% carrito</b> = añadir-al-carrito de <b>GA4</b> sobre vistas GA4 (métrica interna de GA4; su absoluto es más bajo que las sesiones, pero la tasa es consistente). {data.salesDated ? <>La venta suma el <b>rango exacto</b> seleccionado (ventas Shopify por día).</> : <>⚠️ La venta es el <b>snapshot Shopify</b> más reciente (~30 d, no el rango exacto — corre el ETL con ventas por día para respetar el rango).</>} Son unidades chicas → úsalo como señal, <b>verifica los movimientos grandes</b> antes de ejecutar.</div>
             </div>
           </>
         );
@@ -506,16 +482,26 @@ export function Clarity() {
               <div className="cro-bnc-head">Donde más rebotan con volumen: <b>{shortPath(worst.page)}</b> — <b style={{ color: bcolor(worst.bounce) }}>{formatPercent(worst.bounce, 0)}</b> de {formatInt(worst.sessions)} entradas se van sin tocar nada.{worst.bounce >= 0.5 ? ' La pauta trae gente que no engancha con esa página.' : ''}</div>
             )}
             <div className="card cro-bnc">
-              {bs.map((b) => {
-                const c = bcolor(b.bounce);
-                return (
-                  <div className="cro-bnc-row" key={b.page}>
-                    <div className="cro-bnc-n">{shortPath(b.page)}</div>
-                    <div className="cro-bnc-bar"><span style={{ width: `${Math.max(3, Math.round((100 * b.sessions) / mxs))}%` }} /><small>{formatInt(b.sessions)}</small></div>
-                    <div className="cro-bnc-v" style={{ color: c }}>{formatPercent(b.bounce, 0)}<small> rebote</small></div>
-                  </div>
-                );
-              })}
+              <DataTable
+                rows={bs}
+                rowKey={(b) => b.page}
+                initialSort={{ key: 'sess', dir: 'desc' }}
+                initialPageSize={10}
+                searchPlaceholder="Filtrar página…"
+                toolbarLeft={`${bs.length} páginas de entrada`}
+                columns={[
+                  { key: 'page', header: 'Página de entrada', align: 'left', width: '46%', text: (b) => shortPath(b.page), sortValue: (b) => shortPath(b.page),
+                    render: (b) => <b style={{ fontWeight: 700 }}>{shortPath(b.page)}</b> },
+                  { key: 'sess', header: 'Entradas', align: 'right', text: (b) => String(b.sessions), sortValue: (b) => b.sessions,
+                    render: (b) => (
+                      <div style={{ position: 'relative', height: 16, background: '#f1eef8', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
+                        <span style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.max(3, Math.round((100 * b.sessions) / mxs))}%`, background: CRO_ACC, borderRadius: 6, opacity: 0.7 }} />
+                        <small style={{ position: 'relative', marginLeft: 8, fontSize: 10.5, fontWeight: 800 }}>{formatInt(b.sessions)}</small>
+                      </div>) },
+                  { key: 'bounce', header: 'Rebote', align: 'right', sortValue: (b) => b.bounce,
+                    render: (b) => <b style={{ color: bcolor(b.bounce) }}>{formatPercent(b.bounce, 0)}</b> },
+                ] as DataColumn<BounceRow>[]}
+              />
               <div className="cro-bnc-note">Rebote = % de entradas que se van sin ninguna interacción. 🔴 ≥55% · 🟡 40–55% · 🟢 &lt;40%. Rebote alto en una landing pagada = <b>mismatch anuncio↔página</b> o la ficha no engancha en los primeros segundos.</div>
             </div>
           </>
@@ -545,101 +531,48 @@ export function Clarity() {
       {/* Comportamiento por día — datos reales */}
       <div className="card" style={{ marginTop: '20px' }}>
         <h3 style={{ margin: '0 0 16px 0', fontSize: '15px' }}>Comportamiento por día</h3>
-        <table className="t">
-          <thead>
-            <tr>
-              <th {...dailyHeaderProps(0)}>Fecha</th>
-              <th {...dailyHeaderProps(1)}>Sesiones</th>
-              <th {...dailyHeaderProps(2)}>Scroll</th>
-              <th {...dailyHeaderProps(3)}>Dead clicks</th>
-              <th {...dailyHeaderProps(4)}>Rage clicks</th>
-              <th {...dailyHeaderProps(5)}>Quickback</th>
-              <th>Sesiones (rel.)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dailyRows.map((d: ClarityDailyRow) => {
-              const share = d.sessions / maxDailySessions;
-              return (
-                <tr key={d.date}>
-                  <td>
-                    <b>{fmtDay(d.date)}</b>
-                  </td>
-                  <td>{formatInt(d.sessions)}</td>
-                  <td>{formatPercent(d.scrollDepth, 1)}</td>
-                  <td>{formatPercent(d.deadClickRate, 2)}</td>
-                  <td>{formatPercent(d.rageClickRate, 2)}</td>
-                  <td>{formatPercent(d.quickBackRate, 2)}</td>
-                  <td>
-                    <span className="hb">
-                      <span
-                        className="hb-fill"
-                        style={{
-                          width: `${Math.max(2, Math.round(share * 100))}%`,
-                          background: CLARITY_BLUE,
-                        }}
-                      />
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <DataTable
+          rows={dailyRows}
+          rowKey={(d) => d.date}
+          initialSort={{ key: 'date', dir: 'desc' }}
+          initialPageSize={10}
+          searchable={false}
+          columns={[
+            { key: 'date', header: 'Fecha', align: 'left', sortValue: (d) => d.date, render: (d) => <b>{fmtDay(d.date)}</b> },
+            { key: 'sess', header: 'Sesiones', align: 'right', sortValue: (d) => d.sessions, render: (d) => formatInt(d.sessions) },
+            { key: 'scroll', header: 'Scroll', align: 'right', sortValue: (d) => d.scrollDepth, render: (d) => formatPercent(d.scrollDepth, 1) },
+            { key: 'dead', header: 'Dead clicks', align: 'right', hideOnMobile: true, sortValue: (d) => d.deadClickRate, render: (d) => formatPercent(d.deadClickRate, 2) },
+            { key: 'rage', header: 'Rage clicks', align: 'right', hideOnMobile: true, sortValue: (d) => d.rageClickRate, render: (d) => formatPercent(d.rageClickRate, 2) },
+            { key: 'qb', header: 'Quickback', align: 'right', sortValue: (d) => d.quickBackRate, render: (d) => formatPercent(d.quickBackRate, 2) },
+          ] as DataColumn<ClarityDailyRow>[]}
+        />
       </div>
 
       {/* Páginas más vistas — datos reales */}
       <div className="card" style={{ marginTop: '20px' }}>
         <h3 style={{ margin: '0 0 16px 0', fontSize: '15px' }}>Páginas con más sesiones</h3>
-        <table className="t">
-          <thead>
-            <tr>
-              <th {...pageHeaderProps(0)}>Página</th>
-              <th {...pageHeaderProps(1)}>Sesiones</th>
-              <th {...pageHeaderProps(2)}>Scroll</th>
-              <th {...pageHeaderProps(3)}>Dead clicks</th>
-              <th>Fricción</th>
-              <th {...pageHeaderProps(4)}>Rage clicks</th>
-              <th>Sesiones (rel.)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pages.map((p: ClarityPageRow) => {
-              const share = p.sessions / maxPageSessions;
-              return (
-                <tr key={p.pageUrl}>
-                  <td>
-                    <a
-                      href={p.pageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: 'inherit', textDecoration: 'none' }}
-                    >
-                      <span className="cro-badge">{pageType(shortPath(p.pageUrl))}</span>
-                      <b>{shortPath(p.pageUrl)}</b>
-                    </a>
-                  </td>
-                  <td>{formatInt(p.sessions)}</td>
-                  <td>{formatPercent(p.scrollDepth, 1)}</td>
-                  <td>{formatInt(p.deadClicks)}</td>
-                  <td><b style={{ color: deadColor(p.sessions ? p.deadClicks / p.sessions : 0) }}>{formatPercent(p.sessions ? p.deadClicks / p.sessions : 0, 1)}</b></td>
-                  <td>{formatInt(p.rageClicks)}</td>
-                  <td>
-                    <span className="hb">
-                      <span
-                        className="hb-fill"
-                        style={{
-                          width: `${Math.max(2, Math.round(share * 100))}%`,
-                          background: CLARITY_BLUE,
-                        }}
-                      />
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <DataTable
+          rows={data.pages}
+          rowKey={(p) => p.pageUrl}
+          initialSort={{ key: 'sess', dir: 'desc' }}
+          initialPageSize={10}
+          searchPlaceholder="Filtrar página…"
+          toolbarLeft={`${data.pages.length} páginas`}
+          columns={[
+            { key: 'page', header: 'Página', align: 'left', width: '36%', text: (p) => shortPath(p.pageUrl), sortValue: (p) => shortPath(p.pageUrl),
+              render: (p) => (
+                <a href={p.pageUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: CRO_ACC, background: CRO_ACC + '14', border: `1px solid ${CRO_ACC}33`, borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>{pageType(shortPath(p.pageUrl))}</span>
+                  <b>{shortPath(p.pageUrl)}</b>
+                </a>) },
+            { key: 'sess', header: 'Sesiones', align: 'right', text: (p) => String(p.sessions), sortValue: (p) => p.sessions, render: (p) => formatInt(p.sessions) },
+            { key: 'scroll', header: 'Scroll', align: 'right', sortValue: (p) => p.scrollDepth, render: (p) => formatPercent(p.scrollDepth, 1) },
+            { key: 'dead', header: 'Dead clicks', align: 'right', hideOnMobile: true, sortValue: (p) => p.deadClicks, render: (p) => formatInt(p.deadClicks) },
+            { key: 'fric', header: 'Fricción', align: 'right', sortValue: (p) => (p.sessions ? p.deadClicks / p.sessions : 0),
+              render: (p) => { const d = p.sessions ? p.deadClicks / p.sessions : 0; return <b style={{ color: deadColor(d) }}>{formatPercent(d, 1)}</b>; } },
+            { key: 'rage', header: 'Rage clicks', align: 'right', hideOnMobile: true, sortValue: (p) => p.rageClicks, render: (p) => formatInt(p.rageClicks) },
+          ] as DataColumn<ClarityPageRow>[]}
+        />
       </div>
 
       {/* Aviso honesto sobre el origen */}

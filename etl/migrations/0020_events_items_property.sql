@@ -1,4 +1,4 @@
--- 0019_events_items_property.sql
+-- 0020_events_items_property.sql
 -- Separar las propiedades GA4 en ga4_events y ga4_items (misma idea que la
 -- migración 0018 para ga4_landing).
 -- Antes se fusionaban (y SUMABAN) las filas de todas las propiedades por

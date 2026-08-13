@@ -75,17 +75,39 @@ function deadColor(rate: number): string {
 
 // Veredicto conclusivo por sección: semáforo + etiqueta + "por qué" (no un scatter
 // que hay que interpretar). Combina fricción (dead-click) con el scroll donde aplica.
-function sectionVerdict(type: string, scroll: number, deadRate: number): { label: string; color: string; reason: string } {
+function sectionVerdict(type: string, scroll: number, deadRate: number, sessions: number): { label: string; color: string; reason: string } {
   let label: string, color: string;
   if (deadRate >= 0.08) { label = 'ARREGLAR'; color = CRO_RED; }
   else if (deadRate >= 0.05) { label = 'OJO'; color = CRO_AMBER; }
   else { label = 'FUNCIONA'; color = CRO_GREEN; }
+  // Familia de página → dónde se concentran los toques sin respuesta (dead-click).
+  const fam = type.startsWith('PDP') ? 'pdp'
+    : /colecci|categor|lista/i.test(type) ? 'list'
+    : /b[uú]squeda|search/i.test(type) ? 'search'
+    : /carrito|cart/i.test(type) ? 'cart'
+    : type === 'Home' ? 'home' : 'other';
+  const pct = formatPercent(deadRate, 1);
   let reason: string;
-  if (deadRate >= 0.08) reason = 'Fricción alta: la gente toca elementos que no responden. Es la prioridad de esta zona.';
-  else if (deadRate >= 0.05) reason = 'Fricción media — funciona pero conviene vigilar.';
-  else reason = 'Baja fricción — la sección funciona bien.';
-  if (scroll < 0.45 && (type.startsWith('PDP') || type === 'Home')) {
-    reason += ' Scroll bajo: sube precio, talla, MSI y botón de compra arriba del pliegue.';
+  if (deadRate >= 0.05) {
+    const where = fam === 'list' ? 'sobre tarjetas de producto y filtros que no reaccionan al toque'
+      : fam === 'search' ? 'sobre resultados y filtros de búsqueda que no reaccionan al toque'
+      : fam === 'cart' ? 'en los controles del carrito (cantidad, quitar, ir a pagar)'
+      : fam === 'pdp' ? 'en la ficha (galería, guía de tallas, botones)'
+      : fam === 'home' ? 'en banners y accesos del inicio'
+      : 'sobre elementos que no responden';
+    const sev = deadRate >= 0.08 ? `Fricción alta (${pct})` : `Fricción media (${pct})`;
+    const weight = sessions >= 1500 ? ' Alto volumen → prioridad #1 de la zona.'
+      : sessions < 300 ? ' Volumen bajo: corrígelo, pero el impacto es acotado.'
+      : '';
+    reason = `${sev}: toques sin respuesta ${where}.${weight}`;
+  } else {
+    reason = `Baja fricción (${pct}) — la sección responde bien al toque.`;
+  }
+  // Caveat de scroll: sólo donde el contenido decisivo debe ir arriba del pliegue.
+  if (scroll < 0.45 && fam === 'pdp') {
+    reason += ` Scroll ~${formatPercent(scroll, 0)}: precio, talla, MSI y botón de compra tienen que ir arriba del pliegue.`;
+  } else if (scroll < 0.45 && fam === 'home') {
+    reason += ` Scroll ~${formatPercent(scroll, 0)}: la propuesta de valor y el CTA principal tienen que ir arriba del pliegue.`;
   }
   return { label, color, reason };
 }
@@ -271,7 +293,25 @@ export function Clarity() {
           <div className="cro-hchip"><b>{formatInt(t.sessions)}</b><span>sesiones</span><Spark values={data.daily.map((d) => d.sessions)} color={CRO_ACC} /></div>
         </div>
       </div>
-      <div className="cro-verdict">{mobilePct >= 80 ? <><b>{mobilePct}% móvil</b> — cada decisión de UX se juzga en el celular. </> : null}Scroll medio <b>{formatPercent(t.scrollDepth, 0)}</b>: lo crítico (precio, talla, MSI, botón de compra) debe ir <b>arriba del pliegue</b>.</div>
+      {/* 0 · EL VEREDICTO — síntesis conclusiva de toda la hoja (auto del dato) */}
+      {(() => {
+        const pdpB = (data.bounce || []).filter((b) => b.page.includes('/products/'));
+        const pdpBounce = pdpB.length ? Math.round((100 * pdpB.reduce((s, b) => s + b.bounce * b.sessions, 0)) / pdpB.reduce((s, b) => s + b.sessions, 0)) : 0;
+        const fnlDrop = data.funnel && data.funnel.views ? +((100 * data.funnel.atc) / data.funnel.views).toFixed(1) : 0;
+        const fixSecs = sections.filter((s) => s.deadRate >= 0.08).map((s) => s.type.replace(' (producto)', ''));
+        const waste = (data.products || []).filter((p) => p.verdict === 'arreglar').sort((a, b) => b.views - a.views)[0];
+        const win = (data.products || []).filter((p) => p.sold > 0).sort((a, b) => b.conv - a.conv)[0];
+        return (
+          <div className="cro-vg">
+            <div className="cro-vg-tag">📋 El veredicto</div>
+            <div className="cro-vg-body">
+              <p><b>{mobilePct}% móvil.</b> El tráfico pagado cae en fichas de producto{pdpBounce > 0 ? <> que rebotan <b>~{pdpBounce}%</b></> : null} y convierten <b>&lt;1%</b> — no enganchan en los primeros segundos.</p>
+              <p><b className="cro-vg-k">Dónde falla:</b> la mayor caída on-site es <b>Vistas→Carrito ({fnlDrop}%)</b>{fixSecs.length ? <>, y <b>{fixSecs.join(', ')}</b> tienen fricción alta</> : null}. Las PDP funcionan técnicamente, pero venden poco.</p>
+              <p><b className="cro-vg-k">Qué hacer:</b> {waste && win ? <>mueve pauta de <b>{tidy(waste.name)}</b> (mucho tráfico, casi no vende) hacia lo que convierte como <b>{tidy(win.name)}</b> ({formatPercent(win.conv, 1)}); </> : null}engancha la ficha <b>arriba del pliegue</b>; y ataca el <b>cobro</b> (el dinero real).</p>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 1b · EMBUDO DE COMPORTAMIENTO (GA4) */}
       {data.funnel && (() => {
@@ -369,23 +409,34 @@ export function Clarity() {
           <text x={MW - mR - 6} y={mT + 13} textAnchor="end" fontSize="10" fontWeight="800" fill={CRO_RED} opacity="0.75">arreglar ya ↗</text>
           <text x={MW - mR} y={MH - 8} textAnchor="end" fontSize="10" fill={CRO_MUT}>más tráfico →</text>
           <text x={13} y={(MH - mB + mT) / 2} transform={`rotate(-90 13 ${(MH - mB + mT) / 2})`} textAnchor="middle" fontSize="10" fill={CRO_MUT}>fricción ↑</text>
-          {sections.map((s) => {
-            const x = msx(s.sessions), y = msy(s.deadRate), r = mrad(s.sessions), c = deadColor(s.deadRate);
-            const left = x > MW - mR - 52;
-            return (
-              <g key={s.type}>
-                <circle cx={x} cy={y} r={r} fill={c} fillOpacity="0.5" stroke="#fff" strokeWidth="2" />
-                <circle cx={x} cy={y} r={r} fill="none" stroke={c} strokeWidth="1.5" />
-                <title>{`${s.type}: ${formatInt(s.sessions)} sesiones · ${formatPercent(s.deadRate, 1)} fricción · scroll ${formatPercent(s.scroll, 0)}`}</title>
-                <text x={left ? x - r - 5 : x + r + 5} y={y + 3.5} textAnchor={left ? 'end' : 'start'} fontSize="10.5" fontWeight="700" fill="#171226" stroke="#fff" strokeWidth="2.6" paintOrder="stroke">{s.type.replace(' (producto)', '')}</text>
+          {(() => {
+            // Coloca cada burbuja y separa verticalmente las etiquetas del mismo lado
+            // que se encimen (Home/Otra caen casi en el mismo punto → se pisaban).
+            const nodes = sections.map((s) => {
+              const x = msx(s.sessions), y = msy(s.deadRate), r = mrad(s.sessions);
+              const left = x > MW - mR - 52;
+              return { s, x, y, r, c: deadColor(s.deadRate), left, lx: left ? x - r - 5 : x + r + 5, ly: y + 3.5 };
+            });
+            const LH = 15;
+            [true, false].forEach((side) => {
+              const g = nodes.filter((n) => n.left === side).sort((a, b) => a.ly - b.ly);
+              for (let i = 1; i < g.length; i++) if (g[i].ly - g[i - 1].ly < LH) g[i].ly = g[i - 1].ly + LH;
+            });
+            return nodes.map((n) => (
+              <g key={n.s.type}>
+                <circle cx={n.x} cy={n.y} r={n.r} fill={n.c} fillOpacity="0.5" stroke="#fff" strokeWidth="2" />
+                <circle cx={n.x} cy={n.y} r={n.r} fill="none" stroke={n.c} strokeWidth="1.5" />
+                <title>{`${n.s.type}: ${formatInt(n.s.sessions)} sesiones · ${formatPercent(n.s.deadRate, 1)} fricción · scroll ${formatPercent(n.s.scroll, 0)}`}</title>
+                {Math.abs(n.ly - (n.y + 3.5)) > 1 && <line x1={n.left ? n.x - n.r - 2 : n.x + n.r + 2} y1={n.y} x2={n.lx} y2={n.ly - 3.5} stroke={n.c} strokeWidth="1" opacity="0.35" />}
+                <text x={n.lx} y={n.ly} textAnchor={n.left ? 'end' : 'start'} fontSize="10.5" fontWeight="700" fill="#171226" stroke="#fff" strokeWidth="2.6" paintOrder="stroke">{n.s.type.replace(' (producto)', '')}</text>
               </g>
-            );
-          })}
+            ));
+          })()}
         </svg>
       </div>
       <div className="card cro-score">
-        {sections.map((s) => {
-          const v = sectionVerdict(s.type, s.scroll, s.deadRate);
+        {[...sections].sort((a, b) => b.deadRate - a.deadRate).map((s) => {
+          const v = sectionVerdict(s.type, s.scroll, s.deadRate, s.sessions);
           return (
             <div className="cro-sc2-row" key={s.type}>
               <span className="cro-sc2-dot" style={{ background: v.color }} />
@@ -600,6 +651,12 @@ export function Clarity() {
         .cro-hchip b{font-size:24px;font-weight:800;line-height:1;color:#171226}.cro-hchip span{font-size:10px;color:${CRO_MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-top:5px}
         .cro-spark{width:100%;height:22px;margin-top:8px;display:block}
         .cro-verdict{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12.5px;color:#2b2440;line-height:1.55;margin-top:12px}
+        .cro-vg{margin-top:14px;background:linear-gradient(120deg,#151226,#3a2170 62%,#5a37e0);border-radius:16px;padding:18px 22px;box-shadow:0 6px 22px rgba(60,40,120,.14)}
+        .cro-vg-tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#151226;background:#c4e938;padding:4px 11px;border-radius:20px}
+        .cro-vg-body{margin-top:11px}
+        .cro-vg-body p{font-size:13px;line-height:1.6;color:#efeafc;margin:0 0 7px}.cro-vg-body p:last-child{margin-bottom:0}
+        .cro-vg-body b{color:#fff}
+        .cro-vg-k{color:#c4e938 !important}
         .cro-h{font-size:16px;font-weight:800;color:#171226;margin:26px 0 12px}
         .cro-matrix{margin-bottom:14px;padding:16px 18px 8px}
         .cro-mx-cap{font-size:11.5px;color:${CRO_MUT};line-height:1.5;margin-bottom:4px}

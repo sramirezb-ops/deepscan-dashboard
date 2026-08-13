@@ -112,6 +112,59 @@ function sectionVerdict(type: string, scroll: number, deadRate: number, sessions
   return { label, color, reason };
 }
 
+// Familia de sección (para mensajes específicos por zona).
+function secFam(type: string): 'pdp' | 'list' | 'search' | 'cart' | 'home' | 'other' {
+  return type.startsWith('PDP') ? 'pdp'
+    : /colecci|categor|lista/i.test(type) ? 'list'
+    : /b[uú]squeda|search/i.test(type) ? 'search'
+    : /carrito|cart/i.test(type) ? 'cart'
+    : type === 'Home' ? 'home' : 'other';
+}
+
+export interface SecPlanItem { sev: 'red' | 'amber' | 'green'; text: string }
+// Plan de ajustes CONCRETO por sección, derivado de las señales reales (fricción,
+// scroll, rebote, rage) — no consejos genéricos. Cada ítem cita su métrica.
+function buildPlan(
+  type: string, deadRate: number, scroll: number, rageRate: number,
+  bounce: number | null, worst: { path: string; dead: number } | null,
+): SecPlanItem[] {
+  const fam = secFam(type);
+  const out: SecPlanItem[] = [];
+  // 1) Fricción (dead-click) → qué elemento revisar según la zona.
+  if (deadRate >= 0.05) {
+    const where = fam === 'list' ? 'las tarjetas de producto y los filtros'
+      : fam === 'search' ? 'los resultados y filtros de búsqueda'
+      : fam === 'cart' ? 'los controles del carrito (cantidad, quitar, ir a pagar)'
+      : fam === 'pdp' ? 'la galería, la guía de tallas y los botones'
+      : fam === 'home' ? 'los banners y accesos del inicio'
+      : 'los elementos interactivos';
+    out.push({
+      sev: deadRate >= 0.08 ? 'red' : 'amber',
+      text: `Fricción ${formatPercent(deadRate, 1)}: hay toques sin respuesta. Revisa en móvil que ${where} sean clickeables y den feedback al tocar.${worst ? ` Empieza por ${worst.path} (${formatPercent(worst.dead, 1)}).` : ''}`,
+    });
+  }
+  // 2) Scroll bajo donde el contenido decisivo debe ir arriba del pliegue.
+  if (scroll < 0.45 && fam === 'pdp') {
+    out.push({ sev: 'amber', text: `Scroll ${formatPercent(scroll, 0)}: el usuario promedio no baja. Sube precio, talla, MSI y botón de compra arriba del pliegue.` });
+  } else if (scroll < 0.45 && fam === 'home') {
+    out.push({ sev: 'amber', text: `Scroll ${formatPercent(scroll, 0)}: sube la propuesta de valor y el CTA principal arriba del pliegue.` });
+  }
+  // 3) Scroll alto en listas = normal (no es un logro; enfoca relevancia).
+  if (scroll >= 0.6 && (fam === 'list' || fam === 'search')) {
+    out.push({ sev: 'green', text: `Scroll ${formatPercent(scroll, 0)}: normal en listas (están explorando). Asegura que los primeros resultados sean los más relevantes y rentables.` });
+  }
+  // 4) Rebote alto (mismatch anuncio↔página en tráfico pagado).
+  if (bounce != null && bounce >= 0.5) {
+    out.push({ sev: bounce >= 0.6 ? 'red' : 'amber', text: `Rebote ${formatPercent(bounce, 0)}: entran y se van sin tocar nada. En landing pagada suele ser mismatch anuncio↔página — alinea el creativo con esta zona o cambia el destino.` });
+  }
+  // 5) Rage clicks (frustración: algo tarda o no responde).
+  if (rageRate >= 0.02) {
+    out.push({ sev: 'amber', text: `Rage clicks ${formatPercent(rageRate, 1)}: re-tocan con frustración, algo tarda o no responde. Prioriza revisar ese elemento.` });
+  }
+  if (!out.length) out.push({ sev: 'green', text: 'Sin señales de fricción: la sección responde bien. Es el molde a replicar en las que fallan.' });
+  return out;
+}
+
 // Sparkline: forma de la tendencia (sin ejes) para un stat tile. Una sola serie
 // → una línea de un color; área tenue + punto final. min 2 puntos.
 function Spark({ values, color }: { values: number[]; color: string }) {
@@ -207,7 +260,29 @@ export function Clarity() {
   const SEC_ORDER = ['Home', 'PDP (producto)', 'Colección', 'Búsqueda', 'Carrito', 'Checkout', 'Info', 'Otra'];
   const sections = SEC_ORDER.filter((k) => secAgg[k] && secAgg[k].sessions >= 20).map((k) => {
     const a = secAgg[k];
-    return { type: k, sessions: a.sessions, scroll: a.sessions ? a.scrollW / a.sessions : 0, deadRate: a.sessions ? a.dead / a.sessions : 0 };
+    return { type: k, sessions: a.sessions, scroll: a.sessions ? a.scrollW / a.sessions : 0, deadRate: a.sessions ? a.dead / a.sessions : 0, rageRate: a.sessions ? a.rage / a.sessions : 0 };
+  });
+
+  // Plan de ajustes por sección: rebote por zona + página más crítica por fricción.
+  const bounceBySec: Record<string, { s: number; bw: number }> = {};
+  for (const b of data.bounce || []) {
+    const ty = pageType(shortPath(b.page));
+    const o = (bounceBySec[ty] ||= { s: 0, bw: 0 });
+    o.s += b.sessions; o.bw += b.bounce * b.sessions;
+  }
+  const worstBySec: Record<string, { path: string; dead: number }> = {};
+  for (const p of data.pages) {
+    if (p.sessions < 40) continue;
+    const ty = pageType(shortPath(p.pageUrl));
+    const dr = p.deadClicks / p.sessions;
+    const cur = worstBySec[ty];
+    if (!cur || dr > cur.dead) worstBySec[ty] = { path: shortPath(p.pageUrl), dead: dr };
+  }
+  const sectionPlans = [...sections].sort((a, b) => b.deadRate - a.deadRate).map((s) => {
+    const bAgg = bounceBySec[s.type];
+    const bounce = bAgg && bAgg.s ? bAgg.bw / bAgg.s : null;
+    const worst = worstBySec[s.type] || null;
+    return { s, bounce, worst, plan: buildPlan(s.type, s.deadRate, s.scroll, s.rageRate, bounce, worst) };
   });
 
   // Duelo de PDP: entre fichas con tráfico suficiente, la de menor vs mayor fricción.
@@ -448,6 +523,42 @@ export function Clarity() {
           );
         })}
       </div>
+
+      {/* 2a-bis · PLAN DE AJUSTES POR SECCIÓN (qué cambiar en cada zona) */}
+      <h3 className="cro-h">🔧 Plan de ajustes por sección · qué cambiar en cada zona</h3>
+      <div style={{ display: 'grid', gap: 12 }}>
+        {sectionPlans.map(({ s, bounce, plan }) => {
+          const v = sectionVerdict(s.type, s.scroll, s.deadRate, s.sessions);
+          const sevCol = { red: CRO_RED, amber: CRO_AMBER, green: CRO_GREEN };
+          const chip = (label: string, val: string, col?: string) => (
+            <span style={{ fontSize: 11, color: CRO_MUT }}>{label} <b style={{ color: col || '#171226' }}>{val}</b></span>
+          );
+          return (
+            <div className="card" key={s.type} style={{ padding: '14px 18px', borderLeft: `4px solid ${v.color}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                <b style={{ fontSize: 14, color: '#171226' }}>{s.type.replace(' (producto)', '')}</b>
+                <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: v.color, background: v.color + '18', border: `1px solid ${v.color}44`, borderRadius: 20, padding: '3px 9px' }}>{v.label}</span>
+                <span style={{ flex: 1 }} />
+                <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  {chip('sesiones', formatInt(s.sessions))}
+                  {chip('fricción', formatPercent(s.deadRate, 1), deadColor(s.deadRate))}
+                  {chip('scroll', formatPercent(s.scroll, 0))}
+                  {bounce != null && chip('rebote', formatPercent(bounce, 0), bounce >= 0.55 ? CRO_RED : bounce >= 0.4 ? CRO_AMBER : CRO_GREEN)}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gap: 7 }}>
+                {plan.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: '#2b2440' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: sevCol[it.sev], marginTop: 5, flexShrink: 0 }} />
+                    <span>{it.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: CRO_MUT, lineHeight: 1.55, marginTop: 8 }}>Cada ajuste sale de una señal real de esta vista (fricción=dead-click, scroll, rebote=GA4, rage). 🔴 arregla ya · 🟡 vigila/mejora · 🟢 va bien / molde a replicar. Ordenado por fricción (lo más roto primero).</div>
 
       {/* 2b · SCROLL / FOLD POR SECCIÓN */}
       <h3 className="cro-h">📜 Profundidad de scroll · ¿ven lo importante?</h3>

@@ -251,8 +251,26 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
     const junk = (t: string) => !t || /prueba|test|sin\s*cliente|preliminar/i.test(t);
     const salesByTitle = new Map<string, { sold: number; revenue: number }>();
     let dated = false;
+
+    // Verdad de unidades del rango = shopify_orders (siempre poblada) → sirve de guard
+    // de completitud: solo confiamos en la tabla diaria si cubre casi todas esas unidades.
+    let trueUnits = 0;
     try {
-      let o2 = 0;
+      let oo = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase.from('shopify_orders')
+          .select('units_sold').eq('client_id', clientId).gte('date', from).lte('date', to).range(oo, oo + PAGE - 1);
+        if (error) throw error;
+        const batch = (data || []) as any[];
+        for (const r of batch) trueUnits += Number(r.units_sold) || 0;
+        if (batch.length < PAGE) break;
+        oo += PAGE;
+      }
+    } catch { /* sin shopify_orders → guard neutro */ }
+
+    try {
+      let o2 = 0, dailyUnits = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { data, error } = await supabase.from('shopify_product_daily')
@@ -262,6 +280,7 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
         if (error) throw error;
         const batch = (data || []) as any[];
         for (const r of batch) {
+          dailyUnits += Number(r.units_sold) || 0;
           const t = (r.title || '').trim(); if (junk(t)) continue;
           const cur = salesByTitle.get(t) || { sold: 0, revenue: 0 };
           cur.sold += Number(r.units_sold) || 0; cur.revenue += Number(r.revenue) || 0;
@@ -270,10 +289,14 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
         if (batch.length < PAGE) break;
         o2 += PAGE;
       }
-      dated = salesByTitle.size > 0;
+      // Confiar en la diaria solo si está COMPLETA: cubre ≥85% de las unidades reales del
+      // rango (según shopify_orders). Una corrida parcial del ETL deja pocas filas → cae al
+      // snapshot en vez de degradar el cuadro. Si no hay órdenes en el rango, no forzamos.
+      dated = salesByTitle.size > 0 && trueUnits > 0 && dailyUnits >= trueUnits * 0.85;
     } catch { /* tabla aún no creada → fallback al snapshot */ }
 
     if (!dated) {
+      salesByTitle.clear();
       // Fallback: último snapshot POR producto (no un único period_end global, que tiraba
       // productos con venta pero snapshot más viejo, ej. True Blue, Flu Game).
       const sp: any[] = []; let o3 = 0;

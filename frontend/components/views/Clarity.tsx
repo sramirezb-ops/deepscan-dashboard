@@ -10,6 +10,7 @@ import {
   type ClarityPageRow,
   type ProductPerf,
   type BounceRow,
+  type SlugSale,
 } from '@/lib/hooks/useClarity';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatInt, formatPercent } from '@/lib/utils';
@@ -163,6 +164,57 @@ function buildPlan(
   }
   if (!out.length) out.push({ sev: 'green', text: 'Sin señales de fricción: la sección responde bien. Es el molde a replicar en las que fallan.' });
   return out;
+}
+
+// Slug de producto desde una URL PDP (igual criterio que el hook: quita locale y año).
+function slugOf(url: string): string | null {
+  const m = /\/(?:[a-z]{2}\/)?products\/([^/?#]+)/i.exec(url || '');
+  return m ? m[1].toLowerCase().replace(/-20\d\d$/, '') : null;
+}
+
+export interface PageBullet { sev: 'red' | 'amber' | 'green'; text: string }
+// Diagnóstico CRO por PÁGINA (URL real): qué funciona, qué retiene y qué falla,
+// cruzando fricción (dead+rage), scroll (retención) y rebote (GA4) — y para PDP la
+// venta real. Devuelve viñetas priorizadas + una conclusión que lleva a lo importante.
+function pageDiag(
+  type: string, scroll: number, friction: number, bounce: number | null, sale: SlugSale | null,
+): { bullets: PageBullet[]; concl: string; health: string } {
+  const fam = secFam(type);
+  const isList = fam === 'list' || fam === 'search';
+  const B: PageBullet[] = [];
+  // FUNCIONA / FALLA — fricción (¿los elementos responden?)
+  if (friction >= 0.08) B.push({ sev: 'red', text: `Falla: fricción ${formatPercent(friction, 1)} — toques sin respuesta (algo se ve clickeable y no lo es).` });
+  else if (friction < 0.05) B.push({ sev: 'green', text: `Funciona: baja fricción (${formatPercent(friction, 1)}); los elementos responden al toque.` });
+  else B.push({ sev: 'amber', text: `Fricción media (${formatPercent(friction, 1)}) — conviene vigilar.` });
+  // RETIENE — rebote de entrada (¿se quedan?)
+  if (bounce != null) {
+    if (bounce >= 0.55) B.push({ sev: 'red', text: `No retiene de entrada: ${formatPercent(bounce, 0)} entra y se va sin tocar nada.` });
+    else if (bounce < 0.4) B.push({ sev: 'green', text: `Retiene de entrada: rebote bajo (${formatPercent(bounce, 0)}).` });
+  }
+  // RETIENE — profundidad de scroll (¿ven lo importante?)
+  if (!isList) {
+    if (scroll < 0.4) B.push({ sev: 'amber', text: `Poco scroll (${formatPercent(scroll, 0)}): no bajan del pliegue — sube precio, talla y CTA arriba.` });
+    else if (scroll >= 0.6) B.push({ sev: 'green', text: `Retiene contenido: llegan al ${formatPercent(scroll, 0)} de la página.` });
+  } else if (scroll >= 0.6) {
+    B.push({ sev: 'green', text: `Scroll ${formatPercent(scroll, 0)}: exploran la lista (normal aquí).` });
+  }
+  // RESULTADO — venta (sólo PDP con match)
+  if (sale) {
+    if (sale.verdict === 'escalar' || sale.verdict === 'explorar') B.push({ sev: 'green', text: `Convierte bien (${formatPercent(sale.conv, 1)}, ${sale.sold} uds) → candidato a más pauta.` });
+    else if (sale.sold === 0) B.push({ sev: 'amber', text: `No registró venta en el rango pese al tráfico.` });
+    else B.push({ sev: sale.verdict === 'arreglar' ? 'red' : 'amber', text: `Convierte ${formatPercent(sale.conv, 1)} (${sale.sold} uds)${sale.verdict === 'arreglar' ? ' — muy por debajo del promedio' : ''}.` });
+  }
+  // CONCLUSIÓN — prioriza el freno dominante y conecta con lo que importa.
+  let concl: string;
+  if (friction >= 0.08) concl = 'Prioridad: arregla el elemento que traba aquí (es lo que más pierde).';
+  else if (bounce != null && bounce >= 0.55) concl = 'El freno está ANTES de la página: mismatch anuncio↔contenido o no convence en los primeros segundos.';
+  else if (sale && sale.verdict === 'arreglar') concl = 'La UX funciona pero no vende → el cuello es precio/cobro, no la ficha.';
+  else if (!B.some((b) => b.sev === 'red' || b.sev === 'amber')) concl = 'Sana: es el molde a replicar en las que fallan.';
+  else concl = 'Funciona en lo básico; afina el punto en ámbar.';
+  const health = (friction >= 0.08 || (bounce != null && bounce >= 0.6)) ? CRO_RED
+    : (friction >= 0.05 || (bounce != null && bounce >= 0.5) || (!isList && scroll < 0.4)) ? CRO_AMBER
+      : CRO_GREEN;
+  return { bullets: B, concl, health };
 }
 
 // Sparkline: forma de la tendencia (sin ejes) para un stat tile. Una sola serie
@@ -437,6 +489,61 @@ export function Clarity() {
         })}
       </div>
       <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginTop: 8 }}>Cada ajuste sale de una señal real de esta vista (fricción=dead-click, scroll, rebote=GA4, rage). 🔴 arregla ya · 🟡 vigila/mejora · 🟢 va bien / molde a replicar. Ordenado por fricción (lo más roto primero).</div>
+
+      {/* 2a-ter · ANÁLISIS PÁGINA POR PÁGINA (URLs reales, las que importan) */}
+      {(() => {
+        const bounceByPath = new Map<string, number>();
+        for (const b of data.bounce || []) bounceByPath.set(shortPath(b.page), b.bounce);
+        // Las páginas que importan: top por tráfico con muestra suficiente.
+        const top = [...data.pages].filter((p) => p.sessions >= 80).sort((a, b) => b.sessions - a.sessions).slice(0, 10);
+        if (!top.length) return null;
+        const sevCol = { red: CRO_RED, amber: CRO_AMBER, green: CRO_GREEN };
+        return (
+          <>
+            <h3 className="cro-h">🔬 Página por página · qué retiene, qué funciona y qué falla</h3>
+            <div style={{ fontSize: 11.5, color: 'var(--t2)', lineHeight: 1.5, marginBottom: 10 }}>Las {top.length} páginas de más tráfico, diagnosticadas una por una. Cruza <b>fricción</b> (responde al toque), <b>scroll</b> (retención) y <b>rebote</b> (GA4) — y para fichas, la <b>venta real</b>.</div>
+            <div style={{ display: 'grid', gap: 12 }}>
+              {top.map((p) => {
+                const path = shortPath(p.pageUrl);
+                const ty = pageType(path);
+                const friction = p.sessions ? (p.deadClicks + p.rageClicks) / p.sessions : 0;
+                const bounce = bounceByPath.has(path) ? bounceByPath.get(path)! : null;
+                const slug = slugOf(p.pageUrl);
+                const sale = slug ? (data.salesBySlug[slug] || null) : null;
+                const d = pageDiag(ty, p.scrollDepth, friction, bounce, sale);
+                const chip = (label: string, val: string, col?: string) => (
+                  <span style={{ fontSize: 10.5, color: 'var(--t2)' }}>{label} <b style={{ color: col || 'var(--t1)' }}>{val}</b></span>
+                );
+                return (
+                  <div className="card" key={p.pageUrl} style={{ padding: '13px 17px', borderLeft: `4px solid ${d.health}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 9, marginBottom: 9 }}>
+                      <span className="cro-badge">{ty.replace(' (producto)', '')}</span>
+                      <a href={p.pageUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, fontWeight: 700, color: 'var(--t1)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '48%' }}>{path}</a>
+                      <span style={{ flex: 1 }} />
+                      <span style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        {chip('sesiones', formatInt(p.sessions))}
+                        {chip('scroll', formatPercent(p.scrollDepth, 0))}
+                        {chip('fricción', formatPercent(friction, 1), deadColor(friction))}
+                        {bounce != null && chip('rebote', formatPercent(bounce, 0), bounce >= 0.55 ? CRO_RED : bounce >= 0.4 ? CRO_AMBER : CRO_GREEN)}
+                        {sale && sale.sold > 0 && chip('conv', formatPercent(sale.conv, 1), sale.verdict === 'escalar' || sale.verdict === 'explorar' ? CRO_GREEN : sale.verdict === 'arreglar' ? CRO_RED : undefined)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {d.bullets.map((it, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: 'var(--t1)' }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: sevCol[it.sev], marginTop: 5, flexShrink: 0 }} />
+                          <span>{it.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 9, paddingTop: 8, borderTop: '1px solid var(--b1)', fontSize: 12.5, fontWeight: 700, color: 'var(--t1)' }}>→ {d.concl}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
 
       {/* 2b · SCROLL / FOLD POR SECCIÓN */}
       <h3 className="cro-h">📜 Profundidad de scroll · ¿ven lo importante?</h3>

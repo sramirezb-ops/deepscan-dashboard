@@ -59,6 +59,8 @@ export interface ProductPerf {
 }
 // Rebote por página de entrada (GA4 ga4_landing): dónde entran y se van sin interactuar.
 export interface BounceRow { page: string; sessions: number; bounce: number; }
+// Venta cruzada a un slug de página (para el análisis por página).
+export interface SlugSale { sold: number; conv: number; atcRate: number; verdict: ProductPerf['verdict']; }
 export interface ClarityData {
   daily: ClarityDailyRow[]; // ordenadas por fecha asc
   pages: ClarityPageRow[]; // ordenadas por sesiones desc
@@ -66,6 +68,7 @@ export interface ClarityData {
   funnel: ClarityFunnel | null; // embudo GA4 (null si no hay dato)
   products: ProductPerf[] | null; // cruce tráfico×venta por producto
   salesDated: boolean; // true = venta sumada del rango exacto (shopify_product_daily); false = snapshot ~30d
+  salesBySlug: Record<string, SlugSale>; // venta cruzada por slug de página (para análisis por página)
   bounce: BounceRow[] | null; // rebote por landing (GA4)
   from: string;
   to: string;
@@ -219,7 +222,7 @@ function stoks(s: string): Set<string> {
 const prettySlug = (slug: string) => slug.replace(/^(tenis|botas)-/, '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function fetchSales(clientId: string, from: string, to: string, property?: string): Promise<{ rows: ProductPerf[]; dated: boolean } | null> {
+async function fetchSales(clientId: string, from: string, to: string, property?: string): Promise<{ rows: ProductPerf[]; dated: boolean; salesBySlug: Record<string, SlugSale> } | null> {
   try {
     // 1) TRÁFICO = sesiones PDP de Clarity, por slug de producto (junta /en/ y año).
     //    Misma fuente y unidad que la tabla "Páginas con más sesiones" → los dos cuadros
@@ -329,6 +332,7 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
     //    Un producto puede recibir VARIOS slugs (colorways/locale) → se SUMAN sus sesiones.
     const MIN_SESS = 40;
     const leftover: { slug: string; sessions: number }[] = [];
+    const slugToProd = new Map<string, number>(); // slug → índice de producto (para cruzar venta por página)
     for (const [slug, sessions] of bySlug) {
       if (sessions < MIN_SESS) continue;
       const stk = stoks(slug);
@@ -339,7 +343,7 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
         const uni = new Set([...stk, ...p.tk]).size; const sc = inter / (uni || 1);
         if (sc > bestSc) { bestSc = sc; best = pi; }
       });
-      if (best >= 0 && bestSc >= 0.4) { prods[best].sessions += sessions; prods[best].hit = true; }
+      if (best >= 0 && bestSc >= 0.4) { prods[best].sessions += sessions; prods[best].hit = true; slugToProd.set(slug, best); }
       else leftover.push({ slug, sessions });
     }
 
@@ -412,7 +416,14 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
       else if (hi && bad) p.verdict = 'arreglar';
       else p.verdict = 'observar';
     }
-    return { rows, dated };
+    // Venta por slug de página (para cruzar UX↔venta en el análisis por página).
+    const rowByName = new Map(rows.map((r) => [r.name, r]));
+    const salesBySlug: Record<string, SlugSale> = {};
+    for (const [slug, pi] of slugToProd) {
+      const r = rowByName.get(prods[pi].name);
+      if (r) salesBySlug[slug] = { sold: r.sold, conv: r.conv, atcRate: r.atcRate, verdict: r.verdict };
+    }
+    return { rows, dated, salesBySlug };
   } catch {
     return null;
   }
@@ -550,6 +561,7 @@ export function useClarity(clientId: string, range: DateRange, property?: string
         if (cancelled) return;
         const products = salesRes?.rows ?? null;
         const salesDated = salesRes?.dated ?? false;
+        const salesBySlug = salesRes?.salesBySlug ?? {};
 
         const daily = buildDaily(metricRows);
         const totals = sumTotals(daily);
@@ -558,7 +570,7 @@ export function useClarity(clientId: string, range: DateRange, property?: string
         totals.deviceTablet = devices.tablet;
         const pages = buildPages(pageRows);
 
-        setData({ daily, pages, totals, funnel, products, salesDated, bounce, from: range.from, to: range.to });
+        setData({ daily, pages, totals, funnel, products, salesDated, salesBySlug, bounce, from: range.from, to: range.to });
       } catch (e: any) {
         if (cancelled) return;
         console.error('[useClarity]', e);

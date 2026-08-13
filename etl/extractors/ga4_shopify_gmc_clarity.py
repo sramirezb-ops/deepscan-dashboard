@@ -655,6 +655,12 @@ def extract_shopify(
             url = None
         time.sleep(0.3)
 
+    # Diagnóstico: cuántas órdenes crudas trajo el fetch para la ventana pedida.
+    # (Si esto sale bajo con una ventana de 30 días, el problema es el fetch/paginación,
+    #  no la agregación diaria.)
+    n_items = sum(len(o.get("line_items") or []) for o in orders_raw)
+    log.info(f"   Shopify fetch: {len(orders_raw)} órdenes, {n_items} line items ({date_from}→{date_to})")
+
     # Agregar órdenes por día
     orders_by_date: dict[str, dict] = {}
     product_sales:  dict[str, dict] = {}
@@ -742,8 +748,8 @@ def extract_shopify(
             dk = (pid, d)
             if dk not in product_daily:
                 product_daily[dk] = {
-                    "date": d, "product_id": pid, "title": item.get("title", ""),
-                    "sku": item.get("sku", ""), "revenue": 0, "units_sold": 0, "orders": 0,
+                    "date": d, "product_id": pid, "title": item.get("title") or "",
+                    "sku": item.get("sku") or "", "revenue": 0, "units_sold": 0, "orders": 0,
                     "revenue_paid": 0, "revenue_pending": 0, "units_paid": 0, "units_pending": 0,
                 }
             pd = product_daily[dk]

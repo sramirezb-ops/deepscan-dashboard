@@ -191,49 +191,41 @@ export function DataTable<T>({
       </div>
 
       <style jsx>{`
+        /* Colores por VARIABLES de tema de la app (--t1/--t2/--bg/--acc…) para
+           seguir el toggle .lm (claro/oscuro) automáticamente, sin media query. */
         .dt{width:100%}
         .dt-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;flex-wrap:wrap}
-        .dt-tl{font-size:11px;color:#77718a;font-weight:700}
-        .dt-search{position:relative;display:flex;align-items:center;gap:6px;background:#f6f4fb;border:1px solid #e7e2f2;border-radius:10px;padding:6px 10px;min-width:200px}
+        .dt-tl{font-size:11px;color:var(--t2);font-weight:700}
+        .dt-search{position:relative;display:flex;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--b1);border-radius:10px;padding:6px 10px;min-width:200px}
         .dt-search span{font-size:12px;opacity:.6}
-        .dt-search input{border:0;background:transparent;outline:none;font-size:12.5px;color:#171226;width:100%}
-        .dt-clear{border:0;background:#e2ddef;color:#5b5470;border-radius:50%;width:18px;height:18px;line-height:1;cursor:pointer;font-size:13px}
+        .dt-search input{border:0;background:transparent;outline:none;font-size:12.5px;color:var(--t1);width:100%}
+        .dt-search input::placeholder{color:var(--t3)}
+        .dt-clear{border:0;background:var(--b2);color:var(--t2);border-radius:50%;width:18px;height:18px;line-height:1;cursor:pointer;font-size:13px}
         .dt-scroll{overflow-x:auto}
         .dt-table{width:100%;border-collapse:collapse;font-size:12.5px}
-        .dt-table th{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:#77718a;font-weight:700;padding:10px 10px 8px;border-bottom:2px solid #ebe7f4;text-align:left;white-space:nowrap;vertical-align:bottom}
+        .dt-table th{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--t3);font-weight:700;padding:10px 10px 8px;border-bottom:2px solid var(--b2);text-align:left;white-space:nowrap;vertical-align:bottom}
         .dt-table th.r{text-align:right}.dt-table th.c{text-align:center}
         .dt-table th.s{cursor:pointer;user-select:none}
-        .dt-table th.s:hover{color:#171226}
+        .dt-table th.s:hover{color:var(--t1)}
         .dt-hd{display:inline-flex;align-items:center;gap:5px}
         .dt-arw{font-style:normal;font-size:9px;opacity:.35;transition:opacity .15s}
-        .dt-table th[data-sort="asc"] .dt-arw,.dt-table th[data-sort="desc"] .dt-arw{opacity:.9;color:#7c5cff}
+        .dt-table th[data-sort="asc"] .dt-arw,.dt-table th[data-sort="desc"] .dt-arw{opacity:.9;color:var(--acc)}
         .dt-table th.s:hover .dt-arw{opacity:.7}
-        .dt-table td{padding:9px 10px;border-bottom:1px solid #f4f2f9;color:#171226;vertical-align:middle}
+        .dt-table td{padding:9px 10px;border-bottom:1px solid var(--b1);color:var(--t1);vertical-align:middle}
         .dt-table td.r{text-align:right}.dt-table td.c{text-align:center}
-        .dt-table tbody tr:hover td{background:#faf9fe}
-        .dt-empty{text-align:center;color:#9a94ab;padding:22px 0!important;font-size:12px}
+        .dt-table tbody tr:hover td{background:var(--bg2)}
+        .dt-empty{text-align:center;color:var(--t3);padding:22px 0!important;font-size:12px}
         .dt-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;flex-wrap:wrap}
-        .dt-count{font-size:11.5px;color:#77718a}.dt-count b{color:#2b2440}
+        .dt-count{font-size:11.5px;color:var(--t2)}.dt-count b{color:var(--t1)}
         .dt-pager{display:flex;align-items:center;gap:14px}
-        .dt-ps{font-size:11px;color:#77718a;display:inline-flex;align-items:center;gap:6px;font-weight:600}
-        .dt-ps select{font-size:12px;border:1px solid #e7e2f2;border-radius:8px;padding:4px 6px;background:#fff;color:#171226;cursor:pointer}
+        .dt-ps{font-size:11px;color:var(--t2);display:inline-flex;align-items:center;gap:6px;font-weight:600}
+        .dt-ps select{font-size:12px;border:1px solid var(--b1);border-radius:8px;padding:4px 6px;background:var(--bg1);color:var(--t1);cursor:pointer}
         .dt-nav{display:flex;align-items:center;gap:3px}
-        .dt-nav span{font-size:11.5px;color:#5b5470;min-width:42px;text-align:center;font-weight:700}
-        .dt-nav button{border:1px solid #e7e2f2;background:#fff;color:#5b5470;border-radius:8px;min-width:28px;height:28px;cursor:pointer;font-size:14px;line-height:1}
-        .dt-nav button:hover:not(:disabled){background:#f2eff8;color:#171226}
+        .dt-nav span{font-size:11.5px;color:var(--t2);min-width:42px;text-align:center;font-weight:700}
+        .dt-nav button{border:1px solid var(--b1);background:var(--bg1);color:var(--t2);border-radius:8px;min-width:28px;height:28px;cursor:pointer;font-size:14px;line-height:1}
+        .dt-nav button:hover:not(:disabled){background:var(--bg3);color:var(--t1)}
         .dt-nav button:disabled{opacity:.35;cursor:default}
         @media(max-width:640px){.dt-table th.hm,.dt-table td.hm{display:none}}
-        @media(prefers-color-scheme:dark){
-          .dt-tl,.dt-count,.dt-ps{color:#a49db8}
-          .dt-search{background:#221d33;border-color:#352c4d}
-          .dt-search input{color:#ece8f6}
-          .dt-table th{color:#8b84a0;border-bottom-color:#2c2542}
-          .dt-table th.s:hover,.dt-count b{color:#ece8f6}
-          .dt-table td{color:#ece8f6;border-bottom-color:#241f36}
-          .dt-table tbody tr:hover td{background:#1e1930}
-          .dt-ps select,.dt-nav button{background:#1a1626;border-color:#352c4d;color:#c7c0da}
-          .dt-nav button:hover:not(:disabled){background:#2a2340;color:#fff}
-        }
       `}</style>
     </div>
   );

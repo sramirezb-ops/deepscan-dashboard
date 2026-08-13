@@ -393,7 +393,7 @@ export function Clarity() {
                     <div className="cro-fnl-conv">
                       {i === 0 ? <span className="cro-fnl-base">arranque</span>
                         : isLast ? <span className="cro-fnl-off">offsite · sub-medido</span>
-                          : <><b style={{ color: isWorst ? CRO_RED : '#171226' }}>{formatPercent(conv[i]!, 1)}</b>{isWorst ? <span className="cro-fnl-worst"> ← mayor caída</span> : ' del paso anterior'}</>}
+                          : <><b style={{ color: isWorst ? CRO_RED : 'var(--t1)' }}>{formatPercent(conv[i]!, 1)}</b>{isWorst ? <span className="cro-fnl-worst"> ← mayor caída</span> : ' del paso anterior'}</>}
                     </div>
                   </div>
                 );
@@ -418,18 +418,18 @@ export function Clarity() {
             render: (p) => <span style={{ fontWeight: 700 }}>{tidy(p.name)}</span> },
           { key: 'sess', header: 'Tráfico (sesiones)', align: 'left', width: '24%', text: (p) => String(p.sessions), sortValue: (p) => p.sessions,
             render: (p) => { const col = VERDICT[p.verdict][1]; return (
-              <div style={{ position: 'relative', height: 16, background: '#f1eef8', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
+              <div style={{ position: 'relative', height: 16, background: 'var(--acc-dim)', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
                 <span style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.max(3, Math.round((100 * p.sessions) / mxSess))}%`, background: col, borderRadius: 6, opacity: 0.72 }} />
                 <small style={{ position: 'relative', marginLeft: 8, fontSize: 10.5, fontWeight: 800 }}>{formatInt(p.sessions)}</small>
               </div>); } },
           { key: 'carts', header: 'Carritos (GA4)', align: 'right', hideOnMobile: true, text: (p) => String(p.carts), sortValue: (p) => p.carts,
-            render: (p) => p.gaViews > 0 ? <b>{formatInt(p.carts)}</b> : <span style={{ color: CRO_MUT }}>—</span> },
+            render: (p) => p.gaViews > 0 ? <b>{formatInt(p.carts)}</b> : <span style={{ color: 'var(--t3)' }}>—</span> },
           { key: 'atc', header: '% carrito (GA4)', align: 'right', hideOnMobile: true, text: (p) => String(p.atcRate), sortValue: (p) => p.atcRate,
-            render: (p) => p.gaViews > 0 ? <span style={{ fontWeight: 700, color: p.atcRate >= 0.05 ? CRO_GREEN : '#171226' }}>{formatPercent(p.atcRate, 1)}</span> : <span style={{ color: CRO_MUT }}>—</span> },
+            render: (p) => p.gaViews > 0 ? <span style={{ fontWeight: 700, color: p.atcRate >= 0.05 ? CRO_GREEN : 'var(--t1)' }}>{formatPercent(p.atcRate, 1)}</span> : <span style={{ color: 'var(--t3)' }}>—</span> },
           { key: 'sold', header: 'Vende', align: 'right', text: (p) => String(p.sold), sortValue: (p) => p.sold,
-            render: (p) => p.sold > 0 ? <span><b>{p.sold} uds</b>{p.revenue > 0 ? <small style={{ color: CRO_MUT }}> · {money(p.revenue)}</small> : null}</span> : <span style={{ color: CRO_MUT }}>—</span> },
+            render: (p) => p.sold > 0 ? <span><b>{p.sold} uds</b>{p.revenue > 0 ? <small style={{ color: 'var(--t2)' }}> · {money(p.revenue)}</small> : null}</span> : <span style={{ color: 'var(--t3)' }}>—</span> },
           { key: 'conv', header: 'Conv.', align: 'right', text: (p) => String(p.conv), sortValue: (p) => p.conv,
-            render: (p) => { const good = p.verdict === 'escalar' || p.verdict === 'explorar'; return <b style={{ color: good ? CRO_GREEN : p.sold > 0 ? '#171226' : CRO_MUT }}>{p.matched ? formatPercent(p.conv, 1) : '—'}</b>; } },
+            render: (p) => { const good = p.verdict === 'escalar' || p.verdict === 'explorar'; return <b style={{ color: good ? CRO_GREEN : p.sold > 0 ? 'var(--t1)' : 'var(--t3)' }}>{p.matched ? formatPercent(p.conv, 1) : '—'}</b>; } },
           { key: 'verdict', header: 'Veredicto', align: 'left', width: '150px', text: (p) => VERDICT[p.verdict][0], sortValue: (p) => vrank[p.verdict],
             render: (p) => { const [lbl, col] = VERDICT[p.verdict]; return <span style={{ display: 'inline-block', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color: col, background: col + '18', border: `1px solid ${col}44`, borderRadius: 20, padding: '3px 9px', whiteSpace: 'nowrap' }}>{lbl}</span>; } },
         ];
@@ -470,7 +470,7 @@ export function Clarity() {
           <rect x={msx(SESS_HI)} y={mT} width={Math.max(0, MW - mR - msx(SESS_HI))} height={Math.max(0, msy(FR_HI) - mT)} fill={CRO_RED} opacity="0.045" />
           {yTicks.map((f, i) => (
             <g key={i}>
-              <line x1={mL} y1={msy(f)} x2={MW - mR} y2={msy(f)} stroke="#ebe7f4" strokeWidth="1" />
+              <line x1={mL} y1={msy(f)} x2={MW - mR} y2={msy(f)} strokeWidth="1" style={{ stroke: 'var(--chart-grid)' }} />
               <text x={mL - 8} y={msy(f) + 3} textAnchor="end" fontSize="10" fill={CRO_MUT}>{Math.round(f * 100)}%</text>
             </g>
           ))}
@@ -494,11 +494,11 @@ export function Clarity() {
             });
             return nodes.map((n) => (
               <g key={n.s.type}>
-                <circle cx={n.x} cy={n.y} r={n.r} fill={n.c} fillOpacity="0.5" stroke="#fff" strokeWidth="2" />
+                <circle cx={n.x} cy={n.y} r={n.r} fill={n.c} fillOpacity="0.5" strokeWidth="2" style={{ stroke: 'var(--bg1)' }} />
                 <circle cx={n.x} cy={n.y} r={n.r} fill="none" stroke={n.c} strokeWidth="1.5" />
                 <title>{`${n.s.type}: ${formatInt(n.s.sessions)} sesiones · ${formatPercent(n.s.deadRate, 1)} fricción · scroll ${formatPercent(n.s.scroll, 0)}`}</title>
                 {Math.abs(n.ly - (n.y + 3.5)) > 1 && <line x1={n.left ? n.x - n.r - 2 : n.x + n.r + 2} y1={n.y} x2={n.lx} y2={n.ly - 3.5} stroke={n.c} strokeWidth="1" opacity="0.35" />}
-                <text x={n.lx} y={n.ly} textAnchor={n.left ? 'end' : 'start'} fontSize="10.5" fontWeight="700" fill="#171226" stroke="#fff" strokeWidth="2.6" paintOrder="stroke">{n.s.type.replace(' (producto)', '')}</text>
+                <text x={n.lx} y={n.ly} textAnchor={n.left ? 'end' : 'start'} fontSize="10.5" fontWeight="700" strokeWidth="2.6" paintOrder="stroke" style={{ fill: 'var(--t1)', stroke: 'var(--bg1)' }}>{n.s.type.replace(' (producto)', '')}</text>
               </g>
             ));
           })()}
@@ -531,12 +531,12 @@ export function Clarity() {
           const v = sectionVerdict(s.type, s.scroll, s.deadRate, s.sessions);
           const sevCol = { red: CRO_RED, amber: CRO_AMBER, green: CRO_GREEN };
           const chip = (label: string, val: string, col?: string) => (
-            <span style={{ fontSize: 11, color: CRO_MUT }}>{label} <b style={{ color: col || '#171226' }}>{val}</b></span>
+            <span style={{ fontSize: 11, color: 'var(--t2)' }}>{label} <b style={{ color: col || 'var(--t1)' }}>{val}</b></span>
           );
           return (
             <div className="card" key={s.type} style={{ padding: '14px 18px', borderLeft: `4px solid ${v.color}` }}>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-                <b style={{ fontSize: 14, color: '#171226' }}>{s.type.replace(' (producto)', '')}</b>
+                <b style={{ fontSize: 14, color: 'var(--t1)' }}>{s.type.replace(' (producto)', '')}</b>
                 <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: v.color, background: v.color + '18', border: `1px solid ${v.color}44`, borderRadius: 20, padding: '3px 9px' }}>{v.label}</span>
                 <span style={{ flex: 1 }} />
                 <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
@@ -548,7 +548,7 @@ export function Clarity() {
               </div>
               <div style={{ display: 'grid', gap: 7 }}>
                 {plan.map((it, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: '#2b2440' }}>
+                  <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: 'var(--t1)' }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: sevCol[it.sev], marginTop: 5, flexShrink: 0 }} />
                     <span>{it.text}</span>
                   </div>
@@ -558,7 +558,7 @@ export function Clarity() {
           );
         })}
       </div>
-      <div style={{ fontSize: 11, color: CRO_MUT, lineHeight: 1.55, marginTop: 8 }}>Cada ajuste sale de una señal real de esta vista (fricción=dead-click, scroll, rebote=GA4, rage). 🔴 arregla ya · 🟡 vigila/mejora · 🟢 va bien / molde a replicar. Ordenado por fricción (lo más roto primero).</div>
+      <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginTop: 8 }}>Cada ajuste sale de una señal real de esta vista (fricción=dead-click, scroll, rebote=GA4, rage). 🔴 arregla ya · 🟡 vigila/mejora · 🟢 va bien / molde a replicar. Ordenado por fricción (lo más roto primero).</div>
 
       {/* 2b · SCROLL / FOLD POR SECCIÓN */}
       <h3 className="cro-h">📜 Profundidad de scroll · ¿ven lo importante?</h3>
@@ -573,7 +573,7 @@ export function Clarity() {
                 <span className="cro-sc-bar" style={{ width: `${Math.max(2, pct)}%` }} />
                 <span className="cro-sc-ref" />
               </div>
-              <div className="cro-sc-val" style={{ color: shallow ? CRO_AMBER : '#171226' }}>{pct}%</div>
+              <div className="cro-sc-val" style={{ color: shallow ? CRO_AMBER : 'var(--t1)' }}>{pct}%</div>
             </div>
           );
         })}
@@ -605,7 +605,7 @@ export function Clarity() {
                     render: (b) => <b style={{ fontWeight: 700 }}>{shortPath(b.page)}</b> },
                   { key: 'sess', header: 'Entradas', align: 'right', text: (b) => String(b.sessions), sortValue: (b) => b.sessions,
                     render: (b) => (
-                      <div style={{ position: 'relative', height: 16, background: '#f1eef8', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
+                      <div style={{ position: 'relative', height: 16, background: 'var(--acc-dim)', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
                         <span style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.max(3, Math.round((100 * b.sessions) / mxs))}%`, background: CRO_ACC, borderRadius: 6, opacity: 0.7 }} />
                         <small style={{ position: 'relative', marginLeft: 8, fontSize: 10.5, fontWeight: 800 }}>{formatInt(b.sessions)}</small>
                       </div>) },
@@ -710,94 +710,94 @@ export function Clarity() {
         .cro-dev-leg{font-size:11px;opacity:.85}
         .cro-dev-pend{font-size:13px;line-height:1.5}.cro-dev-pend b{display:block;font-size:15px;margin:2px 0}.cro-dev-pend span{opacity:.8;font-size:11.5px}
         .cro-health{flex:2;min-width:280px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-        .cro-hchip{background:#fff;border:1px solid #ebe7f4;border-radius:14px;padding:14px 12px;text-align:center;box-shadow:0 4px 18px rgba(60,40,120,.05);display:flex;flex-direction:column;justify-content:center}
-        .cro-hchip b{font-size:24px;font-weight:800;line-height:1;color:#171226}.cro-hchip span{font-size:10px;color:${CRO_MUT};text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-top:5px}
+        .cro-hchip{background:var(--bg1);border:1px solid var(--b2);border-radius:14px;padding:14px 12px;text-align:center;box-shadow:var(--sh-sm);display:flex;flex-direction:column;justify-content:center}
+        .cro-hchip b{font-size:24px;font-weight:800;line-height:1;color:var(--t1)}.cro-hchip span{font-size:10px;color:var(--t2);text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-top:5px}
         .cro-spark{width:100%;height:22px;margin-top:8px;display:block}
-        .cro-verdict{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12.5px;color:#2b2440;line-height:1.55;margin-top:12px}
+        .cro-verdict{background:var(--bg2);border:1px solid var(--b2);border-radius:12px;padding:12px 15px;font-size:12.5px;color:var(--t1);line-height:1.55;margin-top:12px}
         .cro-vg{margin-top:14px;background:linear-gradient(120deg,#151226,#3a2170 62%,#5a37e0);border-radius:16px;padding:18px 22px;box-shadow:0 6px 22px rgba(60,40,120,.14)}
         .cro-vg-tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#151226;background:#c4e938;padding:4px 11px;border-radius:20px}
         .cro-vg-body{margin-top:11px}
         .cro-vg-body p{font-size:13px;line-height:1.6;color:#efeafc;margin:0 0 7px}.cro-vg-body p:last-child{margin-bottom:0}
         .cro-vg-body b{color:#fff}
         .cro-vg-k{color:#c4e938 !important}
-        .cro-h{font-size:16px;font-weight:800;color:#171226;margin:26px 0 12px}
+        .cro-h{font-size:16px;font-weight:800;color:var(--t1);margin:26px 0 12px}
         .cro-matrix{margin-bottom:14px;padding:16px 18px 8px}
-        .cro-mx-cap{font-size:11.5px;color:${CRO_MUT};line-height:1.5;margin-bottom:4px}
+        .cro-mx-cap{font-size:11.5px;color:var(--t2);line-height:1.5;margin-bottom:4px}
         .cro-matrix :global(svg) text{font-family:inherit}
-        .cro-sub2{font-size:11px;font-weight:600;color:${CRO_MUT};text-transform:none;letter-spacing:0}
-        .cro-op-head{background:linear-gradient(135deg,#fff,#f0fbf5);border:1px solid rgba(31,175,106,.28);border-left:4px solid ${CRO_GREEN};border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.55;color:#2b2440;margin-bottom:12px}
+        .cro-sub2{font-size:11px;font-weight:600;color:var(--t2);text-transform:none;letter-spacing:0}
+        .cro-op-head{background:var(--bg2);border:1px solid var(--b1);border-left:4px solid ${CRO_GREEN};border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.55;color:var(--t1);margin-bottom:12px}
         .cro-op{padding:8px 18px 16px}
         .cro-op-hd,.cro-op-row{display:grid;grid-template-columns:1.6fr 1.4fr 1fr 60px 140px;gap:12px;align-items:center}
-        .cro-op-hd{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:${CRO_MUT};font-weight:700;padding:10px 0 8px;border-bottom:2px solid #ebe7f4}
-        .cro-op-row{padding:9px 0;border-bottom:1px solid #f4f2f9;font-size:12.5px}
-        .cro-op-n{font-weight:700;color:#171226}
-        .cro-op-bar{position:relative;background:#f2eff8;border-radius:6px;height:18px;display:flex;align-items:center}
+        .cro-op-hd{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--t3);font-weight:700;padding:10px 0 8px;border-bottom:2px solid var(--b2)}
+        .cro-op-row{padding:9px 0;border-bottom:1px solid var(--b1);font-size:12.5px}
+        .cro-op-n{font-weight:700;color:var(--t1)}
+        .cro-op-bar{position:relative;background:var(--acc-dim);border-radius:6px;height:18px;display:flex;align-items:center}
         .cro-op-bar span{position:absolute;left:0;top:0;height:100%;border-radius:6px;opacity:.85}
-        .cro-op-bar small{position:relative;margin-left:8px;font-size:11px;font-weight:700;color:#171226}
-        .cro-op-v b{color:#171226}.cro-op-v small{color:${CRO_MUT}}
+        .cro-op-bar small{position:relative;margin-left:8px;font-size:11px;font-weight:700;color:var(--t1)}
+        .cro-op-v b{color:var(--t1)}.cro-op-v small{color:var(--t2)}
         .cro-op-c{font-weight:800;text-align:right}
         .cro-op-badge{font-size:8.5px;font-weight:800;border:1px solid;border-radius:20px;padding:3px 8px;letter-spacing:.3px;white-space:nowrap}
-        .cro-op-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:12px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-op-note b{color:#2b2440}
+        .cro-op-note{font-size:11px;color:var(--t2);line-height:1.55;margin-top:12px;border-top:1px solid var(--b1);padding-top:10px}.cro-op-note b{color:var(--t1)}
         @media(max-width:720px){.cro-op-hd{display:none}.cro-op-row{grid-template-columns:1fr 1fr;row-gap:4px}}
         .cro-fnl{padding:16px 18px}
         .cro-fnl-row{display:grid;grid-template-columns:150px 1fr 190px;gap:14px;align-items:center;padding:7px 0}
-        .cro-fnl-lbl{font-size:12.5px;font-weight:700;color:#171226}
-        .cro-fnl-track{position:relative;background:#f2eff8;border-radius:8px;height:26px;display:flex;align-items:center}
+        .cro-fnl-lbl{font-size:12.5px;font-weight:700;color:var(--t1)}
+        .cro-fnl-track{position:relative;background:var(--acc-dim);border-radius:8px;height:26px;display:flex;align-items:center}
         .cro-fnl-bar{position:absolute;left:0;top:0;height:100%;border-radius:8px;min-width:6px}
-        .cro-fnl-n{position:relative;z-index:1;margin-left:10px;font-size:12.5px;font-weight:800;color:#171226;mix-blend-mode:normal}
-        .cro-fnl-conv{font-size:11.5px;color:${CRO_MUT}}.cro-fnl-conv b{font-size:14px}
-        .cro-fnl-base{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:${CRO_MUT};font-weight:700}
+        .cro-fnl-n{position:relative;z-index:1;margin-left:10px;font-size:12.5px;font-weight:800;color:var(--t1);mix-blend-mode:normal}
+        .cro-fnl-conv{font-size:11.5px;color:var(--t2)}.cro-fnl-conv b{font-size:14px}
+        .cro-fnl-base{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--t2);font-weight:700}
         .cro-fnl-worst{color:${CRO_RED};font-weight:800}
-        .cro-fnl-off{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:${CRO_MUT};font-weight:700;background:#f0eef7;padding:2px 8px;border-radius:20px}
-        .cro-fnl-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:10px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-fnl-note b{color:#2b2440}
+        .cro-fnl-off{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--t2);font-weight:700;background:var(--bg3);padding:2px 8px;border-radius:20px}
+        .cro-fnl-note{font-size:11px;color:var(--t2);line-height:1.55;margin-top:10px;border-top:1px solid var(--b1);padding-top:10px}.cro-fnl-note b{color:var(--t1)}
         @media(max-width:640px){.cro-fnl-row{grid-template-columns:1fr;gap:4px}.cro-fnl-conv{padding-left:0}}
         .cro-secs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-        .cro-sec{background:#fff;border:1px solid #ebe7f4;border-radius:14px;padding:14px 15px;box-shadow:0 4px 18px rgba(60,40,120,.05)}
-        .cro-sec-t{font-size:11px;font-weight:800;color:#5a37e0;text-transform:uppercase;letter-spacing:.4px}
-        .cro-sec-n{font-size:26px;font-weight:800;color:#171226;margin:6px 0 2px;line-height:1}.cro-sec-n span{font-size:10px;color:${CRO_MUT};font-weight:700;margin-left:6px;text-transform:uppercase}
-        .cro-sec-m{display:flex;justify-content:space-between;font-size:11px;color:${CRO_MUT};margin-top:8px;border-top:1px solid #f4f2f9;padding-top:8px}.cro-sec-m b{color:#171226}
+        .cro-sec{background:var(--bg1);border:1px solid var(--b2);border-radius:14px;padding:14px 15px;box-shadow:var(--sh-sm)}
+        .cro-sec-t{font-size:11px;font-weight:800;color:var(--acc);text-transform:uppercase;letter-spacing:.4px}
+        .cro-sec-n{font-size:26px;font-weight:800;color:var(--t1);margin:6px 0 2px;line-height:1}.cro-sec-n span{font-size:10px;color:var(--t2);font-weight:700;margin-left:6px;text-transform:uppercase}
+        .cro-sec-m{display:flex;justify-content:space-between;font-size:11px;color:var(--t2);margin-top:8px;border-top:1px solid var(--b1);padding-top:8px}.cro-sec-m b{color:var(--t1)}
         .cro-score{padding:6px 18px}
-        .cro-sc2-row{display:grid;grid-template-columns:12px 1fr 190px;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid #f4f2f9}
+        .cro-sc2-row{display:grid;grid-template-columns:12px 1fr 190px;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--b1)}
         .cro-sc2-row:last-child{border-bottom:0}
         .cro-sc2-dot{width:12px;height:12px;border-radius:50%}
-        .cro-sc2-hd{display:flex;align-items:center;gap:9px}.cro-sc2-hd b{font-size:13.5px;color:#171226}
+        .cro-sc2-hd{display:flex;align-items:center;gap:9px}.cro-sc2-hd b{font-size:13.5px;color:var(--t1)}
         .cro-sc2-badge{font-size:8.5px;font-weight:800;border:1px solid;border-radius:20px;padding:2px 8px;letter-spacing:.4px}
-        .cro-sc2-reason{font-size:11.5px;color:${CRO_MUT};line-height:1.5;margin-top:3px}
-        .cro-sc2-stats{display:flex;flex-direction:column;gap:2px;font-size:10.5px;color:${CRO_MUT};text-align:right}.cro-sc2-stats b{color:#171226}
+        .cro-sc2-reason{font-size:11.5px;color:var(--t2);line-height:1.5;margin-top:3px}
+        .cro-sc2-stats{display:flex;flex-direction:column;gap:2px;font-size:10.5px;color:var(--t2);text-align:right}.cro-sc2-stats b{color:var(--t1)}
         @media(max-width:640px){.cro-sc2-row{grid-template-columns:12px 1fr}.cro-sc2-stats{grid-column:2;flex-direction:row;gap:12px;text-align:left;margin-top:4px}}
-        .cro-bnc-head{background:linear-gradient(135deg,#fff,#fdf2f4);border:1px solid rgba(229,56,77,.22);border-left:4px solid ${CRO_RED};border-radius:14px;padding:13px 17px;font-size:12.5px;line-height:1.55;color:#2b2440;margin-bottom:12px}
+        .cro-bnc-head{background:var(--bg2);border:1px solid var(--b1);border-left:4px solid ${CRO_RED};border-radius:14px;padding:13px 17px;font-size:12.5px;line-height:1.55;color:var(--t1);margin-bottom:12px}
         .cro-bnc{padding:14px 18px}
         .cro-bnc-row{display:grid;grid-template-columns:1.4fr 1fr 88px;gap:14px;align-items:center;padding:7px 0}
-        .cro-bnc-n{font-size:12px;font-weight:700;color:#171226;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .cro-bnc-bar{position:relative;background:#f2eff8;border-radius:6px;height:16px;display:flex;align-items:center}
+        .cro-bnc-n{font-size:12px;font-weight:700;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .cro-bnc-bar{position:relative;background:var(--acc-dim);border-radius:6px;height:16px;display:flex;align-items:center}
         .cro-bnc-bar span{position:absolute;left:0;top:0;height:100%;border-radius:6px;background:${CRO_ACC};opacity:.7}
-        .cro-bnc-bar small{position:relative;margin-left:8px;font-size:10.5px;font-weight:700;color:#171226}
-        .cro-bnc-v{font-size:14px;font-weight:800;text-align:right}.cro-bnc-v small{font-size:9px;color:${CRO_MUT};font-weight:700;text-transform:uppercase}
-        .cro-bnc-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:10px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-bnc-note b{color:#2b2440}
+        .cro-bnc-bar small{position:relative;margin-left:8px;font-size:10.5px;font-weight:700;color:var(--t1)}
+        .cro-bnc-v{font-size:14px;font-weight:800;text-align:right}.cro-bnc-v small{font-size:9px;color:var(--t2);font-weight:700;text-transform:uppercase}
+        .cro-bnc-note{font-size:11px;color:var(--t2);line-height:1.55;margin-top:10px;border-top:1px solid var(--b1);padding-top:10px}.cro-bnc-note b{color:var(--t1)}
         @media(max-width:640px){.cro-bnc-row{grid-template-columns:1fr 70px}.cro-bnc-bar{display:none}}
         .cro-scroll{padding:16px 18px}
         .cro-sc-row{display:grid;grid-template-columns:120px 1fr 48px;gap:14px;align-items:center;padding:6px 0}
-        .cro-sc-lbl{font-size:12px;font-weight:700;color:#171226}
-        .cro-sc-track{position:relative;background:#f2eff8;border-radius:7px;height:16px}
+        .cro-sc-lbl{font-size:12px;font-weight:700;color:var(--t1)}
+        .cro-sc-track{position:relative;background:var(--acc-dim);border-radius:7px;height:16px}
         .cro-sc-bar{position:absolute;left:0;top:0;height:100%;border-radius:7px;background:${CRO_ACC};min-width:4px}
-        .cro-sc-ref{position:absolute;left:50%;top:-3px;height:22px;width:2px;background:${CRO_MUT};opacity:.5}
+        .cro-sc-ref{position:absolute;left:50%;top:-3px;height:22px;width:2px;background:var(--t3);opacity:.6}
         .cro-sc-val{font-size:13px;font-weight:800;text-align:right}
-        .cro-sc-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:10px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-sc-note b{color:#2b2440}
+        .cro-sc-note{font-size:11px;color:var(--t2);line-height:1.55;margin-top:10px;border-top:1px solid var(--b1);padding-top:10px}.cro-sc-note b{color:var(--t1)}
         .cro-duel{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-        .cro-duel-c{border-radius:14px;padding:16px 18px;border:1px solid #ebe7f4}
+        .cro-duel-c{border-radius:14px;padding:16px 18px;border:1px solid var(--b2)}
         .cro-duel-c.win{background:rgba(31,175,106,.06);border-color:rgba(31,175,106,.3)}
         .cro-duel-c.lose{background:rgba(229,56,77,.05);border-color:rgba(229,56,77,.28)}
         .cro-duel-tag{font-size:10px;font-weight:800;letter-spacing:.4px}
-        .cro-duel-n{font-size:16px;font-weight:800;color:#171226;margin:6px 0 6px;text-transform:capitalize}
-        .cro-duel-m{font-size:12px;color:#2b2440}
-        .cro-duel-note{background:#faf9ff;border:1px solid #ece7fb;border-radius:12px;padding:12px 15px;font-size:12px;color:#2b2440;line-height:1.55;margin-top:12px}
-        .cro-badge{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#5a37e0;background:rgba(124,92,255,.12);border-radius:5px;padding:2px 6px;margin-right:8px;white-space:nowrap}
+        .cro-duel-n{font-size:16px;font-weight:800;color:var(--t1);margin:6px 0 6px;text-transform:capitalize}
+        .cro-duel-m{font-size:12px;color:var(--t2)}
+        .cro-duel-note{background:var(--bg2);border:1px solid var(--b2);border-radius:12px;padding:12px 15px;font-size:12px;color:var(--t1);line-height:1.55;margin-top:12px}
+        .cro-badge{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--acc);background:var(--acc-dim);border-radius:5px;padding:2px 6px;margin-right:8px;white-space:nowrap}
         /* #4 · micro-interacciones y pulido — sutil, rápido, físico */
         .cro-hchip,.cro-sec,.cro-duel-c{transition:box-shadow .18s ease,border-color .18s ease,transform .18s ease}
-        .cro-hchip:hover,.cro-sec:hover{box-shadow:0 10px 26px rgba(60,40,120,.11);border-color:#d9d2ee;transform:translateY(-2px)}
-        .cro-duel-c:hover{box-shadow:0 10px 26px rgba(60,40,120,.10)}
+        .cro-hchip:hover,.cro-sec:hover{box-shadow:var(--sh-md);border-color:var(--b2);transform:translateY(-2px)}
+        .cro-duel-c:hover{box-shadow:var(--sh-md)}
         .cro-fnl-row,.cro-sc-row{transition:background .15s ease;border-radius:8px}
-        .cro-fnl-row:hover,.cro-sc-row:hover{background:#faf9ff}
+        .cro-fnl-row:hover,.cro-sc-row:hover{background:var(--bg2)}
         .cro-fnl-bar,.cro-sc-bar,.cro-dev-bar span{transition:width .5s cubic-bezier(.22,1,.36,1)}
         .cro-matrix :global(svg) circle{transition:fill-opacity .18s ease}
         .cro-matrix :global(svg) g{cursor:default}

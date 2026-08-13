@@ -57,7 +57,15 @@ function pageType(path: string): string {
   if (path.startsWith('/checkout')) return 'Checkout';
   return 'Otra';
 }
-const CRO_RED = '#e5384d', CRO_AMBER = '#f5a524', CRO_GREEN = '#1faf6a', CRO_MUT = '#77718a', CRO_ACC = '#7c5cff';
+const CRO_RED = '#e5384d', CRO_AMBER = '#f5a524', CRO_GREEN = '#1faf6a', CRO_MUT = '#77718a', CRO_ACC = '#7c5cff', CRO_BLUE = '#5b9df9';
+const VERDICT: Record<string, [string, string]> = {
+  escalar: ['ESCALAR PAUTA', CRO_GREEN],
+  arreglar: ['NO ESCALAR · arreglar', CRO_RED],
+  explorar: ['EXPLORAR', CRO_BLUE],
+  observar: ['observar', CRO_MUT],
+};
+const money = (v: number) => '$' + Math.round(v || 0).toLocaleString('en-US');
+const tidy = (s: string) => (s || '').replace(/^(TENIS|Tenis|BOTAS|Botas)\s+/, '').replace(/\s+20\d\d\b/, '').trim();
 // Semáforo de tasa de dead-click por página (fricción): menor es mejor.
 function deadColor(rate: number): string {
   if (rate >= 0.08) return CRO_RED;
@@ -292,6 +300,41 @@ export function Clarity() {
         );
       })()}
 
+      {/* 1c · ¿QUÉ VENDE Y HACIA DÓNDE LLEVAR LA PAUTA? (tráfico GA4 × venta Shopify) */}
+      {data.products && data.products.length > 0 && (() => {
+        const ps = data.products;
+        const mxViews = Math.max(...ps.map((p) => p.views), 1);
+        // Ordenado por TRÁFICO (tus productos más pauteados y si convierten) — no por
+        // veredicto, para no esconder a los que sí vendieron con conversión modesta.
+        const sorted = [...ps].sort((a, b) => b.views - a.views).slice(0, 12);
+        const waste = [...ps].filter((p) => p.verdict === 'arreglar').sort((a, b) => b.views - a.views)[0];
+        const win = [...ps].filter((p) => p.sold > 0).sort((a, b) => b.conv - a.conv)[0];
+        return (
+          <>
+            <h3 className="cro-h">🎯 ¿Qué vende y hacia dónde llevar la pauta? <span className="cro-sub2">tráfico (GA4) × venta (Shopify)</span></h3>
+            {waste && win && waste.name !== win.name && (
+              <div className="cro-op-head">La pauta empuja fuerte <b>{tidy(waste.name)}</b> ({formatInt(waste.views)} vistas) pero <b>casi no vende</b>. En cambio <b>{tidy(win.name)}</b> convierte <b style={{ color: CRO_GREEN }}>{formatPercent(win.conv, 1)}</b> → <b>mueve presupuesto hacia lo que sí vende.</b></div>
+            )}
+            <div className="card cro-op">
+              <div className="cro-op-hd"><span>Producto</span><span>Tráfico (vistas)</span><span>Vende</span><span>Conv.</span><span>Veredicto</span></div>
+              {sorted.map((p) => {
+                const [lbl, col] = VERDICT[p.verdict];
+                return (
+                  <div className="cro-op-row" key={p.name}>
+                    <div className="cro-op-n">{tidy(p.name)}</div>
+                    <div className="cro-op-bar"><span style={{ width: `${Math.max(3, Math.round((100 * p.views) / mxViews))}%`, background: col }} /><small>{formatInt(p.views)}</small></div>
+                    <div className="cro-op-v">{p.sold > 0 ? <b>{p.sold} uds</b> : <span className="muted">—</span>}{p.revenue > 0 ? <small> · {money(p.revenue)}</small> : null}</div>
+                    <div className="cro-op-c" style={{ color: p.conv >= 0.02 ? CRO_GREEN : p.conv > 0 ? '#171226' : CRO_MUT }}>{p.sold > 0 ? formatPercent(p.conv, 1) : '—'}</div>
+                    <div><span className="cro-op-badge" style={{ color: col, background: col + '18', borderColor: col + '44' }}>{lbl}</span></div>
+                  </div>
+                );
+              })}
+              <div className="cro-op-note">🟢 <b>Escalar</b>: convierte bien → empuja más pauta. 🔴 <b>No escalar</b>: mucho tráfico, no vende → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte → prueba subirle pauta. <b>Conv.</b> = ventas Shopify ÷ vistas GA4. Venta = snapshot Shopify más reciente. El cruce empareja por <b>nombre</b> (GA4↔Shopify, sin ID compartido) — es confiable pero <b>verifica los movimientos grandes de presupuesto</b> antes de ejecutar.</div>
+            </div>
+          </>
+        );
+      })()}
+
       {/* 2 · RAYOS-X POR SECCIÓN */}
       <h3 className="cro-h">🩻 Rayos-X por sección · ¿qué parte del sitio funciona?</h3>
       <div className="cro-matrix card">
@@ -508,6 +551,21 @@ export function Clarity() {
         .cro-matrix{margin-bottom:14px;padding:16px 18px 8px}
         .cro-mx-cap{font-size:11.5px;color:${CRO_MUT};line-height:1.5;margin-bottom:4px}
         .cro-matrix :global(svg) text{font-family:inherit}
+        .cro-sub2{font-size:11px;font-weight:600;color:${CRO_MUT};text-transform:none;letter-spacing:0}
+        .cro-op-head{background:linear-gradient(135deg,#fff,#f0fbf5);border:1px solid rgba(31,175,106,.28);border-left:4px solid ${CRO_GREEN};border-radius:14px;padding:14px 18px;font-size:13px;line-height:1.55;color:#2b2440;margin-bottom:12px}
+        .cro-op{padding:8px 18px 16px}
+        .cro-op-hd,.cro-op-row{display:grid;grid-template-columns:1.6fr 1.4fr 1fr 60px 140px;gap:12px;align-items:center}
+        .cro-op-hd{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:${CRO_MUT};font-weight:700;padding:10px 0 8px;border-bottom:2px solid #ebe7f4}
+        .cro-op-row{padding:9px 0;border-bottom:1px solid #f4f2f9;font-size:12.5px}
+        .cro-op-n{font-weight:700;color:#171226}
+        .cro-op-bar{position:relative;background:#f2eff8;border-radius:6px;height:18px;display:flex;align-items:center}
+        .cro-op-bar span{position:absolute;left:0;top:0;height:100%;border-radius:6px;opacity:.85}
+        .cro-op-bar small{position:relative;margin-left:8px;font-size:11px;font-weight:700;color:#171226}
+        .cro-op-v b{color:#171226}.cro-op-v small{color:${CRO_MUT}}
+        .cro-op-c{font-weight:800;text-align:right}
+        .cro-op-badge{font-size:8.5px;font-weight:800;border:1px solid;border-radius:20px;padding:3px 8px;letter-spacing:.3px;white-space:nowrap}
+        .cro-op-note{font-size:11px;color:${CRO_MUT};line-height:1.55;margin-top:12px;border-top:1px solid #f4f2f9;padding-top:10px}.cro-op-note b{color:#2b2440}
+        @media(max-width:720px){.cro-op-hd{display:none}.cro-op-row{grid-template-columns:1fr 1fr;row-gap:4px}}
         .cro-fnl{padding:16px 18px}
         .cro-fnl-row{display:grid;grid-template-columns:150px 1fr 190px;gap:14px;align-items:center;padding:7px 0}
         .cro-fnl-lbl{font-size:12.5px;font-weight:700;color:#171226}

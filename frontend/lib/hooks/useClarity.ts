@@ -201,11 +201,18 @@ function toks(s: string): Set<string> {
   const x = (s || '').toLowerCase().replace(/^(tenis|botas)\s+/, '').replace(/\b20\d\d\b/g, ' ').replace(/[^a-z0-9 ]/g, ' ');
   return new Set(x.split(/\s+/).filter((w) => w.length > 1));
 }
+// Normaliza el nombre de producto de GA4 para FUSIONAR variantes del mismo producto:
+// GA4 emite el mismo tenis con nombres distintos ("TENIS JORDAN 9 SPACE JAM 2026" y
+// "JORDAN 9 SPACE JAM 2026") → si se agrupa por nombre exacto, el tráfico se parte en
+// dos líneas y cada una sub-cuenta. Quita prefijo TENIS/BOTAS y el año; conserva legible.
+function normName(s: string): string {
+  return (s || '').replace(/^\s*(tenis|botas)\s+/i, '').replace(/\s+20\d\d\b/g, '').replace(/\s+/g, ' ').trim();
+}
 
 async function fetchSales(clientId: string, from: string, to: string, property?: string): Promise<ProductPerf[] | null> {
   try {
     // 1) Tráfico/engagement por producto (GA4, propiedad Shopify).
-    const ga = new Map<string, { views: number; atc: number }>();
+    const ga = new Map<string, { name: string; views: number; atc: number }>();
     let off = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -217,8 +224,9 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
       if (error) throw error;
       const batch = (data || []) as any[];
       for (const r of batch) {
-        const k = r.item_name; if (!k) continue;
-        const a = ga.get(k) || { views: 0, atc: 0 };
+        const raw = r.item_name; if (!raw) continue;
+        const disp = normName(raw); const k = disp.toUpperCase(); // fusiona variantes del mismo producto
+        const a = ga.get(k) || { name: disp, views: 0, atc: 0 };
         a.views += Number(r.items_viewed) || 0; a.atc += Number(r.items_added_to_cart) || 0;
         ga.set(k, a);
       }
@@ -250,7 +258,7 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
     const spClean = spw
       .map((r, i) => ({ r, i, tk: toks(r.title || '') }))
       .filter((s) => !/prueba|test|sin\s*cliente|preliminar/i.test(s.r.title || ''));
-    const giTok = giList.map(([name, a]) => ({ name, a, tk: toks(name) }));
+    const giTok = giList.map(([, a]) => ({ name: a.name, a, tk: toks(a.name) }));
     // todos los pares candidatos (inter≥2, score≥0.4), ordenados por score desc
     const pairs: { g: number; s: number; sc: number }[] = [];
     giTok.forEach((g, gi) => {

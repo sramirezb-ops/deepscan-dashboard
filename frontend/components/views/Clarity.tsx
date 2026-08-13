@@ -386,7 +386,7 @@ export function Clarity() {
                   </div>
                 );
               })}
-              <div className="cro-op-note">🟢 <b>Escalar</b>: convierte bien → empuja más pauta. 🔴 <b>No escalar</b>: mucho tráfico, no vende → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte → prueba subirle pauta. <b>Conv.</b> = ventas Shopify ÷ vistas GA4. Venta = snapshot Shopify más reciente. El cruce empareja por <b>nombre</b> (GA4↔Shopify, sin ID compartido) — es confiable pero <b>verifica los movimientos grandes de presupuesto</b> antes de ejecutar.</div>
+              <div className="cro-op-note">🟢 <b>Escalar</b>: convierte bien → empuja más pauta. 🔴 <b>No escalar</b>: mucho tráfico, no vende → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte → prueba subirle pauta. <b>Vistas</b> = evento <i>view_item</i> de GA4 (por producto) — <b>no</b> son las mismas <i>sesiones</i> de la tabla de páginas (esas son de Clarity, por URL, y son más altas porque GA4 sólo cuenta la ficha). Por eso la <b>Conv.</b> (= ventas Shopify ÷ vistas GA4) sirve para <b>comparar productos entre sí</b>, no como la tasa real sesión→compra. Venta = snapshot Shopify más reciente; el cruce empareja por <b>nombre</b> (sin ID compartido) — <b>verifica los movimientos grandes de presupuesto</b> antes de ejecutar.</div>
             </div>
           </>
         );

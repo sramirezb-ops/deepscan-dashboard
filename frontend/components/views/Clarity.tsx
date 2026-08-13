@@ -360,6 +360,143 @@ export function Clarity() {
         );
       })()}
 
+      {/* 2 · SALUD Y AJUSTES POR SECCIÓN — mapa (matriz) + plan de ajustes en un módulo */}
+      <h3 className="cro-h">🩺 Salud y ajustes por sección · qué funciona y qué cambiar</h3>
+      <div className="cro-matrix card">
+        <div className="cro-mx-cap">Cada burbuja es una sección · <b>eje X</b> = tráfico · <b>eje Y</b> = fricción (dead-click) · tamaño = sesiones. <b style={{ color: CRO_RED }}>Arriba-derecha</b> = mucho tráfico + mucha fricción → <b>arreglar primero</b>.</div>
+        <svg viewBox={`0 0 ${MW} ${MH}`} width="100%" role="img" aria-label="Matriz de secciones: tráfico vs fricción">
+          <rect x={msx(SESS_HI)} y={mT} width={Math.max(0, MW - mR - msx(SESS_HI))} height={Math.max(0, msy(FR_HI) - mT)} fill={CRO_RED} opacity="0.045" />
+          {yTicks.map((f, i) => (
+            <g key={i}>
+              <line x1={mL} y1={msy(f)} x2={MW - mR} y2={msy(f)} strokeWidth="1" style={{ stroke: 'var(--chart-grid)' }} />
+              <text x={mL - 8} y={msy(f) + 3} textAnchor="end" fontSize="10" fill={CRO_MUT}>{Math.round(f * 100)}%</text>
+            </g>
+          ))}
+          <line x1={mL} y1={msy(FR_HI)} x2={MW - mR} y2={msy(FR_HI)} stroke={CRO_RED} strokeWidth="1" strokeDasharray="4 4" opacity="0.4" />
+          <line x1={msx(SESS_HI)} y1={mT} x2={msx(SESS_HI)} y2={MH - mB} stroke={CRO_MUT} strokeWidth="1" strokeDasharray="4 4" opacity="0.3" />
+          <text x={MW - mR - 6} y={mT + 13} textAnchor="end" fontSize="10" fontWeight="800" fill={CRO_RED} opacity="0.75">arreglar ya ↗</text>
+          <text x={MW - mR} y={MH - 8} textAnchor="end" fontSize="10" fill={CRO_MUT}>más tráfico →</text>
+          <text x={13} y={(MH - mB + mT) / 2} transform={`rotate(-90 13 ${(MH - mB + mT) / 2})`} textAnchor="middle" fontSize="10" fill={CRO_MUT}>fricción ↑</text>
+          {(() => {
+            // Coloca cada burbuja y separa verticalmente las etiquetas del mismo lado
+            // que se encimen (Home/Otra caen casi en el mismo punto → se pisaban).
+            const nodes = sections.map((s) => {
+              const x = msx(s.sessions), y = msy(s.deadRate), r = mrad(s.sessions);
+              const left = x > MW - mR - 52;
+              return { s, x, y, r, c: deadColor(s.deadRate), left, lx: left ? x - r - 5 : x + r + 5, ly: y + 3.5 };
+            });
+            const LH = 15;
+            [true, false].forEach((side) => {
+              const g = nodes.filter((n) => n.left === side).sort((a, b) => a.ly - b.ly);
+              for (let i = 1; i < g.length; i++) if (g[i].ly - g[i - 1].ly < LH) g[i].ly = g[i - 1].ly + LH;
+            });
+            return nodes.map((n) => (
+              <g key={n.s.type}>
+                <circle cx={n.x} cy={n.y} r={n.r} fill={n.c} fillOpacity="0.5" strokeWidth="2" style={{ stroke: 'var(--bg1)' }} />
+                <circle cx={n.x} cy={n.y} r={n.r} fill="none" stroke={n.c} strokeWidth="1.5" />
+                <title>{`${n.s.type}: ${formatInt(n.s.sessions)} sesiones · ${formatPercent(n.s.deadRate, 1)} fricción · scroll ${formatPercent(n.s.scroll, 0)}`}</title>
+                {Math.abs(n.ly - (n.y + 3.5)) > 1 && <line x1={n.left ? n.x - n.r - 2 : n.x + n.r + 2} y1={n.y} x2={n.lx} y2={n.ly - 3.5} stroke={n.c} strokeWidth="1" opacity="0.35" />}
+                <text x={n.lx} y={n.ly} textAnchor={n.left ? 'end' : 'start'} fontSize="10.5" fontWeight="700" strokeWidth="2.6" paintOrder="stroke" style={{ fill: 'var(--t1)', stroke: 'var(--bg1)' }}>{n.s.type.replace(' (producto)', '')}</text>
+              </g>
+            ));
+          })()}
+        </svg>
+      </div>
+      {/* Plan de ajustes por sección — bajo el MISMO módulo que la matriz (sin
+          scorecard redundante: cada tarjeta ya trae veredicto + métricas + acción). */}
+      <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+        {sectionPlans.map(({ s, bounce, plan }) => {
+          const v = sectionVerdict(s.type, s.scroll, s.deadRate, s.sessions);
+          const sevCol = { red: CRO_RED, amber: CRO_AMBER, green: CRO_GREEN };
+          const chip = (label: string, val: string, col?: string) => (
+            <span style={{ fontSize: 11, color: 'var(--t2)' }}>{label} <b style={{ color: col || 'var(--t1)' }}>{val}</b></span>
+          );
+          return (
+            <div className="card" key={s.type} style={{ padding: '14px 18px', borderLeft: `4px solid ${v.color}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                <b style={{ fontSize: 14, color: 'var(--t1)' }}>{s.type.replace(' (producto)', '')}</b>
+                <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: v.color, background: v.color + '18', border: `1px solid ${v.color}44`, borderRadius: 20, padding: '3px 9px' }}>{v.label}</span>
+                <span style={{ flex: 1 }} />
+                <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  {chip('sesiones', formatInt(s.sessions))}
+                  {chip('fricción', formatPercent(s.deadRate, 1), deadColor(s.deadRate))}
+                  {chip('scroll', formatPercent(s.scroll, 0))}
+                  {bounce != null && chip('rebote', formatPercent(bounce, 0), bounce >= 0.55 ? CRO_RED : bounce >= 0.4 ? CRO_AMBER : CRO_GREEN)}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gap: 7 }}>
+                {plan.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: 'var(--t1)' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: sevCol[it.sev], marginTop: 5, flexShrink: 0 }} />
+                    <span>{it.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginTop: 8 }}>Cada ajuste sale de una señal real de esta vista (fricción=dead-click, scroll, rebote=GA4, rage). 🔴 arregla ya · 🟡 vigila/mejora · 🟢 va bien / molde a replicar. Ordenado por fricción (lo más roto primero).</div>
+
+      {/* 2b · SCROLL / FOLD POR SECCIÓN */}
+      <h3 className="cro-h">📜 Profundidad de scroll · ¿ven lo importante?</h3>
+      <div className="card cro-scroll">
+        {[...sections].sort((a, b) => a.scroll - b.scroll).map((s) => {
+          const pct = Math.round(s.scroll * 100);
+          const shallow = s.scroll < 0.5;
+          return (
+            <div className="cro-sc-row" key={s.type}>
+              <div className="cro-sc-lbl">{s.type.replace(' (producto)', '')}</div>
+              <div className="cro-sc-track">
+                <span className="cro-sc-bar" style={{ width: `${Math.max(2, pct)}%` }} />
+                <span className="cro-sc-ref" />
+              </div>
+              <div className="cro-sc-val" style={{ color: shallow ? CRO_AMBER : 'var(--t1)' }}>{pct}%</div>
+            </div>
+          );
+        })}
+        <div className="cro-sc-note">La barra = hasta dónde llega el usuario promedio (línea <b>│</b> = 50%). <b>En PDP y Home el scroll es ~40%</b> → precio, talla, <b>MSI</b> y botón de compra <b>tienen que ir arriba del pliegue</b> o se pierden. En listas (Colección/Búsqueda) scrollean más porque están buscando — ahí el scroll alto es normal, no un logro.</div>
+      </div>
+
+      {/* 2c · ¿DÓNDE REBOTAN? (GA4 landing bounce) */}
+      {data.bounce && data.bounce.length > 0 && (() => {
+        const bs = data.bounce;
+        const mxs = Math.max(...bs.map((b) => b.sessions), 1);
+        const bcolor = (r: number) => (r >= 0.55 ? CRO_RED : r >= 0.4 ? CRO_AMBER : CRO_GREEN);
+        const worst = [...bs].filter((b) => b.sessions >= 100).sort((a, b) => b.bounce - a.bounce)[0] || bs[0];
+        return (
+          <>
+            <h3 className="cro-h">🚪 ¿Dónde rebotan? <span className="cro-sub2">entran y se van sin interactuar (GA4)</span></h3>
+            {worst && (
+              <div className="cro-bnc-head">Donde más rebotan con volumen: <b>{shortPath(worst.page)}</b> — <b style={{ color: bcolor(worst.bounce) }}>{formatPercent(worst.bounce, 0)}</b> de {formatInt(worst.sessions)} entradas se van sin tocar nada.{worst.bounce >= 0.5 ? ' La pauta trae gente que no engancha con esa página.' : ''}</div>
+            )}
+            <div className="card cro-bnc">
+              <DataTable
+                rows={bs}
+                rowKey={(b) => b.page}
+                initialSort={{ key: 'sess', dir: 'desc' }}
+                initialPageSize={10}
+                searchPlaceholder="Filtrar página…"
+                toolbarLeft={`${bs.length} páginas de entrada`}
+                columns={[
+                  { key: 'page', header: 'Página de entrada', align: 'left', width: '46%', text: (b) => shortPath(b.page), sortValue: (b) => shortPath(b.page),
+                    render: (b) => <b style={{ fontWeight: 700 }}>{shortPath(b.page)}</b> },
+                  { key: 'sess', header: 'Entradas', align: 'right', text: (b) => String(b.sessions), sortValue: (b) => b.sessions,
+                    render: (b) => (
+                      <div style={{ position: 'relative', height: 16, background: 'var(--acc-dim)', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
+                        <span style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.max(3, Math.round((100 * b.sessions) / mxs))}%`, background: CRO_ACC, borderRadius: 6, opacity: 0.7 }} />
+                        <small style={{ position: 'relative', marginLeft: 8, fontSize: 10.5, fontWeight: 800 }}>{formatInt(b.sessions)}</small>
+                      </div>) },
+                  { key: 'bounce', header: 'Rebote', align: 'right', sortValue: (b) => b.bounce,
+                    render: (b) => <b style={{ color: bcolor(b.bounce) }}>{formatPercent(b.bounce, 0)}</b> },
+                ] as DataColumn<BounceRow>[]}
+              />
+              <div className="cro-bnc-note">Rebote = % de entradas que se van sin ninguna interacción. 🔴 ≥55% · 🟡 40–55% · 🟢 &lt;40%. Rebote alto en una landing pagada = <b>mismatch anuncio↔página</b> o la ficha no engancha en los primeros segundos.</div>
+            </div>
+          </>
+        );
+      })()}
+
       {/* 1b · EMBUDO DE COMPORTAMIENTO (GA4) */}
       {data.funnel && (() => {
         const f = data.funnel;
@@ -457,163 +594,6 @@ export function Clarity() {
                 toolbarLeft={`${ps.length} productos`}
               />
               <div className="cro-op-note">🟢 <b>Escalar</b>: convierte arriba del promedio con volumen. 🔴 <b>No escalar</b>: mucho tráfico, convierte muy por debajo → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte bien → prueba subirle pauta. <b>Tráfico</b> = sesiones PDP de <b>Clarity</b> (mismas de la tabla de páginas → los dos cuadros cuadran). <b>Conv.</b> = ventas Shopify ÷ esas sesiones = tasa real <b>sesión→compra</b>{base > 0 ? <> (promedio tienda <b>{formatPercent(base, 1)}</b>; el veredicto es relativo a ese promedio)</> : null}. <b>Carritos</b> y <b>% carrito</b> = añadir-al-carrito de <b>GA4</b> sobre vistas GA4 (métrica interna de GA4; su absoluto es más bajo que las sesiones, pero la tasa es consistente). {data.salesDated ? <>La venta suma el <b>rango exacto</b> seleccionado (ventas Shopify por día).</> : <>⚠️ La venta es el <b>snapshot Shopify</b> más reciente (~30 d, no el rango exacto — corre el ETL con ventas por día para respetar el rango).</>} Son unidades chicas → úsalo como señal, <b>verifica los movimientos grandes</b> antes de ejecutar.</div>
-            </div>
-          </>
-        );
-      })()}
-
-      {/* 2 · RAYOS-X POR SECCIÓN */}
-      <h3 className="cro-h">🩻 Rayos-X por sección · ¿qué parte del sitio funciona?</h3>
-      <div className="cro-matrix card">
-        <div className="cro-mx-cap">Cada burbuja es una sección · <b>eje X</b> = tráfico · <b>eje Y</b> = fricción (dead-click) · tamaño = sesiones. <b style={{ color: CRO_RED }}>Arriba-derecha</b> = mucho tráfico + mucha fricción → <b>arreglar primero</b>.</div>
-        <svg viewBox={`0 0 ${MW} ${MH}`} width="100%" role="img" aria-label="Matriz de secciones: tráfico vs fricción">
-          <rect x={msx(SESS_HI)} y={mT} width={Math.max(0, MW - mR - msx(SESS_HI))} height={Math.max(0, msy(FR_HI) - mT)} fill={CRO_RED} opacity="0.045" />
-          {yTicks.map((f, i) => (
-            <g key={i}>
-              <line x1={mL} y1={msy(f)} x2={MW - mR} y2={msy(f)} strokeWidth="1" style={{ stroke: 'var(--chart-grid)' }} />
-              <text x={mL - 8} y={msy(f) + 3} textAnchor="end" fontSize="10" fill={CRO_MUT}>{Math.round(f * 100)}%</text>
-            </g>
-          ))}
-          <line x1={mL} y1={msy(FR_HI)} x2={MW - mR} y2={msy(FR_HI)} stroke={CRO_RED} strokeWidth="1" strokeDasharray="4 4" opacity="0.4" />
-          <line x1={msx(SESS_HI)} y1={mT} x2={msx(SESS_HI)} y2={MH - mB} stroke={CRO_MUT} strokeWidth="1" strokeDasharray="4 4" opacity="0.3" />
-          <text x={MW - mR - 6} y={mT + 13} textAnchor="end" fontSize="10" fontWeight="800" fill={CRO_RED} opacity="0.75">arreglar ya ↗</text>
-          <text x={MW - mR} y={MH - 8} textAnchor="end" fontSize="10" fill={CRO_MUT}>más tráfico →</text>
-          <text x={13} y={(MH - mB + mT) / 2} transform={`rotate(-90 13 ${(MH - mB + mT) / 2})`} textAnchor="middle" fontSize="10" fill={CRO_MUT}>fricción ↑</text>
-          {(() => {
-            // Coloca cada burbuja y separa verticalmente las etiquetas del mismo lado
-            // que se encimen (Home/Otra caen casi en el mismo punto → se pisaban).
-            const nodes = sections.map((s) => {
-              const x = msx(s.sessions), y = msy(s.deadRate), r = mrad(s.sessions);
-              const left = x > MW - mR - 52;
-              return { s, x, y, r, c: deadColor(s.deadRate), left, lx: left ? x - r - 5 : x + r + 5, ly: y + 3.5 };
-            });
-            const LH = 15;
-            [true, false].forEach((side) => {
-              const g = nodes.filter((n) => n.left === side).sort((a, b) => a.ly - b.ly);
-              for (let i = 1; i < g.length; i++) if (g[i].ly - g[i - 1].ly < LH) g[i].ly = g[i - 1].ly + LH;
-            });
-            return nodes.map((n) => (
-              <g key={n.s.type}>
-                <circle cx={n.x} cy={n.y} r={n.r} fill={n.c} fillOpacity="0.5" strokeWidth="2" style={{ stroke: 'var(--bg1)' }} />
-                <circle cx={n.x} cy={n.y} r={n.r} fill="none" stroke={n.c} strokeWidth="1.5" />
-                <title>{`${n.s.type}: ${formatInt(n.s.sessions)} sesiones · ${formatPercent(n.s.deadRate, 1)} fricción · scroll ${formatPercent(n.s.scroll, 0)}`}</title>
-                {Math.abs(n.ly - (n.y + 3.5)) > 1 && <line x1={n.left ? n.x - n.r - 2 : n.x + n.r + 2} y1={n.y} x2={n.lx} y2={n.ly - 3.5} stroke={n.c} strokeWidth="1" opacity="0.35" />}
-                <text x={n.lx} y={n.ly} textAnchor={n.left ? 'end' : 'start'} fontSize="10.5" fontWeight="700" strokeWidth="2.6" paintOrder="stroke" style={{ fill: 'var(--t1)', stroke: 'var(--bg1)' }}>{n.s.type.replace(' (producto)', '')}</text>
-              </g>
-            ));
-          })()}
-        </svg>
-      </div>
-      <div className="card cro-score">
-        {[...sections].sort((a, b) => b.deadRate - a.deadRate).map((s) => {
-          const v = sectionVerdict(s.type, s.scroll, s.deadRate, s.sessions);
-          return (
-            <div className="cro-sc2-row" key={s.type}>
-              <span className="cro-sc2-dot" style={{ background: v.color }} />
-              <div className="cro-sc2-main">
-                <div className="cro-sc2-hd"><b>{s.type.replace(' (producto)', '')}</b><span className="cro-sc2-badge" style={{ color: v.color, background: v.color + '18', borderColor: v.color + '44' }}>{v.label}</span></div>
-                <div className="cro-sc2-reason">{v.reason}</div>
-              </div>
-              <div className="cro-sc2-stats">
-                <span><b>{formatInt(s.sessions)}</b> sesiones</span>
-                <span>scroll <b>{formatPercent(s.scroll, 0)}</b></span>
-                <span>fricción <b style={{ color: deadColor(s.deadRate) }}>{formatPercent(s.deadRate, 1)}</b></span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* 2a-bis · PLAN DE AJUSTES POR SECCIÓN (qué cambiar en cada zona) */}
-      <h3 className="cro-h">🔧 Plan de ajustes por sección · qué cambiar en cada zona</h3>
-      <div style={{ display: 'grid', gap: 12 }}>
-        {sectionPlans.map(({ s, bounce, plan }) => {
-          const v = sectionVerdict(s.type, s.scroll, s.deadRate, s.sessions);
-          const sevCol = { red: CRO_RED, amber: CRO_AMBER, green: CRO_GREEN };
-          const chip = (label: string, val: string, col?: string) => (
-            <span style={{ fontSize: 11, color: 'var(--t2)' }}>{label} <b style={{ color: col || 'var(--t1)' }}>{val}</b></span>
-          );
-          return (
-            <div className="card" key={s.type} style={{ padding: '14px 18px', borderLeft: `4px solid ${v.color}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-                <b style={{ fontSize: 14, color: 'var(--t1)' }}>{s.type.replace(' (producto)', '')}</b>
-                <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: v.color, background: v.color + '18', border: `1px solid ${v.color}44`, borderRadius: 20, padding: '3px 9px' }}>{v.label}</span>
-                <span style={{ flex: 1 }} />
-                <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                  {chip('sesiones', formatInt(s.sessions))}
-                  {chip('fricción', formatPercent(s.deadRate, 1), deadColor(s.deadRate))}
-                  {chip('scroll', formatPercent(s.scroll, 0))}
-                  {bounce != null && chip('rebote', formatPercent(bounce, 0), bounce >= 0.55 ? CRO_RED : bounce >= 0.4 ? CRO_AMBER : CRO_GREEN)}
-                </span>
-              </div>
-              <div style={{ display: 'grid', gap: 7 }}>
-                {plan.map((it, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: 'var(--t1)' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: sevCol[it.sev], marginTop: 5, flexShrink: 0 }} />
-                    <span>{it.text}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginTop: 8 }}>Cada ajuste sale de una señal real de esta vista (fricción=dead-click, scroll, rebote=GA4, rage). 🔴 arregla ya · 🟡 vigila/mejora · 🟢 va bien / molde a replicar. Ordenado por fricción (lo más roto primero).</div>
-
-      {/* 2b · SCROLL / FOLD POR SECCIÓN */}
-      <h3 className="cro-h">📜 Profundidad de scroll · ¿ven lo importante?</h3>
-      <div className="card cro-scroll">
-        {[...sections].sort((a, b) => a.scroll - b.scroll).map((s) => {
-          const pct = Math.round(s.scroll * 100);
-          const shallow = s.scroll < 0.5;
-          return (
-            <div className="cro-sc-row" key={s.type}>
-              <div className="cro-sc-lbl">{s.type.replace(' (producto)', '')}</div>
-              <div className="cro-sc-track">
-                <span className="cro-sc-bar" style={{ width: `${Math.max(2, pct)}%` }} />
-                <span className="cro-sc-ref" />
-              </div>
-              <div className="cro-sc-val" style={{ color: shallow ? CRO_AMBER : 'var(--t1)' }}>{pct}%</div>
-            </div>
-          );
-        })}
-        <div className="cro-sc-note">La barra = hasta dónde llega el usuario promedio (línea <b>│</b> = 50%). <b>En PDP y Home el scroll es ~40%</b> → precio, talla, <b>MSI</b> y botón de compra <b>tienen que ir arriba del pliegue</b> o se pierden. En listas (Colección/Búsqueda) scrollean más porque están buscando — ahí el scroll alto es normal, no un logro.</div>
-      </div>
-
-      {/* 2c · ¿DÓNDE REBOTAN? (GA4 landing bounce) */}
-      {data.bounce && data.bounce.length > 0 && (() => {
-        const bs = data.bounce;
-        const mxs = Math.max(...bs.map((b) => b.sessions), 1);
-        const bcolor = (r: number) => (r >= 0.55 ? CRO_RED : r >= 0.4 ? CRO_AMBER : CRO_GREEN);
-        const worst = [...bs].filter((b) => b.sessions >= 100).sort((a, b) => b.bounce - a.bounce)[0] || bs[0];
-        return (
-          <>
-            <h3 className="cro-h">🚪 ¿Dónde rebotan? <span className="cro-sub2">entran y se van sin interactuar (GA4)</span></h3>
-            {worst && (
-              <div className="cro-bnc-head">Donde más rebotan con volumen: <b>{shortPath(worst.page)}</b> — <b style={{ color: bcolor(worst.bounce) }}>{formatPercent(worst.bounce, 0)}</b> de {formatInt(worst.sessions)} entradas se van sin tocar nada.{worst.bounce >= 0.5 ? ' La pauta trae gente que no engancha con esa página.' : ''}</div>
-            )}
-            <div className="card cro-bnc">
-              <DataTable
-                rows={bs}
-                rowKey={(b) => b.page}
-                initialSort={{ key: 'sess', dir: 'desc' }}
-                initialPageSize={10}
-                searchPlaceholder="Filtrar página…"
-                toolbarLeft={`${bs.length} páginas de entrada`}
-                columns={[
-                  { key: 'page', header: 'Página de entrada', align: 'left', width: '46%', text: (b) => shortPath(b.page), sortValue: (b) => shortPath(b.page),
-                    render: (b) => <b style={{ fontWeight: 700 }}>{shortPath(b.page)}</b> },
-                  { key: 'sess', header: 'Entradas', align: 'right', text: (b) => String(b.sessions), sortValue: (b) => b.sessions,
-                    render: (b) => (
-                      <div style={{ position: 'relative', height: 16, background: 'var(--acc-dim)', borderRadius: 6, display: 'flex', alignItems: 'center', minWidth: 90 }}>
-                        <span style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${Math.max(3, Math.round((100 * b.sessions) / mxs))}%`, background: CRO_ACC, borderRadius: 6, opacity: 0.7 }} />
-                        <small style={{ position: 'relative', marginLeft: 8, fontSize: 10.5, fontWeight: 800 }}>{formatInt(b.sessions)}</small>
-                      </div>) },
-                  { key: 'bounce', header: 'Rebote', align: 'right', sortValue: (b) => b.bounce,
-                    render: (b) => <b style={{ color: bcolor(b.bounce) }}>{formatPercent(b.bounce, 0)}</b> },
-                ] as DataColumn<BounceRow>[]}
-              />
-              <div className="cro-bnc-note">Rebote = % de entradas que se van sin ninguna interacción. 🔴 ≥55% · 🟡 40–55% · 🟢 &lt;40%. Rebote alto en una landing pagada = <b>mismatch anuncio↔página</b> o la ficha no engancha en los primeros segundos.</div>
             </div>
           </>
         );

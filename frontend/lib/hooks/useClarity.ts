@@ -47,10 +47,11 @@ export interface ClarityTotals {
 // Embudo de comportamiento on-site (GA4 item-scoped). GA4 sub-mide la compra
 // (checkout offsite en Shopify) → el último paso es piso, no verdad de caja.
 export interface ClarityFunnel { views: number; atc: number; checkout: number; purchases: number; }
-// Cruce tráfico (GA4) × venta (Shopify) por producto → "hacia dónde llevar la pauta".
+// Cruce tráfico (Clarity) × venta (Shopify) por producto → "hacia dónde llevar la pauta".
 export interface ProductPerf {
-  name: string; views: number; atc: number; sold: number; revenue: number;
-  conv: number; // ventas Shopify ÷ vistas GA4 (tasa de conversión real por producto)
+  name: string; sessions: number; sold: number; revenue: number;
+  conv: number; // ventas Shopify ÷ sesiones PDP de Clarity (tasa real sesión→compra, aprox.)
+  matched: boolean; // si se emparejó con un producto de Shopify (para no juzgar sin dato de venta)
   verdict: 'escalar' | 'arreglar' | 'explorar' | 'observar';
 }
 // Rebote por página de entrada (GA4 ga4_landing): dónde entran y se van sin interactuar.
@@ -197,48 +198,57 @@ async function fetchFunnel(clientId: string, from: string, to: string, property?
 
 // Tokens de un nombre de producto, para emparejar GA4 ↔ Shopify (mismo criterio
 // que la hoja de Compras): sin "tenis/botas", sin años, solo palabras ≥2 letras.
-function toks(s: string): Set<string> {
-  const x = (s || '').toLowerCase().replace(/^(tenis|botas)\s+/, '').replace(/\b20\d\d\b/g, ' ').replace(/[^a-z0-9 ]/g, ' ');
-  return new Set(x.split(/\s+/).filter((w) => w.length > 1));
+// Extrae el slug de producto de una URL PDP y junta variantes (locale /en/ y año final)
+// → "jordan-9-space-jam-2026" y "/en/products/jordan-9-space-jam" caen en el mismo slug.
+function pdpSlug(u: string): string | null {
+  const m = /\/(?:[a-z]{2}\/)?products\/([^/?#]+)/i.exec(u || '');
+  if (!m) return null;
+  return m[1].toLowerCase().replace(/-20\d\d$/, '');
 }
-// Normaliza el nombre de producto de GA4 para FUSIONAR variantes del mismo producto:
-// GA4 emite el mismo tenis con nombres distintos ("TENIS JORDAN 9 SPACE JAM 2026" y
-// "JORDAN 9 SPACE JAM 2026") → si se agrupa por nombre exacto, el tráfico se parte en
-// dos líneas y cada una sub-cuenta. Quita prefijo TENIS/BOTAS y el año; conserva legible.
-function normName(s: string): string {
-  return (s || '').replace(/^\s*(tenis|botas)\s+/i, '').replace(/\s+20\d\d\b/g, '').replace(/\s+/g, ' ').trim();
+// Tokens para emparejar slug↔título: a diferencia de toks(), CONSERVA los dígitos porque
+// el número de modelo distingue Jordan 1/4/9. Quita año y palabras de categoría/relleno.
+function stoks(s: string): Set<string> {
+  const x = (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\b20\d\d\b/g, ' ').replace(/\b(tenis|botas|de|the|the)\b/g, ' ');
+  return new Set(x.split(/\s+/).filter((w) => w.length >= 2 || /[0-9]/.test(w)));
 }
+// Slug → nombre legible cuando NO hay match en Shopify (fallback de display).
+const prettySlug = (slug: string) => slug.replace(/^(tenis|botas)-/, '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function fetchSales(clientId: string, from: string, to: string, property?: string): Promise<ProductPerf[] | null> {
   try {
-    // 1) Tráfico/engagement por producto (GA4, propiedad Shopify).
-    const ga = new Map<string, { name: string; views: number; atc: number }>();
+    // 1) TRÁFICO = sesiones PDP de Clarity, por slug de producto (junta /en/ y año).
+    //    Misma fuente y unidad que la tabla "Páginas con más sesiones" → los dos cuadros
+    //    reconcilian, y la conversión es sesión→compra REAL (no el view_item sub-medido de GA4).
+    const bySlug = new Map<string, number>();
     let off = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      let q = supabase.from('ga4_items')
-        .select('item_name, items_viewed, items_added_to_cart')
-        .eq('client_id', clientId).gte('date', from).lte('date', to).range(off, off + PAGE - 1);
-      if (property) q = q.eq('property_id', property);
-      const { data, error } = await q;
+      const { data, error } = await supabase.from('clarity_pages')
+        .select('page_url, sessions')
+        .eq('client_id', clientId).gte('date', from).lte('date', to)
+        .ilike('page_url', '%/products/%')
+        .range(off, off + PAGE - 1);
       if (error) throw error;
       const batch = (data || []) as any[];
       for (const r of batch) {
-        const raw = r.item_name; if (!raw) continue;
-        const disp = normName(raw); const k = disp.toUpperCase(); // fusiona variantes del mismo producto
-        const a = ga.get(k) || { name: disp, views: 0, atc: 0 };
-        a.views += Number(r.items_viewed) || 0; a.atc += Number(r.items_added_to_cart) || 0;
-        ga.set(k, a);
+        const slug = pdpSlug(r.page_url); if (!slug) continue;
+        bySlug.set(slug, (bySlug.get(slug) || 0) + (Number(r.sessions) || 0));
       }
       if (batch.length < PAGE) break;
       off += PAGE;
     }
-    // 2) Venta real por producto (Shopify) — snapshot del período más reciente.
+    if (bySlug.size === 0) return null;
+
+    // 2) VENTA real por producto (Shopify) — el snapshot más reciente POR PRODUCTO.
+    //    OJO: no todos comparten el mismo period_end (un producto sin ventas recientes deja
+    //    de aparecer y su último snapshot es más viejo). Filtrar a un único max global tiraba
+    //    productos que sí vendieron (ej. True Blue, Flu Game) → se tomaba la última fila de cada título.
     const sp: any[] = []; off = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const { data, error } = await supabase.from('shopify_products')
-        .select('title, period_end, units_sold, revenue, revenue_paid')
+        .select('title, period_end, units_sold, revenue')
         .eq('client_id', clientId).range(off, off + PAGE - 1);
       if (error) throw error;
       const batch = (data || []) as any[];
@@ -246,51 +256,67 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
       if (batch.length < PAGE) break;
       off += PAGE;
     }
-    const maxpe = sp.reduce((m, r) => (r.period_end > m ? r.period_end : m), '');
-    const spw = sp.filter((r) => r.period_end === maxpe);
-
-    // 3) Emparejar GA4↔Shopify — ENDURECIDO:
-    //  (a) excluir basura del lado Shopify (pedidos de prueba / sin cliente);
-    //  (b) matching GLOBAL por mejor score (no goloso por vistas) → resuelve nombres
-    //      ambiguos como "space jam" (el match perfecto se asigna antes que el parcial);
-    //  (c) umbral de confianza 0.4 (más estricto que 0.34).
-    const giList = [...ga.entries()].filter(([, a]) => a.views >= 30);
-    const spClean = spw
-      .map((r, i) => ({ r, i, tk: toks(r.title || '') }))
-      .filter((s) => !/prueba|test|sin\s*cliente|preliminar/i.test(s.r.title || ''));
-    const giTok = giList.map(([, a]) => ({ name: a.name, a, tk: toks(a.name) }));
-    // todos los pares candidatos (inter≥2, score≥0.4), ordenados por score desc
-    const pairs: { g: number; s: number; sc: number }[] = [];
-    giTok.forEach((g, gi) => {
-      spClean.forEach((s, si) => {
-        let inter = 0; g.tk.forEach((t) => { if (s.tk.has(t)) inter++; });
-        if (inter < 2) return;
-        const uni = new Set([...g.tk, ...s.tk]).size; const sc = inter / (uni || 1);
-        if (sc >= 0.4) pairs.push({ g: gi, s: si, sc });
-      });
-    });
-    pairs.sort((a, b) => b.sc - a.sc);
-    const usedG = new Set<number>(), usedS = new Set<number>();
-    const matchG = new Map<number, number>();
-    for (const p of pairs) {
-      if (usedG.has(p.g) || usedS.has(p.s)) continue;
-      usedG.add(p.g); usedS.add(p.s); matchG.set(p.g, p.s);
+    const latest = new Map<string, any>();
+    for (const r of sp) {
+      const t = (r.title || '').trim();
+      if (!t || /prueba|test|sin\s*cliente|preliminar/i.test(t)) continue;
+      const cur = latest.get(t);
+      if (!cur || (r.period_end || '') > (cur.period_end || '')) latest.set(t, r);
     }
-    const rows: ProductPerf[] = giTok.map((g, gi) => {
-      let sold = 0, revenue = 0;
-      const si = matchG.get(gi);
-      if (si !== undefined) { const r = spClean[si].r; sold = Number(r.units_sold) || 0; revenue = Number(r.revenue) || 0; }
-      const conv = g.a.views ? sold / g.a.views : 0;
-      return { name: g.name, views: g.a.views, atc: g.a.atc, sold, revenue, conv, verdict: 'observar' as const };
-    });
-    rows.sort((a, b) => b.views - a.views);
+    const prods = [...latest.values()].map((r) => ({
+      name: (r.title || '').trim(), sold: Number(r.units_sold) || 0, revenue: Number(r.revenue) || 0,
+      tk: stoks(r.title || ''), sessions: 0, hit: false,
+    }));
+
+    // 3) ANCLAR EN EL PRODUCTO: cada slug de Clarity se asigna a su mejor producto Shopify
+    //    (inter≥2, score≥0.4; stoks conserva el nº de modelo para no confundir Jordan 1/4/9).
+    //    Un producto puede recibir VARIOS slugs (colorways/locale) → se SUMAN sus sesiones.
+    const MIN_SESS = 40;
+    const leftover: { slug: string; sessions: number }[] = [];
+    for (const [slug, sessions] of bySlug) {
+      if (sessions < MIN_SESS) continue;
+      const stk = stoks(slug);
+      let best = -1, bestSc = 0;
+      prods.forEach((p, pi) => {
+        let inter = 0; stk.forEach((t) => { if (p.tk.has(t)) inter++; });
+        if (inter < 2) return;
+        const uni = new Set([...stk, ...p.tk]).size; const sc = inter / (uni || 1);
+        if (sc > bestSc) { bestSc = sc; best = pi; }
+      });
+      if (best >= 0 && bestSc >= 0.4) { prods[best].sessions += sessions; prods[best].hit = true; }
+      else leftover.push({ slug, sessions });
+    }
+
+    // 4) Filas: un producto real por fila (tráfico Clarity sumado × venta Shopify). Los slugs
+    //    con tráfico alto que NO casaron con el catálogo se muestran aparte (sin dato de venta).
+    const rows: ProductPerf[] = [];
+    for (const p of prods) if (p.sessions >= MIN_SESS) {
+      rows.push({ name: p.name, sessions: p.sessions, sold: p.sold, revenue: p.revenue, conv: p.sessions ? p.sold / p.sessions : 0, matched: true, verdict: 'observar' });
+    }
+    for (const l of leftover) if (l.sessions >= 150) {
+      rows.push({ name: prettySlug(l.slug), sessions: l.sessions, sold: 0, revenue: 0, conv: 0, matched: false, verdict: 'observar' });
+    }
+    rows.sort((a, b) => b.sessions - a.sessions);
     if (!rows.length) return null;
-    // Veredicto: escalar (convierte bien) / arreglar (mucho tráfico, casi no convierte,
-    // incluye conv muy baja como Miro 0.2%) / explorar (bajo tráfico pero convierte) / observar.
+
+    // 5) Veredicto RELATIVO al promedio de la tienda (robusto: la conversión absoluta es
+    //    baja por el cobro offsite/COD). baseline = compras ÷ sesiones sobre lo emparejado.
+    //    Sólo se juzga lo que tiene dato de venta (matched); lo demás queda en 'observar'.
+    const m = rows.filter((r) => r.matched);
+    const totSold = m.reduce((s, r) => s + r.sold, 0);
+    const totSess = m.reduce((s, r) => s + r.sessions, 0);
+    const baseline = totSess ? totSold / totSess : 0;
+    const sortedSess = rows.map((r) => r.sessions).sort((a, b) => a - b);
+    const med = sortedSess[Math.floor(sortedSess.length / 2)] || 0;
+    const hiCut = Math.max(med, 150);
     for (const p of rows) {
-      if (p.sold >= 2 && p.conv >= 0.015) p.verdict = 'escalar';
-      else if (p.views >= 150 && p.conv < 0.005) p.verdict = 'arreglar';
-      else if (p.views < 120 && p.sold >= 1 && p.conv >= 0.02) p.verdict = 'explorar';
+      if (!p.matched || baseline <= 0) { p.verdict = 'observar'; continue; }
+      const hi = p.sessions >= hiCut;
+      const good = p.conv >= baseline * 1.25 && p.sold >= 2;
+      const bad = p.conv <= baseline * 0.5;
+      if (good && hi) p.verdict = 'escalar';
+      else if (good && !hi) p.verdict = 'explorar';
+      else if (hi && bad) p.verdict = 'arreglar';
       else p.verdict = 'observar';
     }
     return rows;

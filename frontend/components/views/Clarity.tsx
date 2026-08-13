@@ -299,15 +299,19 @@ export function Clarity() {
         const pdpBounce = pdpB.length ? Math.round((100 * pdpB.reduce((s, b) => s + b.bounce * b.sessions, 0)) / pdpB.reduce((s, b) => s + b.sessions, 0)) : 0;
         const fnlDrop = data.funnel && data.funnel.views ? +((100 * data.funnel.atc) / data.funnel.views).toFixed(1) : 0;
         const fixSecs = sections.filter((s) => s.deadRate >= 0.08).map((s) => s.type.replace(' (producto)', ''));
-        const waste = (data.products || []).filter((p) => p.verdict === 'arreglar').sort((a, b) => b.views - a.views)[0];
-        const win = (data.products || []).filter((p) => p.sold > 0).sort((a, b) => b.conv - a.conv)[0];
+        const waste = (data.products || []).filter((p) => p.verdict === 'arreglar').sort((a, b) => b.sessions - a.sessions)[0];
+        // Ganador CONFIABLE = convierte sobre el promedio con ≥2 ventas (verdict escalar/explorar),
+        // no un 1-venta ruidoso. Si no hay, el cuello es transversal (cobro), no "qué producto".
+        const win = (data.products || []).filter((p) => p.verdict === 'escalar' || p.verdict === 'explorar').sort((a, b) => b.conv - a.conv)[0];
         return (
           <div className="cro-vg">
             <div className="cro-vg-tag">📋 El veredicto</div>
             <div className="cro-vg-body">
               <p><b>{mobilePct}% móvil.</b> El tráfico pagado cae en fichas de producto{pdpBounce > 0 ? <> que rebotan <b>~{pdpBounce}%</b></> : null} y convierten <b>&lt;1%</b> — no enganchan en los primeros segundos.</p>
               <p><b className="cro-vg-k">Dónde falla:</b> la mayor caída on-site es <b>Vistas→Carrito ({fnlDrop}%)</b>{fixSecs.length ? <>, y <b>{fixSecs.join(', ')}</b> tienen fricción alta</> : null}. Las PDP funcionan técnicamente, pero venden poco.</p>
-              <p><b className="cro-vg-k">Qué hacer:</b> {waste && win ? <>mueve pauta de <b>{tidy(waste.name)}</b> (mucho tráfico, casi no vende) hacia lo que convierte como <b>{tidy(win.name)}</b> ({formatPercent(win.conv, 1)}); </> : null}engancha la ficha <b>arriba del pliegue</b>; y ataca el <b>cobro</b> (el dinero real).</p>
+              <p><b className="cro-vg-k">Qué hacer:</b> {waste && win
+                ? <>mueve pauta de <b>{tidy(waste.name)}</b> (mucho tráfico, casi no vende) hacia lo que convierte como <b>{tidy(win.name)}</b> ({formatPercent(win.conv, 1)}); engancha la ficha <b>arriba del pliegue</b>; y ataca el <b>cobro</b> (el dinero real).</>
+                : <>el tráfico de alto volumen convierte parejo y bajo, así que el cuello no es <i>qué</i> producto pauteas sino el <b>cobro</b> (checkout/COD) — atácalo primero; y engancha la ficha <b>arriba del pliegue</b>.</>}</p>
             </div>
           </div>
         );
@@ -357,36 +361,51 @@ export function Clarity() {
         );
       })()}
 
-      {/* 1c · ¿QUÉ VENDE Y HACIA DÓNDE LLEVAR LA PAUTA? (tráfico GA4 × venta Shopify) */}
+      {/* 1c · ¿QUÉ VENDE Y HACIA DÓNDE LLEVAR LA PAUTA? (sesiones Clarity × venta Shopify) */}
       {data.products && data.products.length > 0 && (() => {
         const ps = data.products;
-        const mxViews = Math.max(...ps.map((p) => p.views), 1);
+        const mxSess = Math.max(...ps.map((p) => p.sessions), 1);
         // Ordenado por TRÁFICO (tus productos más pauteados y si convierten) — no por
         // veredicto, para no esconder a los que sí vendieron con conversión modesta.
-        const sorted = [...ps].sort((a, b) => b.views - a.views).slice(0, 12);
-        const waste = [...ps].filter((p) => p.verdict === 'arreglar').sort((a, b) => b.views - a.views)[0];
+        const top = [...ps].sort((a, b) => b.sessions - a.sessions).slice(0, 12);
+        // Garantiza que los ganadores (escalar/explorar) sean visibles aunque sean de bajo
+        // tráfico — si no, el titular recomienda un producto que no aparece en la tabla.
+        const gems = ps.filter((p) => (p.verdict === 'escalar' || p.verdict === 'explorar') && !top.includes(p)).sort((a, b) => b.conv - a.conv);
+        const sorted = [...top, ...gems];
+        const waste = [...ps].filter((p) => p.verdict === 'arreglar').sort((a, b) => b.sessions - a.sessions)[0];
         const win = [...ps].filter((p) => p.sold > 0).sort((a, b) => b.conv - a.conv)[0];
+        // Promedio real de la tienda (compras ÷ sesiones sobre lo emparejado) para colorear conv.
+        const mm = ps.filter((p) => p.matched);
+        const base = mm.reduce((s, p) => s + p.sessions, 0) ? mm.reduce((s, p) => s + p.sold, 0) / mm.reduce((s, p) => s + p.sessions, 0) : 0;
         return (
           <>
-            <h3 className="cro-h">🎯 ¿Qué vende y hacia dónde llevar la pauta? <span className="cro-sub2">tráfico (GA4) × venta (Shopify)</span></h3>
-            {waste && win && waste.name !== win.name && (
-              <div className="cro-op-head">La pauta empuja fuerte <b>{tidy(waste.name)}</b> ({formatInt(waste.views)} vistas) pero <b>casi no vende</b>. En cambio <b>{tidy(win.name)}</b> convierte <b style={{ color: CRO_GREEN }}>{formatPercent(win.conv, 1)}</b> → <b>mueve presupuesto hacia lo que sí vende.</b></div>
-            )}
+            <h3 className="cro-h">🎯 ¿Qué vende y hacia dónde llevar la pauta? <span className="cro-sub2">sesiones PDP (Clarity) × venta (Shopify)</span></h3>
+            {(() => {
+              const winR = [...ps].filter((p) => p.verdict === 'escalar' || p.verdict === 'explorar').sort((a, b) => b.conv - a.conv)[0];
+              if (waste && winR && waste.name !== winR.name) return (
+                <div className="cro-op-head">La pauta trae fuerte <b>{tidy(waste.name)}</b> ({formatInt(waste.sessions)} sesiones) pero convierte <b style={{ color: CRO_RED }}>{formatPercent(waste.conv, 1)}</b>. En cambio <b>{tidy(winR.name)}</b> convierte <b style={{ color: CRO_GREEN }}>{formatPercent(winR.conv, 1)}</b> ({winR.sold} uds) → <b>mueve presupuesto hacia lo que sí vende.</b></div>
+              );
+              if (waste) return (
+                <div className="cro-op-head">La pauta trae fuerte <b>{tidy(waste.name)}</b> ({formatInt(waste.sessions)} sesiones) pero convierte <b style={{ color: CRO_RED }}>{formatPercent(waste.conv, 1)}</b>, por debajo del promedio{base > 0 ? <> (<b>{formatPercent(base, 1)}</b>)</> : null}. Hoy <b>ningún producto de alto tráfico</b> convierte por encima del promedio → la fuga es <b>transversal (checkout/cobro)</b>, no de qué producto pautear.</div>
+              );
+              return null;
+            })()}
             <div className="card cro-op">
-              <div className="cro-op-hd"><span>Producto</span><span>Tráfico (vistas)</span><span>Vende</span><span>Conv.</span><span>Veredicto</span></div>
+              <div className="cro-op-hd"><span>Producto</span><span>Tráfico (sesiones)</span><span>Vende</span><span>Conv.</span><span>Veredicto</span></div>
               {sorted.map((p) => {
                 const [lbl, col] = VERDICT[p.verdict];
+                const good = p.verdict === 'escalar' || p.verdict === 'explorar';
                 return (
                   <div className="cro-op-row" key={p.name}>
                     <div className="cro-op-n">{tidy(p.name)}</div>
-                    <div className="cro-op-bar"><span style={{ width: `${Math.max(3, Math.round((100 * p.views) / mxViews))}%`, background: col }} /><small>{formatInt(p.views)}</small></div>
+                    <div className="cro-op-bar"><span style={{ width: `${Math.max(3, Math.round((100 * p.sessions) / mxSess))}%`, background: col }} /><small>{formatInt(p.sessions)}</small></div>
                     <div className="cro-op-v">{p.sold > 0 ? <b>{p.sold} uds</b> : <span className="muted">—</span>}{p.revenue > 0 ? <small> · {money(p.revenue)}</small> : null}</div>
-                    <div className="cro-op-c" style={{ color: p.conv >= 0.02 ? CRO_GREEN : p.conv > 0 ? '#171226' : CRO_MUT }}>{p.sold > 0 ? formatPercent(p.conv, 1) : '—'}</div>
+                    <div className="cro-op-c" style={{ color: good ? CRO_GREEN : p.sold > 0 ? '#171226' : CRO_MUT }}>{p.matched ? formatPercent(p.conv, 1) : '—'}</div>
                     <div><span className="cro-op-badge" style={{ color: col, background: col + '18', borderColor: col + '44' }}>{lbl}</span></div>
                   </div>
                 );
               })}
-              <div className="cro-op-note">🟢 <b>Escalar</b>: convierte bien → empuja más pauta. 🔴 <b>No escalar</b>: mucho tráfico, no vende → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte → prueba subirle pauta. <b>Vistas</b> = evento <i>view_item</i> de GA4 (por producto) — <b>no</b> son las mismas <i>sesiones</i> de la tabla de páginas (esas son de Clarity, por URL, y son más altas porque GA4 sólo cuenta la ficha). Por eso la <b>Conv.</b> (= ventas Shopify ÷ vistas GA4) sirve para <b>comparar productos entre sí</b>, no como la tasa real sesión→compra. Venta = snapshot Shopify más reciente; el cruce empareja por <b>nombre</b> (sin ID compartido) — <b>verifica los movimientos grandes de presupuesto</b> antes de ejecutar.</div>
+              <div className="cro-op-note">🟢 <b>Escalar</b>: convierte arriba del promedio con volumen. 🔴 <b>No escalar</b>: mucho tráfico, convierte muy por debajo → arregla la ficha o corta el gasto. 🔵 <b>Explorar</b>: poco tráfico pero convierte bien → prueba subirle pauta. <b>Tráfico</b> = sesiones PDP de <b>Clarity</b> (mismas de la tabla de páginas → los dos cuadros cuadran). <b>Conv.</b> = ventas Shopify ÷ esas sesiones = tasa real <b>sesión→compra</b>{base > 0 ? <> (promedio tienda <b>{formatPercent(base, 1)}</b>; el veredicto es relativo a ese promedio)</> : null}. ⚠️ La venta es el <b>snapshot Shopify</b> más reciente (~30 d, no el rango exacto) y son unidades chicas → úsalo como señal, <b>verifica los movimientos grandes</b> antes de ejecutar. El cruce empareja slug↔título por nombre (sin ID compartido).</div>
             </div>
           </>
         );

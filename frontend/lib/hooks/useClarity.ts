@@ -62,6 +62,7 @@ export interface ClarityData {
   totals: ClarityTotals;
   funnel: ClarityFunnel | null; // embudo GA4 (null si no hay dato)
   products: ProductPerf[] | null; // cruce tráfico×venta por producto
+  salesDated: boolean; // true = venta sumada del rango exacto (shopify_product_daily); false = snapshot ~30d
   bounce: BounceRow[] | null; // rebote por landing (GA4)
   from: string;
   to: string;
@@ -215,7 +216,7 @@ function stoks(s: string): Set<string> {
 const prettySlug = (slug: string) => slug.replace(/^(tenis|botas)-/, '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function fetchSales(clientId: string, from: string, to: string, property?: string): Promise<ProductPerf[] | null> {
+async function fetchSales(clientId: string, from: string, to: string, property?: string): Promise<{ rows: ProductPerf[]; dated: boolean } | null> {
   try {
     // 1) TRÁFICO = sesiones PDP de Clarity, por slug de producto (junta /en/ y año).
     //    Misma fuente y unidad que la tabla "Páginas con más sesiones" → los dos cuadros
@@ -240,32 +241,60 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
     }
     if (bySlug.size === 0) return null;
 
-    // 2) VENTA real por producto (Shopify) — el snapshot más reciente POR PRODUCTO.
-    //    OJO: no todos comparten el mismo period_end (un producto sin ventas recientes deja
-    //    de aparecer y su último snapshot es más viejo). Filtrar a un único max global tiraba
-    //    productos que sí vendieron (ej. True Blue, Flu Game) → se tomaba la última fila de cada título.
-    const sp: any[] = []; off = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { data, error } = await supabase.from('shopify_products')
-        .select('title, period_end, units_sold, revenue')
-        .eq('client_id', clientId).range(off, off + PAGE - 1);
-      if (error) throw error;
-      const batch = (data || []) as any[];
-      sp.push(...batch);
-      if (batch.length < PAGE) break;
-      off += PAGE;
+    // 2) VENTA por producto (Shopify). Preferimos ventas por (producto, día) del rango
+    //    EXACTO elegido (tabla shopify_product_daily). Si aún no existe/está vacía (pre-ETL),
+    //    caemos al snapshot de ventana completa de shopify_products (último POR producto) para
+    //    no romper prod. `dated` avisa a la UI cuál se usó.
+    const junk = (t: string) => !t || /prueba|test|sin\s*cliente|preliminar/i.test(t);
+    const salesByTitle = new Map<string, { sold: number; revenue: number }>();
+    let dated = false;
+    try {
+      let o2 = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase.from('shopify_product_daily')
+          .select('title, units_sold, revenue')
+          .eq('client_id', clientId).gte('date', from).lte('date', to)
+          .range(o2, o2 + PAGE - 1);
+        if (error) throw error;
+        const batch = (data || []) as any[];
+        for (const r of batch) {
+          const t = (r.title || '').trim(); if (junk(t)) continue;
+          const cur = salesByTitle.get(t) || { sold: 0, revenue: 0 };
+          cur.sold += Number(r.units_sold) || 0; cur.revenue += Number(r.revenue) || 0;
+          salesByTitle.set(t, cur);
+        }
+        if (batch.length < PAGE) break;
+        o2 += PAGE;
+      }
+      dated = salesByTitle.size > 0;
+    } catch { /* tabla aún no creada → fallback al snapshot */ }
+
+    if (!dated) {
+      // Fallback: último snapshot POR producto (no un único period_end global, que tiraba
+      // productos con venta pero snapshot más viejo, ej. True Blue, Flu Game).
+      const sp: any[] = []; let o3 = 0;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase.from('shopify_products')
+          .select('title, period_end, units_sold, revenue')
+          .eq('client_id', clientId).range(o3, o3 + PAGE - 1);
+        if (error) throw error;
+        const batch = (data || []) as any[];
+        sp.push(...batch);
+        if (batch.length < PAGE) break;
+        o3 += PAGE;
+      }
+      const latest = new Map<string, any>();
+      for (const r of sp) {
+        const t = (r.title || '').trim(); if (junk(t)) continue;
+        const cur = latest.get(t);
+        if (!cur || (r.period_end || '') > (cur.period_end || '')) latest.set(t, r);
+      }
+      for (const r of latest.values()) salesByTitle.set((r.title || '').trim(), { sold: Number(r.units_sold) || 0, revenue: Number(r.revenue) || 0 });
     }
-    const latest = new Map<string, any>();
-    for (const r of sp) {
-      const t = (r.title || '').trim();
-      if (!t || /prueba|test|sin\s*cliente|preliminar/i.test(t)) continue;
-      const cur = latest.get(t);
-      if (!cur || (r.period_end || '') > (cur.period_end || '')) latest.set(t, r);
-    }
-    const prods = [...latest.values()].map((r) => ({
-      name: (r.title || '').trim(), sold: Number(r.units_sold) || 0, revenue: Number(r.revenue) || 0,
-      tk: stoks(r.title || ''), sessions: 0, hit: false,
+    const prods = [...salesByTitle.entries()].map(([title, v]) => ({
+      name: title, sold: v.sold, revenue: v.revenue, tk: stoks(title), sessions: 0, hit: false,
     }));
 
     // 3) ANCLAR EN EL PRODUCTO: cada slug de Clarity se asigna a su mejor producto Shopify
@@ -319,7 +348,7 @@ async function fetchSales(clientId: string, from: string, to: string, property?:
       else if (hi && bad) p.verdict = 'arreglar';
       else p.verdict = 'observar';
     }
-    return rows;
+    return { rows, dated };
   } catch {
     return null;
   }
@@ -446,7 +475,7 @@ export function useClarity(clientId: string, range: DateRange, property?: string
       setLoading(true);
       setError(null);
       try {
-        const [metricRows, pageRows, devices, funnel, products, bounce] = await Promise.all([
+        const [metricRows, pageRows, devices, funnel, salesRes, bounce] = await Promise.all([
           fetchMetrics(clientId, range.from, range.to),
           fetchPages(clientId, range.from, range.to),
           fetchDevices(clientId, range.from, range.to),
@@ -455,6 +484,8 @@ export function useClarity(clientId: string, range: DateRange, property?: string
           fetchBounce(clientId, range.from, range.to, property),
         ]);
         if (cancelled) return;
+        const products = salesRes?.rows ?? null;
+        const salesDated = salesRes?.dated ?? false;
 
         const daily = buildDaily(metricRows);
         const totals = sumTotals(daily);
@@ -463,7 +494,7 @@ export function useClarity(clientId: string, range: DateRange, property?: string
         totals.deviceTablet = devices.tablet;
         const pages = buildPages(pageRows);
 
-        setData({ daily, pages, totals, funnel, products, bounce, from: range.from, to: range.to });
+        setData({ daily, pages, totals, funnel, products, salesDated, bounce, from: range.from, to: range.to });
       } catch (e: any) {
         if (cancelled) return;
         console.error('[useClarity]', e);

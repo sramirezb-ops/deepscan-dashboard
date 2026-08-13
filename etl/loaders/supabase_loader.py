@@ -123,6 +123,7 @@ class SupabaseLoader:
             "gmc_products":             "client_id,product_id",
             "shopify_orders":           "client_id,date",
             "shopify_products":         "client_id,period_start,product_id",
+            "shopify_product_daily":    "client_id,date,product_id",
             "shopify_funnel":           "client_id,date",
             "shopify_abandoned_checkouts": "client_id,date",
             "clarity_metrics":          "client_id,date",

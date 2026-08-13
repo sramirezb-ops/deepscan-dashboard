@@ -565,7 +565,7 @@ def run_etl(client_id: str, days_back: int = 30):
         try:
             # Token offline permanente obtenido vía authorization code grant
             # (el client credentials grant no funciona en tiendas pagas).
-            shop_orders, shop_products, shop_funnel = extract_shopify(
+            shop_orders, shop_products, shop_funnel, shop_prod_daily = extract_shopify(
                 shop_url=shopify_shop_url,
                 access_token=shopify_token,
                 date_from=date_from,
@@ -574,6 +574,7 @@ def run_etl(client_id: str, days_back: int = 30):
             loader.upsert("shopify_orders",   shop_orders,   client_id)
             loader.upsert("shopify_products", shop_products, client_id)
             loader.upsert("shopify_funnel",   shop_funnel,   client_id)
+            loader.upsert("shopify_product_daily", shop_prod_daily, client_id)
             log.info(f"   ✓ Shopify: {len(shop_orders)} días")
 
             # Checkouts abandonados (requiere scope read_checkouts). Best-effort:

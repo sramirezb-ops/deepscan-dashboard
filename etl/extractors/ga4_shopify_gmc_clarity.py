@@ -614,10 +614,11 @@ def extract_shopify(
     access_token: str,
     date_from: date,
     date_to: date
-) -> tuple[list[dict], list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     """
-    Extrae órdenes, productos top y funnel desde Shopify Admin API (REST).
-    shop_url: mi-tienda.myshopify.com  (sin https://)
+    Extrae órdenes, productos top, funnel y ventas producto×día desde Shopify
+    Admin API (REST). shop_url: mi-tienda.myshopify.com  (sin https://).
+    Devuelve (orders_rows, product_rows, funnel_rows, product_daily_rows).
     """
     import requests as req
 
@@ -657,6 +658,9 @@ def extract_shopify(
     # Agregar órdenes por día
     orders_by_date: dict[str, dict] = {}
     product_sales:  dict[str, dict] = {}
+    # Ventas por (producto, día) → permite que el dashboard sume el rango EXACTO
+    # elegido (no el snapshot de ventana completa). Clave: (product_id, fecha).
+    product_daily:  dict[tuple[str, str], dict] = {}
 
     for order in orders_raw:
         d = order["created_at"][:10]   # YYYY-MM-DD
@@ -734,6 +738,25 @@ def extract_shopify(
                 product_sales[pid]["revenue_pending"] += item_price
                 product_sales[pid]["units_pending"]   += qty
 
+            # Mismo desglose pero por (producto, día) para respetar el rango exacto.
+            dk = (pid, d)
+            if dk not in product_daily:
+                product_daily[dk] = {
+                    "date": d, "product_id": pid, "title": item.get("title", ""),
+                    "sku": item.get("sku", ""), "revenue": 0, "units_sold": 0, "orders": 0,
+                    "revenue_paid": 0, "revenue_pending": 0, "units_paid": 0, "units_pending": 0,
+                }
+            pd = product_daily[dk]
+            pd["revenue"]    += item_price
+            pd["units_sold"] += qty
+            pd["orders"]     += 1
+            if is_paid:
+                pd["revenue_paid"] += item_price
+                pd["units_paid"]   += qty
+            elif is_pending:
+                pd["revenue_pending"] += item_price
+                pd["units_pending"]   += qty
+
     orders_rows = []
     for d, v in sorted(orders_by_date.items()):
         avg = round(v["revenue"] / v["orders"], 2) if v["orders"] > 0 else 0
@@ -779,6 +802,25 @@ def extract_shopify(
             "units_pending":   p["units_pending"],
         })
 
+    # Ventas por (producto, día) — para que el dashboard sume el rango exacto.
+    product_daily_rows = []
+    for pd in product_daily.values():
+        avg_price = round(pd["revenue"] / pd["units_sold"], 2) if pd["units_sold"] > 0 else 0
+        product_daily_rows.append({
+            "date":            pd["date"],
+            "product_id":      pd["product_id"],
+            "title":           pd["title"],
+            "sku":             pd["sku"],
+            "revenue":         round(pd["revenue"], 2),
+            "units_sold":      pd["units_sold"],
+            "orders":          pd["orders"],
+            "avg_price":       avg_price,
+            "revenue_paid":    round(pd["revenue_paid"], 2),
+            "revenue_pending": round(pd["revenue_pending"], 2),
+            "units_paid":      pd["units_paid"],
+            "units_pending":   pd["units_pending"],
+        })
+
     # Funnel Shopify — estimado desde checkout API
     # (Shopify no expone funnel nativo via REST; usamos datos de órdenes + abandono)
     funnel_rows = []
@@ -796,8 +838,8 @@ def extract_shopify(
             "abandoned_cart_value":  0,       # disponible via Shopify AbandonedCheckouts API
         })
 
-    log.info(f"   Shopify: {len(orders_rows)} días, {len(product_rows)} productos")
-    return orders_rows, product_rows, funnel_rows
+    log.info(f"   Shopify: {len(orders_rows)} días, {len(product_rows)} productos, {len(product_daily_rows)} ventas producto×día")
+    return orders_rows, product_rows, funnel_rows, product_daily_rows
 
 
 def extract_shopify_abandoned(

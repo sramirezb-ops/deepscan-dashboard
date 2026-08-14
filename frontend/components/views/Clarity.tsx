@@ -111,6 +111,20 @@ const PAGINA_MADRE: MadreDef[] = [
     palanca: 'Sube tallas + botón de compra + "apártalo en abonos" arriba del pliegue (bajo la galería), acorta la descripción y vuelve el apartado un módulo visible, no solo WhatsApp.',
   },
   {
+    metricType: 'Carrito',
+    title: 'Carrito',
+    intent: 'El último paso antes de pagar — y donde el sitio tiene su PEOR fricción.',
+    sections: [
+      { name: 'Resumen del producto (foto, talla, total)', sev: 'green', text: 'Claro: muestra qué lleva, con talla y precio. No confunde.' },
+      { name: 'Controles de cantidad (− / +) y quitar', sev: 'red', text: 'Aquí se concentra la fricción más alta del sitio: en móvil el toque no siempre responde limpio → tocan y no pasa nada.' },
+      { name: 'Sin campo de cupón', sev: 'red', text: 'El descuento solo se aplica "en la pantalla de pago". Quien tiene un cupón lo busca aquí, no lo encuentra → toca alrededor o se va. Y las reseñas pregonan cupones en la app → refuerza la fuga.' },
+      { name: 'Sin "apártalo en abonos"', sev: 'red', text: 'La opción de pagar a plazos que sí está en la ficha DESAPARECE en el carrito. Quien quería pagar a meses, choca justo al decidir.' },
+      { name: '"Pagar pedido" → checkout de Shopify (offsite)', sev: 'amber', text: 'Manda a un checkout fuera del sitio; es donde solo ~40% termina cobrando (COD/pendiente). El botón funciona — el problema es lo que sigue.' },
+    ],
+    concl: 'Es el punto más roto: los controles del carrito generan toques muertos, y toda la flexibilidad (cupón, abonos) desaparece justo cuando el usuario decide pagar. Luego el checkout offsite es donde se cae el cobro.',
+    palanca: 'Arregla el toque de los controles en móvil; trae el cupón y el "apártalo en abonos" AL carrito; y reduce la fuga del checkout (MSI/OXXO/SPEI, confirmación de COD).',
+  },
+  {
     metricType: 'Colección',
     title: 'Colección / Categoría',
     intent: 'Donde el usuario explora y elige qué ficha abrir.',
@@ -121,6 +135,19 @@ const PAGINA_MADRE: MadreDef[] = [
     ],
     concl: 'Retiene (exploran) pero no PRIORIZA: catálogo grande, todo "en oferta", sin jerarquía de qué empujar; y el toque en móvil merma.',
     palanca: 'Arregla el área de toque de tarjetas/filtros en móvil y usa la oferta con criterio (no en todo) para que signifique algo.',
+  },
+  {
+    metricType: 'Búsqueda',
+    title: 'Búsqueda',
+    intent: 'La intención más alta: el usuario ya sabe qué quiere y lo escribe.',
+    sections: [
+      { name: 'Motor de búsqueda', sev: 'green', text: 'Funciona: "jordan" trae 118 resultados relevantes. La recuperación es buena.' },
+      { name: 'Filtrar y ordenar', sev: 'green', text: 'Disponible para refinar los resultados.' },
+      { name: 'Toque sobre tarjetas y filtros (móvil)', sev: 'red', text: 'Misma fricción que Colección: el área de toque no responde limpio en móvil.' },
+      { name: 'Resultados idénticos a Colección + "OFERTA" en todo', sev: 'amber', text: 'La página de resultados se ve igual que navegar sin rumbo; desaprovecha que el usuario de búsqueda tiene MÁS intención de compra.' },
+    ],
+    concl: 'Encuentra bien (buena recuperación), pero la página de resultados es idéntica a Colección y hereda su fricción de toque. No capitaliza la alta intención de quien busca.',
+    palanca: 'Arregla el toque de tarjetas en móvil y aprovecha la intención: los resultados más relevantes/rentables primero y un gancho distinto al de navegación general.',
   },
   {
     metricType: 'Home',

@@ -74,45 +74,6 @@ function deadColor(rate: number): string {
   return CRO_GREEN;
 }
 
-// Veredicto conclusivo por sección: semáforo + etiqueta + "por qué" (no un scatter
-// que hay que interpretar). Combina fricción (dead-click) con el scroll donde aplica.
-function sectionVerdict(type: string, scroll: number, deadRate: number, sessions: number): { label: string; color: string; reason: string } {
-  let label: string, color: string;
-  if (deadRate >= 0.08) { label = 'ARREGLAR'; color = CRO_RED; }
-  else if (deadRate >= 0.05) { label = 'OJO'; color = CRO_AMBER; }
-  else { label = 'FUNCIONA'; color = CRO_GREEN; }
-  // Familia de página → dónde se concentran los toques sin respuesta (dead-click).
-  const fam = type.startsWith('PDP') ? 'pdp'
-    : /colecci|categor|lista/i.test(type) ? 'list'
-    : /b[uú]squeda|search/i.test(type) ? 'search'
-    : /carrito|cart/i.test(type) ? 'cart'
-    : type === 'Home' ? 'home' : 'other';
-  const pct = formatPercent(deadRate, 1);
-  let reason: string;
-  if (deadRate >= 0.05) {
-    const where = fam === 'list' ? 'sobre tarjetas de producto y filtros que no reaccionan al toque'
-      : fam === 'search' ? 'sobre resultados y filtros de búsqueda que no reaccionan al toque'
-      : fam === 'cart' ? 'en los controles del carrito (cantidad, quitar, ir a pagar)'
-      : fam === 'pdp' ? 'en la ficha (galería, guía de tallas, botones)'
-      : fam === 'home' ? 'en banners y accesos del inicio'
-      : 'sobre elementos que no responden';
-    const sev = deadRate >= 0.08 ? `Fricción alta (${pct})` : `Fricción media (${pct})`;
-    const weight = sessions >= 1500 ? ' Alto volumen → prioridad #1 de la zona.'
-      : sessions < 300 ? ' Volumen bajo: corrígelo, pero el impacto es acotado.'
-      : '';
-    reason = `${sev}: toques sin respuesta ${where}.${weight}`;
-  } else {
-    reason = `Baja fricción (${pct}) — la sección responde bien al toque.`;
-  }
-  // Caveat de scroll: sólo donde el contenido decisivo debe ir arriba del pliegue.
-  if (scroll < 0.45 && fam === 'pdp') {
-    reason += ` Scroll ~${formatPercent(scroll, 0)}: precio, talla, MSI y botón de compra tienen que ir arriba del pliegue.`;
-  } else if (scroll < 0.45 && fam === 'home') {
-    reason += ` Scroll ~${formatPercent(scroll, 0)}: la propuesta de valor y el CTA principal tienen que ir arriba del pliegue.`;
-  }
-  return { label, color, reason };
-}
-
 // Familia de sección (para mensajes específicos por zona).
 function secFam(type: string): 'pdp' | 'list' | 'search' | 'cart' | 'home' | 'other' {
   return type.startsWith('PDP') ? 'pdp'
@@ -122,49 +83,58 @@ function secFam(type: string): 'pdp' | 'list' | 'search' | 'cart' | 'home' | 'ot
     : type === 'Home' ? 'home' : 'other';
 }
 
-export interface SecPlanItem { sev: 'red' | 'amber' | 'green'; text: string }
-// Plan de ajustes CONCRETO por sección, derivado de las señales reales (fricción,
-// scroll, rebote, rage) — no consejos genéricos. Cada ítem cita su métrica.
-function buildPlan(
-  type: string, deadRate: number, scroll: number, rageRate: number,
-  bounce: number | null, worst: { path: string; dead: number } | null,
-): SecPlanItem[] {
-  const fam = secFam(type);
-  const out: SecPlanItem[] = [];
-  // 1) Fricción (dead-click) → qué elemento revisar según la zona.
-  if (deadRate >= 0.05) {
-    const where = fam === 'list' ? 'las tarjetas de producto y los filtros'
-      : fam === 'search' ? 'los resultados y filtros de búsqueda'
-      : fam === 'cart' ? 'los controles del carrito (cantidad, quitar, ir a pagar)'
-      : fam === 'pdp' ? 'la galería, la guía de tallas y los botones'
-      : fam === 'home' ? 'los banners y accesos del inicio'
-      : 'los elementos interactivos';
-    out.push({
-      sev: deadRate >= 0.08 ? 'red' : 'amber',
-      text: `Fricción ${formatPercent(deadRate, 1)}: hay toques sin respuesta. Revisa en móvil que ${where} sean clickeables y den feedback al tocar.${worst ? ` Empieza por ${worst.path} (${formatPercent(worst.dead, 1)}).` : ''}`,
-    });
-  }
-  // 2) Scroll bajo donde el contenido decisivo debe ir arriba del pliegue.
-  if (scroll < 0.45 && fam === 'pdp') {
-    out.push({ sev: 'amber', text: `Scroll ${formatPercent(scroll, 0)}: el usuario promedio no baja. Sube precio, talla, MSI y botón de compra arriba del pliegue.` });
-  } else if (scroll < 0.45 && fam === 'home') {
-    out.push({ sev: 'amber', text: `Scroll ${formatPercent(scroll, 0)}: sube la propuesta de valor y el CTA principal arriba del pliegue.` });
-  }
-  // 3) Scroll alto en listas = normal (no es un logro; enfoca relevancia).
-  if (scroll >= 0.6 && (fam === 'list' || fam === 'search')) {
-    out.push({ sev: 'green', text: `Scroll ${formatPercent(scroll, 0)}: normal en listas (están explorando). Asegura que los primeros resultados sean los más relevantes y rentables.` });
-  }
-  // 4) Rebote alto (mismatch anuncio↔página en tráfico pagado).
-  if (bounce != null && bounce >= 0.5) {
-    out.push({ sev: bounce >= 0.6 ? 'red' : 'amber', text: `Rebote ${formatPercent(bounce, 0)}: entran y se van sin tocar nada. En landing pagada suele ser mismatch anuncio↔página — alinea el creativo con esta zona o cambia el destino.` });
-  }
-  // 5) Rage clicks (frustración: algo tarda o no responde).
-  if (rageRate >= 0.02) {
-    out.push({ sev: 'amber', text: `Rage clicks ${formatPercent(rageRate, 1)}: re-tocan con frustración, algo tarda o no responde. Prioriza revisar ese elemento.` });
-  }
-  if (!out.length) out.push({ sev: 'green', text: 'Sin señales de fricción: la sección responde bien. Es el molde a replicar en las que fallan.' });
-  return out;
-}
+
+// ── ANÁLISIS CURADO POR PÁGINA MADRE ────────────────────────────────────────
+// Derivado de mirar las páginas REALES (basics.sneakerstore.com.mx) + el
+// comportamiento (scroll, rebote, reseñas). Cada sección va nombrada por su
+// intención con veredicto y el porqué. Las métricas del encabezado se inyectan
+// en vivo desde `sections`/`bounce`; el análisis por sección es curado.
+interface MadreSection { name: string; sev: 'green' | 'amber' | 'red'; text: string }
+interface MadreDef { metricType: string; title: string; intent: string; sections: MadreSection[]; concl: string; palanca: string }
+const PAGINA_MADRE: MadreDef[] = [
+  {
+    metricType: 'PDP (producto)',
+    title: 'Ficha de producto (PDP)',
+    intent: 'Donde cae casi toda la pauta. Su trabajo: convertir interés en compra.',
+    sections: [
+      { name: 'Galería 360° + sello "100% Original"', sev: 'green', text: 'Engancha y diferencia. Los toques "muertos" aquí son intentos de girar o hacer zoom — normal, no es fricción real.' },
+      { name: 'Bloque de autenticidad (QR físico)', sev: 'green', text: 'Mata la objeción #1: el miedo a las falsificaciones. Las reseñas lo confirman ("el QR da tranquilidad"). Es tu mejor arma y está bien ubicada.' },
+      { name: 'Precio $6,000 — arriba del todo', sev: 'amber', text: 'Impacto de precio de golpe, sin contexto de pago: la solución (pago en abonos) está muy abajo. Precio sin remedio a la vista.' },
+      { name: 'Descripción larga', sev: 'amber', text: 'Ocupa el espacio valioso arriba del pliegue y empuja hacia abajo lo que realmente vende.' },
+      { name: 'Selector de tallas — cae al 44% de la página', sev: 'red', text: 'Justo en el límite del scroll promedio (43%) → la mitad de la gente ni llega a elegir su talla.' },
+      { name: 'Aviso "Talla real" — pegado a la Guía de tallas', sev: 'amber', text: 'No es clickeable, pero está junto al link que sí lo es → genera toques muertos y confusión. Sepáralo.' },
+      { name: 'Agregar al carrito / Comprar — ~48%', sev: 'red', text: 'En el borde exacto donde el usuario promedio deja de bajar. Muchos no llegan al botón.' },
+      { name: '"Apártalo en abonos" — al 60%', sev: 'red', text: 'Es la respuesta a la demanda de "pagar a meses" que ya vimos en grabaciones. Pero está ENTERRADA bajo el pliegue y es un proceso manual por WhatsApp (te saca del sitio). Quien quiere pagar a plazos, no la ve.' },
+      { name: 'Reseñas verificadas — al 67%', sev: 'amber', text: 'Prueba social fuerte, pero casi nadie llega. Y varias dicen "la app es más barata que la web" → autogol: en tu propia ficha entrenas al comprador a esperar o a irse a la app.' },
+    ],
+    concl: 'Excelente en CONFIANZA (QR + reseñas matan el miedo a fakes), pero falla en el MOMENTO DE COMPRAR: lo que tranquiliza está arriba y lo que vende (talla, botón, abonos) cae en o debajo del 43% donde la gente deja de bajar. El rebote no es por una ficha rota — es de ORDEN y de OFERTA.',
+    palanca: 'Sube tallas + botón de compra + "apártalo en abonos" arriba del pliegue (bajo la galería), acorta la descripción y vuelve el apartado un módulo visible, no solo WhatsApp.',
+  },
+  {
+    metricType: 'Colección',
+    title: 'Colección / Categoría',
+    intent: 'Donde el usuario explora y elige qué ficha abrir.',
+    sections: [
+      { name: 'Filtros + grid de productos', sev: 'green', text: 'Funcionan: la gente scrollea y explora a fondo (el scroll alto aquí es normal, están buscando).' },
+      { name: 'Toque sobre tarjetas y filtros (móvil)', sev: 'red', text: 'Fricción alta: el área de toque de las tarjetas o filtros no responde limpio en móvil → tocan y no pasa nada.' },
+      { name: '"OFERTA" en el 100% de los productos', sev: 'amber', text: 'Cuando TODO está rebajado con precio tachado, el descuento no diferencia ni urge, y el tachado enseña que "el precio real es más bajo" → alimenta la espera.' },
+    ],
+    concl: 'Retiene (exploran) pero no PRIORIZA: catálogo grande, todo "en oferta", sin jerarquía de qué empujar; y el toque en móvil merma.',
+    palanca: 'Arregla el área de toque de tarjetas/filtros en móvil y usa la oferta con criterio (no en todo) para que signifique algo.',
+  },
+  {
+    metricType: 'Home',
+    title: 'Inicio (Home)',
+    intent: 'Poco tráfico: la pauta va directo a la ficha. No es prioridad, pero fija marca.',
+    sections: [
+      { name: 'Hero "SALE DAYS ¡ALERTA!"', sev: 'amber', text: 'Repetido en bucle se ve ruidoso, casi roto. Un mensaje claro pega más que la repetición.' },
+      { name: 'Colecciones curadas por tema', sev: 'green', text: 'Luxury, Jordan, Bad Bunny, Travis Scott, Samba — buen merchandising, ordena la entrada.' },
+      { name: 'Enganche general', sev: 'green', text: 'Baja fricción y bajo rebote: los pocos que entran por Home sí enganchan.' },
+    ],
+    concl: 'Funciona bien para el poco tráfico que recibe. No es la prioridad — la venta se gana en la ficha.',
+    palanca: 'Limpia el hero (un mensaje, no un bucle) y enfoca la energía en la PDP.',
+  },
+];
 
 // Slug de producto desde una URL PDP (igual criterio que el hook: quita locale y año).
 function slugOf(url: string): string | null {
@@ -316,26 +286,13 @@ export function Clarity() {
   });
 
   // Plan de ajustes por sección: rebote por zona + página más crítica por fricción.
+  // Rebote por tipo de sección (para las métricas de encabezado del análisis por página madre).
   const bounceBySec: Record<string, { s: number; bw: number }> = {};
   for (const b of data.bounce || []) {
     const ty = pageType(shortPath(b.page));
     const o = (bounceBySec[ty] ||= { s: 0, bw: 0 });
     o.s += b.sessions; o.bw += b.bounce * b.sessions;
   }
-  const worstBySec: Record<string, { path: string; dead: number }> = {};
-  for (const p of data.pages) {
-    if (p.sessions < 40) continue;
-    const ty = pageType(shortPath(p.pageUrl));
-    const dr = p.deadClicks / p.sessions;
-    const cur = worstBySec[ty];
-    if (!cur || dr > cur.dead) worstBySec[ty] = { path: shortPath(p.pageUrl), dead: dr };
-  }
-  const sectionPlans = [...sections].sort((a, b) => b.deadRate - a.deadRate).map((s) => {
-    const bAgg = bounceBySec[s.type];
-    const bounce = bAgg && bAgg.s ? bAgg.bw / bAgg.s : null;
-    const worst = worstBySec[s.type] || null;
-    return { s, bounce, worst, plan: buildPlan(s.type, s.deadRate, s.scroll, s.rageRate, bounce, worst) };
-  });
 
   // Duelo de PDP: entre fichas con tráfico suficiente, la de menor vs mayor fricción.
   const pdps = data.pages.filter((p) => pageType(shortPath(p.pageUrl)) === 'PDP (producto)' && p.sessions >= 100)
@@ -413,7 +370,7 @@ export function Clarity() {
       })()}
 
       {/* 2 · SALUD Y AJUSTES POR SECCIÓN — mapa (matriz) + plan de ajustes en un módulo */}
-      <h3 className="cro-h">🩺 Salud y ajustes por sección · qué funciona y qué cambiar</h3>
+      <h3 className="cro-h">🩺 Análisis por página madre · qué funciona en cada sección, qué no y por qué</h3>
       <div className="cro-matrix card">
         <div className="cro-mx-cap">Cada burbuja es una sección · <b>eje X</b> = tráfico · <b>eje Y</b> = fricción (dead-click) · tamaño = sesiones. <b style={{ color: CRO_RED }}>Arriba-derecha</b> = mucho tráfico + mucha fricción → <b>arreglar primero</b>.</div>
         <svg viewBox={`0 0 ${MW} ${MH}`} width="100%" role="img" aria-label="Matriz de secciones: tráfico vs fricción">
@@ -454,41 +411,51 @@ export function Clarity() {
           })()}
         </svg>
       </div>
-      {/* Plan de ajustes por sección — bajo el MISMO módulo que la matriz (sin
-          scorecard redundante: cada tarjeta ya trae veredicto + métricas + acción). */}
-      <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-        {sectionPlans.map(({ s, bounce, plan }) => {
-          const v = sectionVerdict(s.type, s.scroll, s.deadRate, s.sessions);
+      {/* Análisis CURADO por página madre: secciones reales nombradas + veredicto +
+          porqué (de mirar las páginas reales), con métricas de encabezado en vivo. */}
+      <div style={{ display: 'grid', gap: 14, marginTop: 12 }}>
+        {PAGINA_MADRE.map((mp) => {
           const sevCol = { red: CRO_RED, amber: CRO_AMBER, green: CRO_GREEN };
+          const s = sections.find((x) => x.type === mp.metricType);
+          const bAgg = bounceBySec[mp.metricType];
+          const bounce = bAgg && bAgg.s ? bAgg.bw / bAgg.s : null;
           const chip = (label: string, val: string, col?: string) => (
             <span style={{ fontSize: 11, color: 'var(--t2)' }}>{label} <b style={{ color: col || 'var(--t1)' }}>{val}</b></span>
           );
+          const nRed = mp.sections.filter((x) => x.sev === 'red').length;
+          const head = nRed >= 2 ? CRO_RED : nRed === 1 ? CRO_AMBER : CRO_GREEN;
           return (
-            <div className="card" key={s.type} style={{ padding: '14px 18px', borderLeft: `4px solid ${v.color}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-                <b style={{ fontSize: 14, color: 'var(--t1)' }}>{s.type.replace(' (producto)', '')}</b>
-                <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: v.color, background: v.color + '18', border: `1px solid ${v.color}44`, borderRadius: 20, padding: '3px 9px' }}>{v.label}</span>
+            <div className="card" key={mp.metricType} style={{ padding: '16px 18px', borderLeft: `4px solid ${head}` }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, marginBottom: 3 }}>
+                <b style={{ fontSize: 15, color: 'var(--t1)' }}>{mp.title}</b>
                 <span style={{ flex: 1 }} />
-                <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                  {chip('sesiones', formatInt(s.sessions))}
-                  {chip('fricción', formatPercent(s.deadRate, 1), deadColor(s.deadRate))}
-                  {chip('scroll', formatPercent(s.scroll, 0))}
-                  {bounce != null && chip('rebote', formatPercent(bounce, 0), bounce >= 0.55 ? CRO_RED : bounce >= 0.4 ? CRO_AMBER : CRO_GREEN)}
-                </span>
+                {s && (
+                  <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                    {chip('sesiones', formatInt(s.sessions))}
+                    {chip('scroll', formatPercent(s.scroll, 0))}
+                    {chip('fricción', formatPercent(s.deadRate, 1), deadColor(s.deadRate))}
+                    {bounce != null && chip('rebote', formatPercent(bounce, 0), bounce >= 0.55 ? CRO_RED : bounce >= 0.4 ? CRO_AMBER : CRO_GREEN)}
+                  </span>
+                )}
               </div>
-              <div style={{ display: 'grid', gap: 7 }}>
-                {plan.map((it, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5, color: 'var(--t1)' }}>
+              <div style={{ fontSize: 11.5, color: 'var(--t2)', marginBottom: 11 }}>{mp.intent}</div>
+              <div style={{ display: 'grid', gap: 9 }}>
+                {mp.sections.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12.5, lineHeight: 1.5 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: sevCol[it.sev], marginTop: 5, flexShrink: 0 }} />
-                    <span>{it.text}</span>
+                    <span style={{ color: 'var(--t1)' }}><b>{it.name}</b> — <span style={{ color: 'var(--t2)' }}>{it.text}</span></span>
                   </div>
                 ))}
+              </div>
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--b1)', fontSize: 12.5, lineHeight: 1.55, color: 'var(--t1)' }}>
+                <div><b>Conclusión:</b> {mp.concl}</div>
+                <div style={{ marginTop: 6, color: 'var(--t1)', background: 'var(--acc-dim)', border: `1px solid ${CRO_ACC}33`, borderRadius: 8, padding: '8px 11px' }}><b style={{ color: CRO_ACC }}>Palanca #1:</b> {mp.palanca}</div>
               </div>
             </div>
           );
         })}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginTop: 8 }}>Cada ajuste sale de una señal real de esta vista (fricción=dead-click, scroll, rebote=GA4, rage). 🔴 arregla ya · 🟡 vigila/mejora · 🟢 va bien / molde a replicar. Ordenado por fricción (lo más roto primero).</div>
+      <div style={{ fontSize: 11, color: 'var(--t2)', lineHeight: 1.55, marginTop: 8 }}>Análisis de las páginas reales (secciones nombradas por su intención) cruzado con el comportamiento medido (scroll, rebote, reseñas). 🔴 falla · 🟡 mejora · 🟢 funciona. Las métricas del encabezado son en vivo del rango seleccionado.</div>
 
       {/* 2a-ter · ANÁLISIS PÁGINA POR PÁGINA (URLs reales, las que importan) */}
       {(() => {

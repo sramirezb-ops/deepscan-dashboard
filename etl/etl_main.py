@@ -203,6 +203,11 @@ def run_etl(client_id: str, days_back: int = 30):
             date_from=date_from,
             date_to=date_to
         )
+        # meta_platform se keyea por nombre → un renombre deja huérfanos.
+        # Reescribimos la ventana completa (solo si el pull trae datos, para no vaciar
+        # por un fallo). Así los renombres no fragmentan y las campañas nuevas entran.
+        if platform_rows:
+            loader.delete_for_date_range("meta_platform", client_id, date_from, date_to)
         loader.upsert("meta_platform", platform_rows, client_id)
         log.info(f"   ✓ Meta Platform: {len(platform_rows)} filas")
     except Exception as e:
@@ -304,6 +309,10 @@ def run_etl(client_id: str, days_back: int = 30):
             date_from=date_from,
             date_to=date_to
         )
+        # meta_messaging se keyea por nombre de campaña + adset → mismo problema
+        # de huérfanos al renombrar. Reescribimos la ventana (guardado si hay datos).
+        if messaging_rows:
+            loader.delete_for_date_range("meta_messaging", client_id, date_from, date_to)
         loader.upsert("meta_messaging", messaging_rows, client_id)
         log.info(f"   ✓ Meta Messaging: {len(messaging_rows)} filas")
     except Exception as e:

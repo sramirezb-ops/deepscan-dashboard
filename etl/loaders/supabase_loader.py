@@ -91,6 +91,26 @@ class SupabaseLoader:
         except Exception as e:
             log.warning(f"   {table}: no se pudo limpiar la fecha {day}: {e}")
 
+    def delete_for_date_range(self, table: str, client_id: str, date_from, date_to):
+        """Borra filas de (client_id, date in [date_from, date_to]).
+
+        Para tablas keyeadas por NOMBRE (meta_platform, meta_messaging): al
+        renombrar una campaña/adset, el upsert inserta filas con el nombre nuevo
+        y deja huérfanas las del nombre viejo. Limpiando la ventana antes de
+        reinsertar el pull actual, cada corrida reescribe el rango completo →
+        los renombres no fragmentan y las campañas nuevas entran solas.
+        Requiere service key (ignora RLS)."""
+        try:
+            self.client.table(table)\
+                .delete()\
+                .eq("client_id", client_id)\
+                .gte("date", str(date_from))\
+                .lte("date", str(date_to))\
+                .execute()
+            log.info(f"   ✓ {table}: ventana {date_from}→{date_to} limpiada antes de reinsertar")
+        except Exception as e:
+            log.warning(f"   {table}: no se pudo limpiar la ventana {date_from}→{date_to}: {e}")
+
     def _conflict_columns(self, table: str) -> str:
         conflict_map = {
             "meta_campaigns":           "client_id,date,ad_id",

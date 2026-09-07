@@ -12,6 +12,7 @@ import {
   type SearchDeltas,
   type SearchDailyPoint,
 } from '@/lib/hooks/useGadsSearch';
+import { useGadsSearchAds, type SearchAdsCampaign, type SearchAdRow } from '@/lib/hooks/useGadsSearchAds';
 import { PieChart, type PieSlice } from '@/components/ui/PieChart';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
@@ -491,7 +492,6 @@ function CityPies({ campaign }: { campaign: SearchCampaign }) {
   const convSlices: PieSlice[] = cities.map((c) => ({ label: c.city, value: c.conversions }));
   const costSlices: PieSlice[] = cities.map((c) => ({ label: c.city, value: c.cost }));
   const imprSlices: PieSlice[] = cities.map((c) => ({ label: c.city, value: c.impressions }));
-  const cpaSlices: PieSlice[] = cities.filter((c) => c.conversions > 0).map((c) => ({ label: c.city, value: c.cpa }));
 
   return (
     <div style={{ marginTop: 16 }}>
@@ -502,32 +502,209 @@ function CityPies({ campaign }: { campaign: SearchCampaign }) {
         <PieChart title="Conversiones (leads) por ciudad" slices={convSlices} formatValue={fmtInt} />
         <PieChart title="Inversión por ciudad" slices={costSlices} formatValue={fmtCOP} />
         <PieChart title="Impresiones por ciudad" slices={imprSlices} formatValue={fmtInt} />
-        <PieChart title="Coste por lead por ciudad" slices={cpaSlices} formatValue={fmtCOP} />
+        <CityCplTable campaign={campaign} />
       </div>
     </div>
   );
 }
 
-// Una campaña completa (los 3 bloques).
-function CampaignSection({ campaign, previousLabel }: { campaign: SearchCampaign; previousLabel: string }) {
+// CPL por ciudad HONESTO: ponderado (gasto ÷ leads), no la suma de CPL por
+// ciudad (una micro-zona con 1 lead no puede pesar igual que Bogotá). Filtra
+// ciudades con muy pocos leads que distorsionan la lectura.
+const MIN_LEADS_CITY = 20;
+function CityCplTable({ campaign }: { campaign: SearchCampaign }) {
+  const target = useClient().cplTarget;
+  const totalLeads = campaign.cities.reduce((a, c) => a + c.conversions, 0);
+  const rows = campaign.cities.filter((c) => c.conversions >= MIN_LEADS_CITY).sort((a, b) => b.conversions - a.conversions);
+  const sumCost = rows.reduce((a, c) => a + c.cost, 0);
+  const sumLeads = rows.reduce((a, c) => a + c.conversions, 0);
+
+  return (
+    <div className="card" style={{ padding: '14px 16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>CPL por ciudad</div>
+        <span className="period-pill">≥ {MIN_LEADS_CITY} leads</span>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--mu)' }}>Ninguna ciudad supera {MIN_LEADS_CITY} leads en el período.</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Ciudad</th>
+                <th>Leads</th>
+                <th>CPL</th>
+                <th>Part.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => {
+                const ok = target ? c.cpa <= target : true;
+                return (
+                  <tr key={c.city}>
+                    <td><b>{c.city}</b></td>
+                    <td>{fmtInt(c.conversions)}</td>
+                    <td style={{ fontWeight: 800, color: target ? (ok ? '#34d399' : '#f87171') : 'var(--tx)' }}>{fmtCOP(c.cpa)}</td>
+                    <td>{totalLeads > 0 ? fmtPct(c.conversions / totalLeads, 0) : '—'}</td>
+                  </tr>
+                );
+              })}
+              <tr className="t-avg">
+                <td>Ponderado</td>
+                <td>{fmtInt(sumLeads)}</td>
+                <td style={{ fontWeight: 800 }}>{fmtCOP(sumLeads > 0 ? sumCost / sumLeads : 0)}</td>
+                <td>{totalLeads > 0 ? fmtPct(sumLeads / totalLeads, 0) : '—'}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style={{ fontSize: 10.5, color: 'var(--mu)', marginTop: 8, lineHeight: 1.5 }}>
+            CPL <b>ponderado</b> (gasto ÷ leads), no la suma de CPL por ciudad. Se excluyen micro-zonas &lt;{MIN_LEADS_CITY} leads.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Sección "Por anuncio" (RSA): compara los anuncios de la campaña por su
+// contribución. Revela cuáles hacen el trabajo y cuáles están muertos.
+function PerAdSection({ ads }: { ads: SearchAdsCampaign }) {
+  const rows = ads.ads;
+  const [tip, setTip] = useState<{ x: number; y: number; a: SearchAdRow } | null>(null);
+  const max = Math.max(...rows.map((a) => a.conversions), 0.0001);
+  const totalConv = rows.reduce((a, r) => a + r.conversions, 0);
+  // Insight: ¿cuántos anuncios concentran el ~90% de las conversiones?
+  const sorted = [...rows].sort((a, b) => b.conversions - a.conversions);
+  let acc = 0;
+  let vital = 0;
+  for (const a of sorted) { if (totalConv > 0 && acc / totalConv >= 0.9) break; acc += a.conversions; vital++; }
+  const dead = rows.filter((a) => !a.active).length;
+
+  return (
+    <div className="card" style={{ marginTop: 16, position: 'relative' }}>
+      <div className="dim-tbl-head">
+        <div className="dim-tbl-title">
+          <div className="dim-tbl-ic">🖼️</div>
+          <div>
+            <div className="dim-tbl-label">Por anuncio · RSA</div>
+            <div className="dim-tbl-h">Qué anuncio hace el trabajo · por contribución</div>
+          </div>
+        </div>
+        <span className="period-pill">{ads.adCount} anuncios</span>
+      </div>
+      {totalConv > 0 && (
+        <div style={{ padding: '0 14px 12px', fontSize: 12.5, color: 'var(--mu)', lineHeight: 1.5 }}>
+          <b style={{ color: 'var(--tx)' }}>{vital} de {ads.adCount} anuncios</b> concentran el ~90% de las conversiones
+          {dead > 0 && <> · <b style={{ color: '#f87171' }}>{dead} sin actividad</b></>}. Renueva o pausa los que no rinden y concentra el aprendizaje del algoritmo en los que sí.
+        </div>
+      )}
+      <div style={{ overflowX: 'auto' }}>
+        <table className="t">
+          <thead>
+            <tr>
+              <th style={{ width: 34, textAlign: 'right' }}>#</th>
+              <th>Anuncio · titular estrella</th>
+              <th>Impr.</th>
+              <th>Clics</th>
+              <th>CTR</th>
+              <th>Conv. (contrib.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a, i) => {
+              const w = Math.round((a.conversions / max) * 100);
+              return (
+                <tr
+                  key={a.adId}
+                  onMouseMove={(e) => setTip({ x: e.clientX, y: e.clientY, a })}
+                  onMouseLeave={() => setTip(null)}
+                >
+                  <td style={{ textAlign: 'right', color: 'var(--mu)' }}>{i + 1}</td>
+                  <td>
+                    <b>{a.topText}</b>
+                    {!a.active && <span title="Sin impresiones en el período" style={{ marginLeft: 6, fontSize: 10, color: '#f87171' }}>· sin actividad</span>}
+                    <span style={{ display: 'block', fontSize: 10, color: 'var(--mu)' }}>anuncio …{a.adId.slice(-6)}</span>
+                  </td>
+                  <td>{fmtInt(a.impressions)}</td>
+                  <td>{fmtInt(a.clicks)}</td>
+                  <td>{fmtPct(a.ctr)}</td>
+                  <td style={{ position: 'relative', minWidth: 120 }}>
+                    <div aria-hidden style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: `${w}%`, background: 'rgba(52,211,153,0.18)', borderRadius: 4 }} />
+                    <span style={{ position: 'relative', fontWeight: a.conversions > 0 ? 700 : 400, color: a.conversions > 0 ? '#34d399' : 'var(--tx)' }}>{fmtInt(a.conversions)}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ fontSize: 10.5, color: 'var(--mu)', padding: '10px 14px 0', lineHeight: 1.5 }}>
+        Métricas de <b>contribución por asset</b> del anuncio (titulares y descripciones). Google <b>no atribuye costo por anuncio</b> en RSA: sirve para comparar anuncios entre sí, no como reparto del total. El titular mostrado es el que más convierte de cada anuncio.
+      </div>
+      {tip && (
+        <div className="chart-tooltip on" style={{ left: `${tip.x}px`, top: `${tip.y + (typeof window !== 'undefined' ? window.scrollY : 0)}px` }}>
+          <div className="chart-tooltip-date">{tip.a.topText.slice(0, 42)}</div>
+          <div className="chart-tooltip-rows">
+            <TtRow lbl="Conv. (contrib.)" val={fmtInt(tip.a.conversions)} dot="#34d399" />
+            <TtRow lbl="Impresiones" val={fmtInt(tip.a.impressions)} />
+            <TtRow lbl="Clics" val={fmtInt(tip.a.clicks)} />
+            <TtRow lbl="CTR" val={fmtPct(tip.a.ctr)} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TtRow({ lbl, val, dot }: { lbl: string; val: string; dot?: string }) {
+  return (
+    <div className="chart-tooltip-row">
+      <div className="chart-tooltip-row-lbl"><span className="chart-tooltip-row-dot" style={{ background: dot || 'transparent' }} />{lbl}</div>
+      <div className="chart-tooltip-row-val">{val}</div>
+    </div>
+  );
+}
+
+// Una campaña completa: header + KPIs (desplegables) + términos + por anuncio + ciudades.
+function CampaignSection({ campaign, ads, previousLabel, target }: { campaign: SearchCampaign; ads?: SearchAdsCampaign; previousLabel: string; target?: number }) {
   const k = campaign.kpis;
+  const [showKpis, setShowKpis] = useState(false);
+  const cpl = k.costPerConv;
+  const ok = target ? cpl <= target : true;
   return (
     <div style={{ marginTop: 30 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, fontSize: 18 }}>🔎 {campaign.campaignName}</h3>
         <span style={{ fontSize: 12, color: 'var(--mu)' }}>
           <b style={{ color: 'var(--tx)' }}>{fmtCOP(k.cost)}</b> invertido ·{' '}
-          <b style={{ color: 'var(--tx)' }}>{fmtInt(k.conversions)}</b> leads · delta vs {previousLabel}
+          <b style={{ color: 'var(--tx)' }}>{fmtInt(k.conversions)}</b> leads
         </span>
+        {target && (
+          <span style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: ok ? 'rgba(52,211,153,0.14)' : 'rgba(248,113,113,0.14)', color: ok ? '#34d399' : '#f87171' }}>
+            CPL {fmtCOP(cpl)} · {Math.round((cpl / target) * 100)}% de la meta {ok ? '✓' : '⚠'}
+          </span>
+        )}
       </div>
 
-      <KpiGrid
-        kpis={campaign.kpis}
-        deltas={campaign.deltas}
-        daily={campaign.daily}
-        shareDeltaReliable={campaign.shareDeltaReliable}
-      />
+      {/* KPIs detallados con tendencia — desplegables (foco inicial en lo accionable) */}
+      <button
+        onClick={() => setShowKpis((s) => !s)}
+        style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: 'var(--tx)', background: 'transparent', border: '1px solid var(--b2)', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}
+      >
+        {showKpis ? '▴ Ocultar métricas detalladas' : '▾ Ver métricas detalladas (10 KPIs + tendencia)'}
+      </button>
+      {showKpis && (
+        <KpiGrid
+          kpis={campaign.kpis}
+          deltas={campaign.deltas}
+          daily={campaign.daily}
+          shareDeltaReliable={campaign.shareDeltaReliable}
+        />
+      )}
+
       <TermsTable campaign={campaign} />
+      {ads && ads.adCount > 0 && <PerAdSection ads={ads} />}
       <CityPies campaign={campaign} />
     </div>
   );
@@ -537,6 +714,7 @@ export function Search() {
   const client = useClient();
   const { range, previous } = usePeriod();
   const { data, loading, error } = useGadsSearch(client.id, range, previous);
+  const ads = useGadsSearchAds(client.id, range);
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);
@@ -591,7 +769,32 @@ export function Search() {
     );
   }
 
+  // ── Totales y diagnóstico (dato real agregado) ──
   const totalCost = data.campaigns.reduce((a, c) => a + c.kpis.cost, 0);
+  const totalLeads = data.campaigns.reduce((a, c) => a + c.kpis.conversions, 0);
+  const totalImpr = data.campaigns.reduce((a, c) => a + c.kpis.impressions, 0);
+  const totalClicks = data.campaigns.reduce((a, c) => a + c.kpis.clicks, 0);
+  const cpl = totalLeads > 0 ? totalCost / totalLeads : 0;
+  const totalCtr = totalImpr > 0 ? totalClicks / totalImpr : 0;
+  const convRate = totalClicks > 0 ? totalLeads / totalClicks : 0;
+  let wastedCost = 0;
+  let wastedTerms = 0;
+  data.campaigns.forEach((c) =>
+    c.terms.forEach((t) => {
+      if (t.conversions === 0 && t.cost > 0) {
+        wastedCost += t.cost;
+        wastedTerms += 1;
+      }
+    })
+  );
+
+  const target = client.cplTarget;
+  const underMeta = target ? cpl <= target : false;
+  const ratio = target ? cpl / target : 0;
+  const wastedPct = totalCost > 0 ? wastedCost / totalCost : 0;
+
+  // Anuncios por campaña (match por nombre, robusto entre tablas).
+  const adsByName = new Map((ads.data?.campaigns ?? []).map((c) => [c.campaignName.trim(), c]));
 
   return (
     <div className="view on">
@@ -599,21 +802,119 @@ export function Search() {
         <HeroHead brand="google-ads">🔎 Search</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
           {rangeLabel} · {client.name} · {data.campaigns.length} campaña
-          {data.campaigns.length === 1 ? '' : 's'} · {fmtCOP(totalCost)} invertido
+          {data.campaigns.length === 1 ? '' : 's'} · {fmtCOP(totalCost)} invertido · {fmtInt(totalLeads)} leads
         </div>
       </div>
 
+      {/* HERO VERDICT — Search caro, pero ¿más calificado? */}
+      <div className="card" style={{ padding: '24px 26px', marginTop: 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: 'var(--acc, #7c3aed)' }}>
+          Search · costo por lead vs meta
+        </div>
+        <div style={{ fontSize: 'clamp(21px,3vw,29px)', fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1.15, margin: '10px 0 0' }}>
+          Search cuesta <span style={{ color: '#f87171' }}>{fmtCOP(cpl)}</span> por lead{target ? <> — {ratio.toFixed(1)}× la meta</> : null}.
+          <br />Pero más caro <span style={{ color: '#14b8a6' }}>no es peor si el lead es más calificado</span>.
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+          {target && (
+            <span style={{ fontWeight: 700, fontSize: 13, padding: '6px 12px', borderRadius: 999, background: 'rgba(248,113,113,0.14)', color: '#f87171' }}>
+              ▲ {Math.round((ratio - 1) * 100)}% sobre la meta ({fmtCOP(target)})
+            </span>
+          )}
+          <span style={{ fontWeight: 700, fontSize: 13, padding: '6px 12px', borderRadius: 999, background: 'rgba(20,184,166,0.16)', color: '#14b8a6' }}>💎 Alto intent de compra</span>
+          <span style={{ fontWeight: 700, fontSize: 13, padding: '6px 12px', borderRadius: 999, background: 'var(--bg3, #f1f0f8)', border: '1px solid var(--b1)', color: 'var(--mu)' }}>{fmtInt(totalLeads)} leads · {fmtCOP(totalCost)}</span>
+        </div>
+        <div style={{ color: 'var(--mu)', fontSize: 14, marginTop: 12, maxWidth: '72ch', lineHeight: 1.5 }}>
+          Quien busca <b>"moto eléctrica a crédito"</b> está mucho más cerca de comprar que quien ve un video. La hipótesis: Search trae <b>menos leads pero mejores</b>. Antes de recortarlo, hay que <b>medir la venta real</b> — no liquidar por CPL.
+        </div>
+      </div>
+
+      {/* HIPÓTESIS + CONVERSIONES OFFLINE */}
+      <div className="card" style={{ padding: '22px 24px', marginTop: 16, borderColor: 'rgba(20,184,166,0.32)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.14em', textTransform: 'uppercase', color: '#14b8a6' }}>La hipótesis antes de decidir</div>
+            <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-.02em', marginTop: 3 }}>💎 Medir la calidad, no solo el CPL</div>
+          </div>
+          <span className="period-pill" style={{ color: '#c9820a', borderColor: 'rgba(201,130,10,0.4)' }}>⚙ conversiones offline · pendiente</span>
+        </div>
+        <div style={{ fontSize: 13.5, color: 'var(--mu)', lineHeight: 1.5 }}>
+          Hoy medimos hasta el <b style={{ color: 'var(--tx)' }}>lead</b> (formulario / WhatsApp). No sabemos cuántos se vuelven <b style={{ color: '#14b8a6' }}>venta</b> — ese es el eslabón que falta para saber si Search vale su precio.
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', margin: '14px 0 4px', flexWrap: 'wrap' }}>
+          <FunnelStep k="Impresiones" v={fmtInt(totalImpr)} x="medido ✓" />
+          <FunnelArrow />
+          <FunnelStep k="Clics" v={fmtInt(totalClicks)} x={`CTR ${fmtPct(totalCtr, 1)} ✓`} />
+          <FunnelArrow />
+          <FunnelStep k="Leads" v={fmtInt(totalLeads)} x={`conv. ${fmtPct(convRate, 1)} ✓`} />
+          <FunnelArrow />
+          <FunnelStep k="Ventas" v="?" x="sin medir — falta offline" ghost />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 16, marginTop: 14 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--mu)', marginBottom: 6 }}>El plan (3 pasos)</div>
+            <div style={{ fontSize: 12.5, color: 'var(--mu)', lineHeight: 1.7 }}>
+              <b style={{ color: '#14b8a6' }}>1.</b> Marcar en el CRM qué lead viene de cada fuente (GCLID).<br />
+              <b style={{ color: '#14b8a6' }}>2.</b> Subir las ventas reales a Google Ads (conversiones offline).<br />
+              <b style={{ color: '#14b8a6' }}>3.</b> Comparar <b>costo por venta</b> Search vs Video → recién ahí, decidir.
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.6, alignSelf: 'center' }}>
+            Las señales de calidad que <b>sí</b> vemos hoy (tasa de conversión, intent de la búsqueda) son <b>proxies</b>, no la venta. No inventamos un costo por venta: queda como <b>incógnita</b> hasta activar offline.
+          </div>
+        </div>
+      </div>
+
+      {/* WASTED CALLOUT */}
+      {wastedCost > 0 && (
+        <div className="card" style={{ padding: '20px 24px', marginTop: 16, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', borderColor: 'rgba(248,113,113,0.28)', background: 'color-mix(in srgb, #f87171 6%, transparent)' }}>
+          <div style={{ fontSize: 32, fontWeight: 800, color: '#f87171', letterSpacing: '-.02em', lineHeight: 1, fontFamily: "'Space Grotesk',sans-serif" }}>{fmtCOP(wastedCost)}</div>
+          <div style={{ flex: 1, minWidth: 240, fontSize: 14, fontWeight: 600, lineHeight: 1.4, color: 'var(--tx)' }}>
+            se fue en <b>{fmtInt(wastedTerms)} términos que no trajeron ni una conversión</b> ({fmtPct(wastedPct, 0)} del gasto Search). No es "cortar Search" — es <b>negativizar lo irrelevante</b> (marcas de competencia, ciudades sin cobertura) y reinvertir esa plata en lo que sí convierte.
+          </div>
+        </div>
+      )}
+
       {data.campaigns.map((c) => (
-        <CampaignSection key={c.campaignId} campaign={c} previousLabel={previousLabel} />
+        <CampaignSection
+          key={c.campaignId}
+          campaign={c}
+          ads={adsByName.get(c.campaignName.trim())}
+          previousLabel={previousLabel}
+          target={target}
+        />
       ))}
 
       <div className="card" style={{ marginTop: 24, borderStyle: 'dashed', borderColor: 'var(--b2)' }}>
         <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.6 }}>
-          Todos los números provienen directo de Google Ads (campañas, términos de búsqueda y localización).
-          Las cuotas de impresión se reconstruyen sumando impresiones e impresiones elegibles del período —
-          sin promedios engañosos ni datos inventados.
+          Cuenta de <b>generación de leads</b>: la referencia es leads y costo por lead (sin Revenue/ROAS). Todos los números vienen directo de Google Ads
+          (campañas, términos, anuncios y localización). El <b>costo por venta</b> queda pendiente de activar conversiones offline — sin promedios engañosos ni datos inventados.
         </div>
       </div>
     </div>
   );
+}
+
+// Paso del embudo de medición.
+function FunnelStep({ k, v, x, ghost }: { k: string; v: string; x: string; ghost?: boolean }) {
+  return (
+    <div
+      className="card"
+      style={{
+        flex: 1,
+        minWidth: 120,
+        padding: '14px',
+        borderStyle: ghost ? 'dashed' : 'solid',
+        borderColor: ghost ? '#14b8a6' : 'var(--b1)',
+        background: ghost ? 'color-mix(in srgb, #14b8a6 7%, transparent)' : 'var(--bg3, transparent)',
+      }}
+    >
+      <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--mu)' }}>{k}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4, color: ghost ? '#14b8a6' : 'var(--tx)' }}>{v}</div>
+      <div style={{ fontSize: 10.5, color: 'var(--mu)', marginTop: 2 }}>{x}</div>
+    </div>
+  );
+}
+function FunnelArrow() {
+  return <div style={{ display: 'flex', alignItems: 'center', color: 'var(--mu)', fontSize: 16, fontWeight: 700 }}>→</div>;
 }

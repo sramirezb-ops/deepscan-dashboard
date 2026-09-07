@@ -1215,3 +1215,7 @@ body{
    pegado al borde. */
 .ttc-table th:first-child,.ttc-table td:first-child{padding-left:16px}
 .ttc-table th:last-child,.ttc-table td:last-child{padding-right:16px}
+
+/* TikTok · Retención de anuncios — KPIs (3 col) sobre la tarjeta .ttc-z1 */
+.ret-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@container (max-width:520px){.ret-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}

@@ -5,7 +5,7 @@ import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useTikTok } from '@/lib/hooks/useTikTok';
-import type { TikTokCampaignRow, TikTokDailyPoint, TikTokAdRow } from '@/lib/hooks/useTikTok';
+import type { TikTokCampaignRow, TikTokDailyPoint, TikTokAdRow, TikTokRetention } from '@/lib/hooks/useTikTok';
 import { getMeasurementGaps, gapsInRange, isInGap } from '@/lib/measurementGaps';
 import { useImplementations } from '@/lib/hooks/useImplementations';
 import {
@@ -25,7 +25,6 @@ import {
   TikTokHero,
   VideoStat,
   WatchTimeStat,
-  RetentionCurve,
   SectionLabel,
   BackToTop,
 } from './tiktokShared';
@@ -449,40 +448,8 @@ export function TikTok() {
         {hasTarget && <MetaGauge cpl={t.cpl} target={cplTarget!} cur={cur} />}
       </div>
 
-      {/* 3 · Banda «Inversión y alcance» ─────────────────────────────────── */}
-      <SectionLabel style={{ margin: '22px 0 10px' }}>Inversión y alcance</SectionLabel>
-      <div style={statGrid}>
-        <StatCard label="Inversión" value={formatCurrency(t.spend, cur)} foot={pctFoot(data.spendDelta, 'neutral')} />
-        <StatCard label="Alcance" value={formatNumber(t.reach)} foot={pctFoot(data.reachDelta, 'up')} />
-        <StatCard label="Impresiones" value={formatNumber(t.impressions)} foot={pctFoot(data.impressionsDelta, 'up')} />
-        <StatCard
-          label="Frecuencia"
-          value={t.reach > 0 ? `${t.frequency.toFixed(2)}×` : '—'}
-          foot={ctx('impresiones por persona')}
-        />
-      </div>
-
-      {/* 4 · Banda «Eficiencia del embudo» ───────────────────────────────── */}
-      <SectionLabel style={{ margin: '18px 0 10px' }}>Eficiencia del embudo</SectionLabel>
-      <div style={statGrid}>
-        <StatCard label="CTR" value={formatPercent(t.ctr, 2)} foot={ctrFoot} />
-        <StatCard label="Tasa de conversión" value={formatPercent(t.cvr, 2)} foot={ctx('leads ÷ clics')} />
-        <StatCard label="CPC" value={t.clicks > 0 ? formatCurrency(t.cpc, cur) : '—'} foot={ctx('costo por clic')} />
-        <StatCard label="CPM" value={t.impressions > 0 ? formatCurrency(t.cpm, cur) : '—'} foot={ctx('costo por mil impr.')} />
-      </div>
-      <div style={{ fontSize: 11.5, color: MUTED, marginTop: 10, lineHeight: 1.5 }}>
-        Estructura: <b style={{ color: 'var(--t2)' }}>{formatInt(data.campaignCount)}</b> campañas ·{' '}
-        <b style={{ color: 'var(--t2)' }}>{formatInt(data.adgroupCount)}</b> conjuntos ·{' '}
-        <b style={{ color: 'var(--t2)' }}>{formatInt(data.adCount)}</b> anuncios ·{' '}
-        <b style={{ color: 'var(--t2)' }}>{formatNumber(v.views)}</b> reproducciones de video.
-      </div>
-
-      {/* 4b · Vista rápida: métricas por campaña ─────────────────────────── */}
-      <SectionLabel style={{ margin: '22px 0 10px' }}>Métricas por campaña</SectionLabel>
-      <CampaignTable campaigns={data.campaigns} target={hasTarget ? cplTarget! : undefined} cur={cur} />
-
-      {/* 5 · Tendencia diaria ────────────────────────────────────────────── */}
-      <SectionLabel style={{ margin: '24px 0 10px' }}>Tendencia diaria</SectionLabel>
+      {/* 3 · Tendencia diaria — pegada a Leads/CPL: una sola lectura ─────── */}
+      <SectionLabel style={{ margin: '20px 0 10px' }}>Tendencia diaria · leads, CPL e inversión</SectionLabel>
       <div
         style={{
           display: 'grid',
@@ -590,6 +557,38 @@ export function TikTok() {
           ))}
         </div>
       )}
+
+      {/* 4 · Banda «Inversión y alcance» ─────────────────────────────────── */}
+      <SectionLabel style={{ margin: '24px 0 10px' }}>Inversión y alcance</SectionLabel>
+      <div style={statGrid}>
+        <StatCard label="Inversión" value={formatCurrency(t.spend, cur)} foot={pctFoot(data.spendDelta, 'neutral')} />
+        <StatCard label="Alcance" value={formatNumber(t.reach)} foot={pctFoot(data.reachDelta, 'up')} />
+        <StatCard label="Impresiones" value={formatNumber(t.impressions)} foot={pctFoot(data.impressionsDelta, 'up')} />
+        <StatCard
+          label="Frecuencia"
+          value={t.reach > 0 ? `${t.frequency.toFixed(2)}×` : '—'}
+          foot={ctx('impresiones por persona')}
+        />
+      </div>
+
+      {/* 4b · Banda «Eficiencia del embudo» (con delta vs período anterior) ─ */}
+      <SectionLabel style={{ margin: '18px 0 10px' }}>Eficiencia del embudo</SectionLabel>
+      <div style={statGrid}>
+        <StatCard label="CTR" value={formatPercent(t.ctr, 2)} foot={ctrFoot} />
+        <StatCard label="Tasa de conversión" value={formatPercent(t.cvr, 2)} foot={pctFoot(data.cvrDelta, 'up')} />
+        <StatCard label="CPC" value={t.clicks > 0 ? formatCurrency(t.cpc, cur) : '—'} foot={pctFoot(data.cpcDelta, 'down')} />
+        <StatCard label="CPM" value={t.impressions > 0 ? formatCurrency(t.cpm, cur) : '—'} foot={pctFoot(data.cpmDelta, 'down')} />
+      </div>
+      <div style={{ fontSize: 11.5, color: MUTED, marginTop: 10, lineHeight: 1.5 }}>
+        Estructura: <b style={{ color: 'var(--t2)' }}>{formatInt(data.campaignCount)}</b> campañas ·{' '}
+        <b style={{ color: 'var(--t2)' }}>{formatInt(data.adgroupCount)}</b> conjuntos ·{' '}
+        <b style={{ color: 'var(--t2)' }}>{formatInt(data.adCount)}</b> anuncios ·{' '}
+        <b style={{ color: 'var(--t2)' }}>{formatNumber(v.views)}</b> reproducciones de video.
+      </div>
+
+      {/* 4c · Vista rápida: métricas por campaña ─────────────────────────── */}
+      <SectionLabel style={{ margin: '22px 0 10px' }}>Métricas por campaña</SectionLabel>
+      <CampaignTable campaigns={data.campaigns} target={hasTarget ? cplTarget! : undefined} cur={cur} />
 
       {/* 5c · Leaderboard de creativos (lo que engancha y vende) ──────────── */}
       {data.ads.length > 0 && (
@@ -759,9 +758,9 @@ export function TikTok() {
 
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--t1)', marginBottom: 10 }}>
-              Curva de retención
+              Embudo de retención
             </div>
-            <RetentionCurve v={v} />
+            <RetentionFunnel v={v} />
           </div>
         </div>
       )}
@@ -860,8 +859,10 @@ function MetaGauge({ cpl, target, cur }: { cpl: number; target: number; cur: str
   const arc = (a0: number, a1: number, col: string, key: string) => {
     const [x0, y0] = pt(a0);
     const [x1, y1] = pt(a1);
-    const large = a1 - a0 > 0.5 ? 1 : 0;
-    return <path key={key} d={`M${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`} fill="none" stroke={col} strokeWidth="12" strokeLinecap="round" />;
+    // Cada segmento abarca como máximo medio círculo (180°), así que el
+    // large-arc-flag SIEMPRE es 0. (Ponerlo en 1 dibujaba el arco "por el lado
+    // largo" → el loop verde cuando el CPL rondaba 2× la meta.)
+    return <path key={key} d={`M${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`} fill="none" stroke={col} strokeWidth="12" strokeLinecap="round" />;
   };
   const [mx, my] = pt(frac);
   return (
@@ -936,6 +937,41 @@ function CampaignTable({ campaigns, target, cur }: { campaigns: TikTokCampaignRo
   );
 }
 
+// ── Embudo de retención: barras claras y con color, escaladas al % real ──
+function RetentionFunnel({ v }: { v: TikTokRetention }) {
+  const rows: { l: string; rate: number; abs: number }[] = [
+    { l: 'Reproducciones', rate: 1, abs: v.views },
+    { l: '2 s · gancho', rate: v.hookRate, abs: v.watched2s },
+    { l: '6 s', rate: v.holdRate, abs: v.watched6s },
+    { l: '25 % del video', rate: v.p25Rate, abs: v.watchedP25 },
+    { l: '50 % del video', rate: v.p50Rate, abs: v.watchedP50 },
+    { l: '75 % del video', rate: v.p75Rate, abs: v.watchedP75 },
+    { l: '100 % · completo', rate: v.completionRate, abs: v.completes },
+  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {rows.map((r, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 122, flex: 'none', fontSize: 12, color: 'var(--t2)', fontWeight: 600 }}>{r.l}</div>
+          <div style={{ flex: 1, height: 26, borderRadius: 7, background: 'var(--b2)', overflow: 'hidden' }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${Math.max(1.5, Math.min(100, r.rate * 100)).toFixed(1)}%`,
+                borderRadius: 7,
+                background: `linear-gradient(90deg, ${TT_CYAN}, ${TT_PINK})`,
+              }}
+            />
+          </div>
+          <div style={{ width: 128, flex: 'none', textAlign: 'right', fontSize: 12, color: 'var(--t2)', fontVariantNumeric: 'tabular-nums' }}>
+            <b style={{ color: 'var(--t1)' }}>{formatPercent(r.rate, 1)}</b> · {formatNumber(r.abs)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Miniatura del creativo (portada real o marcador honesto) ──
 function AdThumb({ url }: { url: string }) {
   const [err, setErr] = useState(false);
@@ -993,7 +1029,8 @@ function CreativeLeaderboard({ ads, cur }: { ads: TikTokAdRow[]; cur: string }) 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name || `Anuncio …${a.adId.slice(-6)}`}</div>
               <div style={{ fontSize: 10, color: MUTED, marginTop: 2 }}>
-                {formatNumber(a.videoViews)} reprod · gancho {formatPercent(a.video.hookRate, 1)} · {formatInt(a.conversions)} leads
+                {formatNumber(a.videoViews)} reprod · gancho {formatPercent(a.video.hookRate, 1)} · {formatInt(a.conversions)} leads · CPL{' '}
+                <b style={{ color: a.conversions > 0 ? 'var(--t2)' : MUTED }}>{a.conversions > 0 ? formatCurrency(a.cpl, cur) : '—'}</b>
               </div>
               <div style={{ height: 7, borderRadius: 5, background: 'var(--b2)', overflow: 'hidden', marginTop: 6 }}>
                 <div style={{ height: '100%', width: `${w}%`, background: barColor, borderRadius: 5 }} />

@@ -8,18 +8,21 @@ import { formatRangeLabel } from '@/lib/period';
 import { useLeadsOverview, type ChannelLeads } from '@/lib/hooks/useLeadsOverview';
 import { useImplementations } from '@/lib/hooks/useImplementations';
 import { formatCurrency, formatInt, formatDelta } from '@/lib/utils';
+import { getMeasurementGaps, isInGap, gapsInRange } from '@/lib/measurementGaps';
 import { TrendChart } from '@/components/ui/TrendChart';
 import { SectionLabel, BackToTop, TT_PINK } from './tiktokShared';
 
 // ============================================================
 // LeadsOverview — Overview CONSOLIDADO de ambos canales (Ofero · negocio de LEADS)
 // ============================================================
-// Reemplaza el overview ecommerce (ROAS/revenue) por uno de LEADS puro.
-// Respeta los DOS objetivos de Ofero, que NO se mezclan:
-//   · Ventas de vehículos → Google + TikTok (bloque HÉROE, con meta de CPL)
-//   · Propietarios        → solo Google     (bloque secundario, sin meta)
-// Regla anti-trampa de mezcla: el CPL combinado nunca va solo; siempre se
-// descompone por canal con su % de reparto. 100% dato real (useLeadsOverview).
+// Storytelling orientado a la META de CPL del mes:
+//   1) Hero: veredicto (¿vamos a cumplir la meta?)
+//   2) Tendencia diaria PRIMERO (con línea de meta)
+//   3) Meta y ritmo: CPL vs meta, % de cumplimiento y el cálculo diario accionable
+//   4) Ventas de vehículos: los números grandes + reparto por canal
+//   5) Nota de medición (días con tracking caído, excluidos del "ritmo limpio")
+// 100% dato real (useLeadsOverview). El "ritmo limpio" excluye los gaps de
+// medición para no leer un bache de tracking como caída de rendimiento.
 // ============================================================
 
 const GREEN = '#4ade80';
@@ -96,14 +99,36 @@ export function LeadsOverview() {
   // ── Meta de CPL (solo Ventas de vehículos), desde client.cplTarget ──
   const cplTarget = client.cplTarget;
   const hasTarget = typeof cplTarget === 'number' && cplTarget > 0 && v.leads > 0;
-  const overTarget = hasTarget && v.cpl > cplTarget!;
-  const targetGapPct = hasTarget ? Math.round(((v.cpl - cplTarget!) / cplTarget!) * 100) : 0;
 
   // ── Serie diaria combinada para las tendencias ──
   const daily = venta.daily;
   const labels = daily.map((d) => dayLabel(d.date));
   const leadsSeries = daily.map((d) => d.leads);
   const cplSeries = daily.map((d) => d.cpl);
+
+  // ── Gaps de medición → "ritmo limpio" (excluye días sin tracking) ──
+  const gaps = getMeasurementGaps(client.id);
+  const rangeGaps = gapsInRange(gaps, data.from, data.to);
+  const cleanDaily = daily.filter((d) => !isInGap(d.date, gaps));
+  const baseDaily = cleanDaily.length >= 2 ? cleanDaily : daily;
+  const recent = baseDaily.slice(-3); // últimos días limpios = ritmo actual
+  const rSpend = recent.reduce((s, d) => s + d.cost, 0);
+  const rLeads = recent.reduce((s, d) => s + d.leads, 0);
+  const recentCpl = rLeads > 0 ? rSpend / rLeads : v.cpl;
+  const recentLeadsDay = recent.length > 0 ? rLeads / recent.length : 0;
+  const spendDay = recent.length > 0 ? rSpend / recent.length : 0;
+  const trendDown = baseDaily.length >= 2 && baseDaily[baseDaily.length - 1].cpl < baseDaily[0].cpl;
+
+  // vs meta, con el CPL de ritmo limpio (más honesto que el crudo del período)
+  const metaPct = hasTarget ? Math.round((recentCpl / cplTarget!) * 100) : 0; // <100 = por debajo de meta (mejor)
+  const overMeta = hasTarget && recentCpl > cplTarget!;
+  const metaState: 'ok' | 'close' | 'far' = !overMeta ? 'ok' : recentCpl <= cplTarget! * 1.15 ? 'close' : 'far';
+  const metaColor = metaState === 'ok' ? GREEN : metaState === 'close' ? 'var(--warn)' : RED;
+  // cálculo diario: cuántos leads/día se necesitan para el CPL meta al gasto actual
+  const needLeadsDay = hasTarget && cplTarget! > 0 ? Math.round(spendDay / cplTarget!) : 0;
+  const gapLeadsDay = Math.max(0, needLeadsDay - Math.round(recentLeadsDay));
+  // barra de cumplimiento (qué tan cerca del CPL meta): target/actual, cap 100%
+  const fulfillPct = hasTarget && recentCpl > 0 ? Math.min(100, Math.round((cplTarget! / recentCpl) * 100)) : 0;
 
   // ── Marcadores de bitácora, anclados a la serie y coloreados por canal ──
   const dailyDates = daily.map((d) => d.date);
@@ -125,11 +150,13 @@ export function LeadsOverview() {
       ? markedImpls.map((m) => ({ index: m.index, n: m.n, color: CH_COLOR[m.it.channel] ?? CH_COLOR.global }))
       : undefined;
 
-  // Pie de meta para el KPI de CPL combinado.
+  // Pie de meta para el KPI de CPL combinado (usa el crudo del período).
+  const overTargetCrudo = hasTarget && v.cpl > cplTarget!;
+  const crudoGapPct = hasTarget ? Math.round(((v.cpl - cplTarget!) / cplTarget!) * 100) : 0;
   const cplMetaNode: ReactNode = hasTarget ? (
-    <span style={{ color: overTarget ? RED : GREEN }}>
-      {overTarget ? '✗' : '✓'} Meta {formatCurrency(cplTarget!, cur)} ·{' '}
-      {overTarget ? `${targetGapPct}% por encima` : `dentro de meta (${Math.abs(targetGapPct)}% por debajo)`}
+    <span style={{ color: overTargetCrudo ? RED : GREEN }}>
+      {overTargetCrudo ? '✗' : '✓'} Meta {formatCurrency(cplTarget!, cur)} ·{' '}
+      {overTargetCrudo ? `${crudoGapPct}% por encima` : `dentro de meta (${Math.abs(crudoGapPct)}% por debajo)`}
     </span>
   ) : null;
 
@@ -141,67 +168,207 @@ export function LeadsOverview() {
   const pLabels = pDaily.map((d) => dayLabel(d.date));
   const pCplSeries = pDaily.map((d) => d.cpl);
 
-  // ── Foco del período: UNA sola acción prioritaria, derivada del dato ──
+  // ── La jugada de hoy: UNA acción prioritaria, derivada del dato ──
   const g = venta.google.metrics;
   const t = venta.tiktok.metrics;
-  let focoTitle = 'Definir meta de CPL para priorizar';
-  let focoBody =
-    'Aún no hay meta de CPL activa o leads suficientes para recomendar dónde concentrar el esfuerzo. Con la meta puesta, este bloque señala el canal a optimizar o escalar.';
-  if (hasTarget && overTarget) {
-    const worse =
-      g.leads > 0 && t.leads > 0
-        ? g.cpl >= t.cpl
-          ? venta.google
-          : venta.tiktok
-        : g.leads > 0
-          ? venta.google
-          : venta.tiktok;
-    focoTitle = `Bajar el CPL de ${worse.label}`;
-    focoBody = `El CPL combinado está ${targetGapPct}% por encima de la meta de ${formatCurrency(
-      cplTarget!,
-      cur
-    )}. ${worse.label} es el canal con mayor costo por lead (${formatCurrency(
-      worse.metrics.cpl,
-      cur
-    )}); concentrar ahí la optimización es lo que más mueve la aguja.`;
-  } else if (hasTarget && !overTarget) {
-    const better =
-      g.leads > 0 && t.leads > 0
-        ? g.cpl <= t.cpl
-          ? venta.google
-          : venta.tiktok
-        : g.leads > 0
-          ? venta.google
-          : venta.tiktok;
-    focoTitle = `Escalar ${better.label}`;
-    focoBody = `El CPL combinado (${formatCurrency(
-      v.cpl,
-      cur
-    )}) está dentro de la meta. ${better.label} trae los leads más baratos (${formatCurrency(
-      better.metrics.cpl,
-      cur
-    )}); subir su presupuesto aprovecha el margen sin romper la meta.`;
-  }
+  const cheaper =
+    g.leads > 0 && t.leads > 0 ? (g.cpl <= t.cpl ? venta.google : venta.tiktok) : g.leads > 0 ? venta.google : venta.tiktok;
+  const pricier =
+    g.leads > 0 && t.leads > 0 ? (g.cpl >= t.cpl ? venta.google : venta.tiktok) : g.leads > 0 ? venta.google : venta.tiktok;
 
   return (
     <div className="view on">
+      {/* ════ HERO · el veredicto ════ */}
       <div className="hero">
         <div className="hero-lbl">
           <span>✦</span>
-          <span>Resumen ejecutivo · ambos canales · {rangeLabel}</span>
+          <span>
+            {hasTarget ? `Meta del período · CPL ≤ ${formatCurrency(cplTarget!, cur)}` : `Resumen ejecutivo · ${rangeLabel}`}
+          </span>
         </div>
-        <div className="hero-title">
-          {formatInt(v.leads)} leads de Ventas de vehículos a {formatCurrency(v.cpl, cur)} por lead
-        </div>
-        <div className="hero-sub" suppressHydrationWarning>
-          {client.name} · Google Ads + TikTok consolidados · negocio de leads (sin ROAS)
-        </div>
+        {hasTarget ? (
+          <>
+            <div className="hero-title">
+              Vamos a {formatCurrency(recentCpl, cur)} por lead. La meta es{' '}
+              <span style={{ color: 'var(--acc)' }}>{formatCurrency(cplTarget!, cur)}</span>.
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 12 }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  padding: '6px 12px',
+                  borderRadius: 999,
+                  color: metaColor,
+                  background: `color-mix(in srgb, ${metaColor} 14%, transparent)`,
+                }}
+              >
+                {overMeta ? `▲ ${metaPct - 100}% arriba` : `✓ ${100 - metaPct}% bajo la meta`}
+                {trendDown ? ' · y bajando' : ''}
+              </span>
+              <span className="hero-sub" style={{ marginTop: 0 }} suppressHydrationWarning>
+                {client.name} · Google + TikTok · negocio de leads (sin ROAS)
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="hero-title">
+              {formatInt(v.leads)} leads de Ventas de vehículos a {formatCurrency(v.cpl, cur)} por lead
+            </div>
+            <div className="hero-sub" suppressHydrationWarning>
+              {client.name} · Google Ads + TikTok consolidados · negocio de leads (sin ROAS)
+            </div>
+          </>
+        )}
       </div>
 
-      {/* ════ SECCIÓN A · VENTAS DE VEHÍCULOS (HÉROE) ════ */}
-      <SectionLabel style={{ margin: '20px 0 10px' }}>
-        Ventas de vehículos · Google + TikTok
-      </SectionLabel>
+      {/* ════ 1 · TENDENCIA DIARIA (primero) ════ */}
+      <SectionLabel style={{ margin: '20px 0 10px' }}>Tendencia diaria · camino a la meta</SectionLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+        <TrendChart
+          title="CPL combinado por día"
+          headline={hasTarget ? formatCurrency(recentCpl, cur) : v.leads > 0 ? formatCurrency(v.cpl, cur) : '—'}
+          sub={hasTarget ? 'ritmo limpio · vs meta' : 'promedio del período · Google + TikTok'}
+          points={cplSeries}
+          labels={labels}
+          color={TT_PINK}
+          format={(n) => formatCurrency(n, cur)}
+          goal={hasTarget ? cplTarget! : undefined}
+          goalLabel={hasTarget ? `Meta ${formatCurrency(cplTarget!, cur)}` : undefined}
+          markers={chartMarkers}
+        />
+        <TrendChart
+          title="Leads por día"
+          headline={formatInt(v.leads)}
+          sub="total del período · Google + TikTok"
+          points={leadsSeries}
+          labels={labels}
+          color={CH_COLOR.global}
+          format={(n) => formatInt(n)}
+          markers={chartMarkers}
+        />
+      </div>
+
+      {/* Nota de medición: días con tracking caído, excluidos del ritmo limpio */}
+      {rangeGaps.length > 0 && (
+        <div
+          className="card"
+          style={{
+            marginTop: 12,
+            display: 'flex',
+            gap: 11,
+            alignItems: 'flex-start',
+            borderColor: 'color-mix(in srgb, var(--warn) 35%, var(--b2))',
+          }}
+        >
+          <span
+            style={{
+              flex: '0 0 auto',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              color: 'var(--warn)',
+              border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
+              borderRadius: 6,
+              padding: '3px 7px',
+              marginTop: 1,
+            }}
+          >
+            MEDICIÓN
+          </span>
+          <div style={{ fontSize: 12, color: 'var(--t2)', lineHeight: 1.5 }}>
+            {rangeGaps.map((gp, i) => (
+              <span key={i}>
+                <b style={{ color: 'var(--t1)' }}>
+                  {dayLabel(gp.from)}–{dayLabel(gp.to)}
+                </b>{' '}
+                {gp.reason} Esos días quedan <b style={{ color: 'var(--t2)' }}>fuera del "ritmo limpio"</b> y de la
+                proyección.{i < rangeGaps.length - 1 ? ' ' : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ════ 2 · META Y RITMO ════ */}
+      {hasTarget && (
+        <>
+          <SectionLabel style={{ margin: '22px 0 10px' }}>Meta y ritmo del período</SectionLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) minmax(280px, 1.4fr)', gap: 12 }}>
+            {/* CPL vs meta */}
+            <div className="card" style={{ borderTop: `3px solid ${metaColor}`, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 12, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                CPL vs meta · ritmo limpio
+              </div>
+              <div style={{ fontSize: 'clamp(24px, 6vw, 32px)', fontWeight: 800, color: 'var(--t1)', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>
+                {formatCurrency(recentCpl, cur)}
+              </div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: metaColor, fontVariantNumeric: 'tabular-nums' }}>
+                {metaPct}% de la meta ({formatCurrency(cplTarget!, cur)})
+              </div>
+              <div style={{ height: 7, borderRadius: 6, background: 'var(--track, rgba(128,128,128,0.15))', overflow: 'hidden', marginTop: 8 }}>
+                <div style={{ height: '100%', width: `${fulfillPct}%`, background: metaColor, borderRadius: 6 }} />
+              </div>
+              {rangeGaps.length > 0 && (
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 8, lineHeight: 1.4 }}>
+                  CPL crudo del período {formatCurrency(v.cpl, cur)} — incluye días sin tracking ⚠️
+                </div>
+              )}
+            </div>
+
+            {/* El cálculo del día */}
+            <div className="card" style={{ borderLeft: '3px solid var(--acc)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--acc)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>
+                🎯 El cálculo del día · ¿vamos a cumplir?
+              </div>
+              {needLeadsDay > 0 ? (
+                <>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--t1)', lineHeight: 1.5 }}>
+                    A tu gasto actual (~{formatCurrency(spendDay, cur)}/día) necesitas{' '}
+                    <b style={{ color: 'var(--acc)' }}>~{formatInt(needLeadsDay)} leads/día</b> para llegar a{' '}
+                    {formatCurrency(cplTarget!, cur)}.
+                  </div>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--t1)', lineHeight: 1.5 }}>
+                    Vas a <b>~{formatInt(Math.round(recentLeadsDay))} leads/día</b> →{' '}
+                    {gapLeadsDay > 0 ? (
+                      <b style={{ color: metaColor }}>te faltan ~{formatInt(gapLeadsDay)} leads/día</b>
+                    ) : (
+                      <b style={{ color: GREEN }}>ya cumples el ritmo ✓</b>
+                    )}
+                    .
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--t2)' }}>Sin datos limpios suficientes para el cálculo diario.</div>
+              )}
+              {cheaper && (
+                <div style={{ fontSize: 12, color: MUTED, marginTop: 4, borderTop: '1px solid var(--b2)', paddingTop: 10, lineHeight: 1.5 }}>
+                  Palanca:{' '}
+                  {overMeta ? (
+                    <>
+                      escala <b style={{ color: 'var(--t2)' }}>{cheaper.label}</b> (el lead más barato,{' '}
+                      {formatCurrency(cheaper.metrics.cpl, cur)}) y baja el CPL de{' '}
+                      <b style={{ color: 'var(--t2)' }}>{pricier.label}</b> — cierra la brecha.
+                    </>
+                  ) : (
+                    <>
+                      dentro de meta: escala <b style={{ color: 'var(--t2)' }}>{cheaper.label}</b> (
+                      {formatCurrency(cheaper.metrics.cpl, cur)}) para crecer sin romperla.
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ════ 3 · VENTAS DE VEHÍCULOS ════ */}
+      <SectionLabel style={{ margin: '22px 0 10px' }}>Ventas de vehículos · Google + TikTok</SectionLabel>
 
       {/* 3 números grandes combinados */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
@@ -259,33 +426,6 @@ export function LeadsOverview() {
         un ganador.
       </div>
 
-      {/* Tendencia diaria del combinado */}
-      <SectionLabel style={{ margin: '22px 0 10px' }}>Tendencia diaria · combinado</SectionLabel>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-        <TrendChart
-          title="Leads por día"
-          headline={formatInt(v.leads)}
-          sub="total del período · Google + TikTok"
-          points={leadsSeries}
-          labels={labels}
-          color={CH_COLOR.global}
-          format={(n) => formatInt(n)}
-          markers={chartMarkers}
-        />
-        <TrendChart
-          title="CPL combinado por día"
-          headline={v.leads > 0 ? formatCurrency(v.cpl, cur) : '—'}
-          sub="promedio del período · Google + TikTok"
-          points={cplSeries}
-          labels={labels}
-          color={TT_PINK}
-          format={(n) => formatCurrency(n, cur)}
-          goal={hasTarget ? cplTarget! : undefined}
-          goalLabel={hasTarget ? `Meta ${formatCurrency(cplTarget!, cur)}` : undefined}
-          markers={chartMarkers}
-        />
-      </div>
-
       {/* Bitácora de implementaciones (leyenda de los marcadores, coloreada por canal) */}
       {markedImpls.length > 0 && (
         <div className="card" style={{ marginTop: 12, padding: 0, overflow: 'hidden' }}>
@@ -339,7 +479,7 @@ export function LeadsOverview() {
         </div>
       )}
 
-      {/* ════ SECCIÓN B · PROPIETARIOS (SECUNDARIO · solo Google) ════ */}
+      {/* ════ 4 · PROPIETARIOS (SECUNDARIO · solo Google) ════ */}
       {showProp && (
         <>
           <SectionLabel style={{ margin: '28px 0 10px' }}>Propietarios · solo Google (Display)</SectionLabel>
@@ -350,7 +490,7 @@ export function LeadsOverview() {
                 <span style={{ fontSize: 11, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>
                   Objetivo independiente
                 </span>
-                <Link href="/google-ads/propietarios" style={{ fontSize: 11.5, color: 'var(--ac)', textDecoration: 'none' }}>
+                <Link href="/google-ads/propietarios" style={{ fontSize: 11.5, color: 'var(--acc)', textDecoration: 'none' }}>
                   ver detalle →
                 </Link>
               </div>
@@ -400,16 +540,6 @@ export function LeadsOverview() {
         </>
       )}
 
-      {/* ════ FOCO DEL PERÍODO · una sola acción prioritaria ════ */}
-      <SectionLabel style={{ margin: '28px 0 10px' }}>Foco del período</SectionLabel>
-      <div className="card" style={{ borderLeft: `3px solid ${TT_PINK}`, display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 22, lineHeight: 1, marginTop: 2 }}>🎯</span>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--t1)', marginBottom: 4 }}>{focoTitle}</div>
-          <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.55 }}>{focoBody}</div>
-        </div>
-      </div>
-
       <BackToTop />
     </div>
   );
@@ -454,7 +584,7 @@ function RepartoBar({ google, tiktok }: { google: ChannelLeads; tiktok: ChannelL
         </span>
         <span style={{ fontSize: 11, color: MUTED }}>{formatInt(totalLeads)} leads en total</span>
       </div>
-      <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', background: 'rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', background: 'rgba(128,128,128,0.15)' }}>
         {google.metrics.leads > 0 && (
           <div style={{ width: `${gPct}%`, background: GOOGLE_BLUE }} title={`Google ${gPct}%`} />
         )}
@@ -493,7 +623,7 @@ function ChannelRow({ ch, cur, href }: { ch: ChannelLeads; cur: string; href: st
       <td>{m.leads > 0 ? formatCurrency(m.cpl, cur) : '—'}</td>
       <td>{Math.round(ch.leadShare * 100)}%</td>
       <td style={{ textAlign: 'right' }}>
-        <Link href={href} style={{ fontSize: 11.5, color: 'var(--ac)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+        <Link href={href} style={{ fontSize: 11.5, color: 'var(--acc)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
           ver detalle →
         </Link>
       </td>

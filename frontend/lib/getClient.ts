@@ -39,7 +39,8 @@ const CLIENT_LOGOS: Record<string, string> = {
 // con el cliente. Por eso vive aquí, en config, y no en una tabla de datos.
 // Mientras no exista un editor en el tablero, este mapa es la fuente de verdad.
 const CLIENT_TARGETS: Record<string, { cplTarget?: number }> = {
-  'ofero-colombia': { cplTarget: 2800 },
+  // Meta de septiembre 2026: bajar el CPL a $2.000 (antes $2.800).
+  'ofero-colombia': { cplTarget: 2000 },
 };
 
 function rowToClient(row: ClientRow): Client {

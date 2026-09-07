@@ -386,26 +386,36 @@ export function TikTok() {
         sub={<>Reporte ejecutivo del rendimiento como negocio de leads</>}
       />
 
-      {/* 1 · Titular ejecutivo: veredicto prominente + frase interpretativa ── */}
-      <div className="card" style={{ marginTop: 4, borderLeft: `3px solid ${verdict.color}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8, flexWrap: 'wrap' }}>
-          <span
-            style={{
-              width: 11,
-              height: 11,
-              borderRadius: '50%',
-              background: verdict.color,
-              boxShadow: `0 0 9px ${verdict.color}`,
-            }}
-          />
-          <span style={{ fontSize: 19, fontWeight: 800, color: verdict.color, letterSpacing: 0.2 }}>
+      {/* 1 · Titular gigante: CPL vs meta (estilo Google Ads Overview) + veredicto */}
+      <div className="card" style={{ marginTop: 4, padding: '26px 28px', borderLeft: `3px solid ${verdict.color}` }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: TT_PINK }}>
+          TikTok Ads · costo por lead vs meta
+        </div>
+        <div style={{ fontSize: 'clamp(22px, 3vw, 32px)', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.12, margin: '10px 0 0' }}>
+          {hasTarget ? (
+            <>
+              TikTok va a <span style={{ color: overTarget ? RED : GREEN }}>{formatCurrency(t.cpl, cur)}</span> por lead. La meta es{' '}
+              <span style={{ color: GREEN }}>{formatCurrency(cplTarget!, cur)}</span>.
+            </>
+          ) : (
+            <>
+              {formatInt(t.conversions)} leads a <span style={{ color: TT_PINK }}>{formatCurrency(t.cpl, cur)}</span> por lead.
+            </>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, alignItems: 'center' }}>
+          {hasTarget && (
+            <span style={{ fontWeight: 700, fontSize: 13, padding: '6px 12px', borderRadius: 999, background: `color-mix(in srgb, ${overTarget ? RED : GREEN} 15%, transparent)`, color: overTarget ? RED : GREEN }}>
+              {overTarget ? `▲ ${targetGapPct}% sobre la meta` : `✓ ${Math.abs(targetGapPct)}% bajo la meta`}
+            </span>
+          )}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontWeight: 700, fontSize: 13, padding: '6px 12px', borderRadius: 999, background: `color-mix(in srgb, ${verdict.color} 15%, transparent)`, color: verdict.color }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: verdict.color }} />
             {verdict.label}
           </span>
-          <span style={{ fontSize: 12, color: MUTED }}>
-            · {rangeLabel} · {client.name}
-          </span>
+          <span style={{ fontSize: 12, color: MUTED }}>{rangeLabel} · {client.name}</span>
         </div>
-        <div style={{ fontSize: 14.5, color: 'var(--t2)', lineHeight: 1.6 }}>{narrative}</div>
+        <div style={{ color: 'var(--t2)', fontSize: 14, marginTop: 12, lineHeight: 1.6, maxWidth: '72ch' }}>{narrative}</div>
         {gapsHere.length > 0 && (
           <div style={{ marginTop: 10, display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12, color: MUTED, lineHeight: 1.5, borderTop: '1px solid var(--b2)', paddingTop: 10 }}>
             <span style={{ flex: 'none', fontSize: 9.5, fontWeight: 700, color: AMBER, border: `1px solid ${AMBER}55`, borderRadius: 6, padding: '3px 7px', letterSpacing: 0.5 }}>MEDICIÓN</span>
@@ -1029,16 +1039,17 @@ function CreativeLeaderboard({ ads, cur }: { ads: TikTokAdRow[]; cur: string }) 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name || `Anuncio …${a.adId.slice(-6)}`}</div>
               <div style={{ fontSize: 10, color: MUTED, marginTop: 2 }}>
-                {formatNumber(a.videoViews)} reprod · gancho {formatPercent(a.video.hookRate, 1)} · {formatInt(a.conversions)} leads · CPL{' '}
-                <b style={{ color: a.conversions > 0 ? 'var(--t2)' : MUTED }}>{a.conversions > 0 ? formatCurrency(a.cpl, cur) : '—'}</b>
+                {formatNumber(a.videoViews)} reprod · gancho {formatPercent(a.video.hookRate, 1)} · {formatInt(a.conversions)} leads
               </div>
               <div style={{ height: 7, borderRadius: 5, background: 'var(--b2)', overflow: 'hidden', marginTop: 6 }}>
                 <div style={{ height: '100%', width: `${w}%`, background: barColor, borderRadius: 5 }} />
               </div>
             </div>
-            <div style={{ flex: 'none', textAlign: 'right', minWidth: 72 }}>
+            <div style={{ flex: 'none', textAlign: 'right', minWidth: 88 }}>
               <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Space Grotesk',sans-serif" }}>{tab === 'hook' ? formatPercent(a.video.hookRate, 1) : formatInt(a.conversions)}</div>
               <div style={{ fontSize: 9.5, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>{tab === 'hook' ? 'gancho 2s' : 'leads'}</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: TT_PINK, fontFamily: "'Space Grotesk',sans-serif", marginTop: 5 }}>{a.conversions > 0 ? formatCurrency(a.cpl, cur) : '—'}</div>
+              <div style={{ fontSize: 9, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>CPL / lead</div>
             </div>
           </div>
         );

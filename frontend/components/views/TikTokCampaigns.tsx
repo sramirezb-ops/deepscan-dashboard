@@ -523,7 +523,7 @@ function CampaignsTab({
         <button onClick={collapseAll} style={toolBtn}>Colapsar</button>
       </div>
       <div style={tblWrap}>
-        <table className="t" style={{ minWidth: 1020 }}>
+        <table className="t ttc-table" style={{ minWidth: 1020 }}>
           <HeadRow firstLabel="Campaña · conjunto · anuncio" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
           <tbody>
             {campaigns.length === 0 && (
@@ -655,7 +655,7 @@ function CitiesTab({
 
   return (
     <div style={tblWrap}>
-      <table className="t" style={{ minWidth: 1020 }}>
+      <table className="t ttc-table" style={{ minWidth: 1020 }}>
         <HeadRow firstLabel="Ciudad / conjunto" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
         <tbody>
           {rows.length === 0 && (
@@ -698,7 +698,7 @@ function CreativesTab({
 
   return (
     <div style={tblWrap}>
-      <table className="t" style={{ minWidth: 1020 }}>
+      <table className="t ttc-table" style={{ minWidth: 1020 }}>
         <HeadRow firstLabel="Anuncio · campaña · conjunto" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
         <tbody>
           {rows.length === 0 && (

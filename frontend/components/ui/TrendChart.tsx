@@ -30,6 +30,10 @@ interface TrendChartProps {
   // opcional: si no se pasa, el pin es morado (default). Permite colorear el
   // marcador por canal (ej. Google vs TikTok) en el overview consolidado.
   markers?: { index: number; n: number; color?: string }[];
+  // Índices de la serie que caen en un GAP de medición (p.ej. pixel caído):
+  // se sombrean, se excluyen de la escala y cortan la línea, para no leer un
+  // bache de tracking como rendimiento. La etiqueta se dibuja una vez.
+  gapIndices?: number[];
 }
 
 const VB_W = 320;
@@ -39,13 +43,17 @@ const X1 = 310;
 const Y_TOP = 16;
 const Y_BOT = 98;
 
-export function TrendChart({ title, headline, sub, points, labels, color, format, goal, goalLabel, markers }: TrendChartProps) {
+export function TrendChart({ title, headline, sub, points, labels, color, format, goal, goalLabel, markers, gapIndices = [] }: TrendChartProps) {
   const uid = useId().replace(/:/g, '');
   const gradId = `trend-grad-${uid}`;
   const n = points.length;
   const hasGoal = typeof goal === 'number' && goal > 0;
-  // La meta entra en la escala para que su línea nunca quede fuera del lienzo.
-  const max = Math.max(...points, hasGoal ? goal! : 0, 0.0001);
+  const gapSet = new Set(gapIndices);
+  const hasGaps = gapSet.size > 0;
+  // La escala excluye los días en gap (su valor está inflado/roto) para que un
+  // bache no aplaste la lectura del resto. La meta también entra en la escala.
+  const scaleVals = points.filter((_, i) => !gapSet.has(i));
+  const max = Math.max(...(scaleVals.length ? scaleVals : points), hasGoal ? goal! : 0, 0.0001);
 
   const xAt = (i: number) => (n > 1 ? X0 + ((X1 - X0) * i) / (n - 1) : (X0 + X1) / 2);
   const yAt = (v: number) => Y_BOT - (v / max) * (Y_BOT - Y_TOP);
@@ -57,12 +65,36 @@ export function TrendChart({ title, headline, sub, points, labels, color, format
       ? `${linePts} ${coords[coords.length - 1].x.toFixed(1)},${Y_BOT} ${coords[0].x.toFixed(1)},${Y_BOT}`
       : '';
 
+  // Línea que salta los días en gap (deja hueco en vez de un pico artificial).
+  let linePath = '';
+  let started = false;
+  coords.forEach((c, i) => {
+    if (gapSet.has(i)) {
+      started = false;
+      return;
+    }
+    linePath += `${started ? 'L' : 'M'}${c.x.toFixed(1)} ${c.y.toFixed(1)} `;
+    started = true;
+  });
+
+  // Banda sombreada sobre el rango del gap.
+  const gapSorted = [...gapSet].sort((a, b) => a - b);
+  const step = n > 1 ? (X1 - X0) / (n - 1) : 0;
+  const gapRect = hasGaps
+    ? { x: xAt(gapSorted[0]) - step / 2, w: xAt(gapSorted[gapSorted.length - 1]) - xAt(gapSorted[0]) + step }
+    : null;
+
   const data: ChartDataPoint[] = points.map((v, i) => ({
     date: labels[i] ?? '',
-    values: [{ lbl: title, val: format(v), color, y: coords[i].y }],
+    values: [
+      gapSet.has(i)
+        ? { lbl: title, val: '— sin tracking', color: 'var(--mu)' }
+        : { lbl: title, val: format(v), color, y: coords[i].y },
+    ],
   }));
 
   const last = coords[coords.length - 1];
+  const lastIsGap = gapSet.has(n - 1);
 
   return (
     <div className="card" style={{ padding: 16 }}>
@@ -112,9 +144,23 @@ export function TrendChart({ title, headline, sub, points, labels, color, format
           <line x1={X0} y1={(Y_TOP + Y_BOT) / 2} x2={X1} y2={(Y_TOP + Y_BOT) / 2} stroke="rgba(255,255,255,0.04)" />
           <line x1={X0} y1={Y_BOT} x2={X1} y2={Y_BOT} stroke="rgba(255,255,255,0.08)" />
 
-          <polygon points={areaPts} fill={`url(#${gradId})`} />
-          <polyline points={linePts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
-          {last && <circle cx={last.x} cy={last.y} r="4" fill={color} />}
+          {/* Banda del gap de medición (días sin tracking): sombreada + etiqueta. */}
+          {gapRect && (
+            <>
+              <rect x={gapRect.x} y={Y_TOP} width={gapRect.w} height={Y_BOT - Y_TOP} fill="var(--mu)" opacity="0.14" rx="2" />
+              <text x={gapRect.x + gapRect.w / 2} y={Y_TOP + 7} textAnchor="middle" fontSize="7.5" fill="var(--mu)">
+                sin tracking
+              </text>
+            </>
+          )}
+
+          {!hasGaps && <polygon points={areaPts} fill={`url(#${gradId})`} />}
+          {hasGaps ? (
+            <path d={linePath.trim()} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          ) : (
+            <polyline points={linePts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" />
+          )}
+          {last && !lastIsGap && <circle cx={last.x} cy={last.y} r="4" fill={color} />}
 
           {/* Línea de meta (objetivo de negocio): punteada + etiqueta. */}
           {hasGoal && (

@@ -15,7 +15,7 @@ import { GadsGeoCharts } from '@/components/views/GadsGeoCharts';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import { ChartWithTooltip, type ChartDataPoint } from '@/components/ui/ChartWithTooltip';
-import { getMeasurementGaps, gapsInRange } from '@/lib/measurementGaps';
+import { getMeasurementGaps, gapsInRange, isInGap, type MeasurementGap } from '@/lib/measurementGaps';
 
 // ── Colores de los dos motores (tipos de campaña) ──
 // PMAX en azul (reutiliza el azul de Google del overview de leads) y Search en
@@ -81,7 +81,7 @@ function Delta({ value }: { value: number }) {
 // ============================================================
 // Tendencia diaria — CPL por día: PMAX vs Search + leads apilados + meta
 // ============================================================
-function DailyEnginesChart({ daily, target }: { daily: GadsDailyType[]; target?: number }) {
+function DailyEnginesChart({ daily, target, gaps }: { daily: GadsDailyType[]; target?: number; gaps: MeasurementGap[] }) {
   const VB_W = 720;
   const VB_H = 300;
   const L = 46;
@@ -93,15 +93,22 @@ function DailyEnginesChart({ daily, target }: { daily: GadsDailyType[]; target?:
   const X0 = L;
   const X1 = VB_W - R;
 
-  // CPL por día (null si ese día no tuvo leads en ese motor).
-  const rows = daily.map((d) => ({
-    date: d.date,
-    pmaxCpl: d.pmaxLeads > 0 ? d.pmaxCost / d.pmaxLeads : null,
-    searchCpl: d.searchLeads > 0 ? d.searchCost / d.searchLeads : null,
-    leadsTot: d.pmaxLeads + d.searchLeads + d.otherLeads,
-    pmaxLeads: d.pmaxLeads,
-    searchLeads: d.searchLeads,
-  }));
+  // CPL por día (null si ese día no tuvo leads en ese motor). Los días dentro de
+  // un gap de medición se marcan y se EXCLUYEN de la línea y de la escala: en
+  // esos días los leads quedaron sub-contados y el CPL se dispara artificialmente
+  // (leerlo como rendimiento sería un error). Se sombrean, no se borran.
+  const rows = daily.map((d) => {
+    const gap = isInGap(d.date, gaps);
+    return {
+      date: d.date,
+      gap,
+      pmaxCpl: !gap && d.pmaxLeads > 0 ? d.pmaxCost / d.pmaxLeads : null,
+      searchCpl: !gap && d.searchLeads > 0 ? d.searchCost / d.searchLeads : null,
+      leadsTot: d.pmaxLeads + d.searchLeads + d.otherLeads,
+      pmaxLeads: d.pmaxLeads,
+      searchLeads: d.searchLeads,
+    };
+  });
   const n = rows.length;
 
   const cpls = rows.flatMap((r) => [r.pmaxCpl, r.searchCpl]).filter((v): v is number => v != null && v > 0);
@@ -150,6 +157,22 @@ function DailyEnginesChart({ daily, target }: { daily: GadsDailyType[]; target?:
 
   return (
     <ChartWithTooltip data={data} xStart={X0} xEnd={X1} viewBox={`0 0 ${VB_W} ${VB_H}`}>
+      {/* banda sombreada del gap de medición (días excluidos de la línea) */}
+      {(() => {
+        const gi = rows.map((r, i) => (r.gap ? i : -1)).filter((i) => i >= 0);
+        if (gi.length === 0) return null;
+        const step = n > 1 ? (X1 - X0) / (n - 1) : 0;
+        const x0 = xAt(gi[0]) - step / 2;
+        const x1b = xAt(gi[gi.length - 1]) + step / 2;
+        return (
+          <g>
+            <rect x={x0} y={T} width={Math.max(0, x1b - x0)} height={gapY + lih - T} fill="var(--bg4)" opacity="0.55" rx="4" />
+            <text x={(x0 + x1b) / 2} y={T + 9} textAnchor="middle" fontFamily="'JetBrains Mono',monospace" fontSize="8.5" fill="var(--t3)">
+              sin tracking
+            </text>
+          </g>
+        );
+      })()}
       {/* grid + escala CPL */}
       {[0.5, 1].map((f, k) => {
         const v = cplMax * f;
@@ -172,10 +195,11 @@ function DailyEnginesChart({ daily, target }: { daily: GadsDailyType[]; target?:
         const x = xAt(i) - barW / 2;
         const yP = yLead(r.pmaxLeads);
         const yTot = yLead(r.leadsTot);
+        const op = r.gap ? 0.14 : 0.32;
         return (
           <g key={`b${i}`}>
-            <rect x={x} y={yP} width={barW} height={gapY + lih - yP} rx="2" fill={PMAX_COLOR} opacity="0.32" />
-            <rect x={x} y={yTot} width={barW} height={yP - yTot} rx="2" fill={SEARCH_COLOR} opacity="0.32" />
+            <rect x={x} y={yP} width={barW} height={gapY + lih - yP} rx="2" fill={PMAX_COLOR} opacity={op} />
+            <rect x={x} y={yTot} width={barW} height={yP - yTot} rx="2" fill={SEARCH_COLOR} opacity={op} />
           </g>
         );
       })}
@@ -594,9 +618,13 @@ export function GoogleAdsLeadsOverview() {
   const totalCost = agg.pmax.cost + agg.search.cost + agg.other.cost;
   const totalLeads = agg.pmax.leads + agg.search.leads + agg.other.leads;
 
-  // Sparklines: CPL diario por motor.
-  const sparkPmax = data.ventaDaily.map((d) => (d.pmaxLeads > 0 ? d.pmaxCost / d.pmaxLeads : 0));
-  const sparkSearch = data.ventaDaily.map((d) => (d.searchLeads > 0 ? d.searchCost / d.searchLeads : 0));
+  // Gaps de medición del cliente (para excluir días sin tracking de la línea y sparklines).
+  const allGaps = getMeasurementGaps(client.id);
+  const cleanDaily = data.ventaDaily.filter((d) => !isInGap(d.date, allGaps));
+
+  // Sparklines: CPL diario por motor (excluyendo el bache de tracking).
+  const sparkPmax = cleanDaily.map((d) => (d.pmaxLeads > 0 ? d.pmaxCost / d.pmaxLeads : 0));
+  const sparkSearch = cleanDaily.map((d) => (d.searchLeads > 0 ? d.searchCost / d.searchLeads : 0));
 
   // Reparto por tipo (para la tabla): solo los buckets con actividad.
   const typeRows = ([
@@ -605,8 +633,8 @@ export function GoogleAdsLeadsOverview() {
     { key: 'other', label: 'Otros (Video/Display)', color: 'var(--acc)', agg: agg.other },
   ] as const).filter((r) => r.agg.cost > 0 || r.agg.leads > 0);
 
-  // Gap de medición que toca el rango visible.
-  const gaps = gapsInRange(getMeasurementGaps(client.id), data.from, data.to);
+  // Gap de medición que toca el rango visible (para la nota).
+  const gaps = gapsInRange(allGaps, data.from, data.to);
 
   // ¿Search es un problema? (para la jugada)
   const searchHeavy = agg.search.cost > 0 && target && agg.search.cpl > target * 1.3;
@@ -662,7 +690,7 @@ export function GoogleAdsLeadsOverview() {
             {target ? <span><i style={{ borderTop: '2px dashed var(--up)', height: 0, background: 'transparent' }} />Meta {fmtCOP(target)}</span> : null}
           </div>
         </div>
-        <DailyEnginesChart daily={data.ventaDaily} target={target} />
+        <DailyEnginesChart daily={data.ventaDaily} target={target} gaps={allGaps} />
       </div>
 
       {/* DOS MOTORES */}

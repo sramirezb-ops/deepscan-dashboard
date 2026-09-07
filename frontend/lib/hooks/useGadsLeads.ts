@@ -64,9 +64,24 @@ export interface BusinessModel {
   campaigns: CampaignLeadRow[]; // ordenadas por gasto desc
 }
 
+// Punto diario del modelo "venta", separado por tipo de campaña (los dos
+// motores del negocio: Performance Max vs Search). Alimenta la línea de
+// tendencia diaria "PMAX vs Search" del overview. `other` recoge cualquier
+// otro tipo (Video/Display/Shopping) para no perder leads del conteo.
+export interface GadsDailyType {
+  date: string; // 'YYYY-MM-DD'
+  pmaxCost: number;
+  pmaxLeads: number;
+  searchCost: number;
+  searchLeads: number;
+  otherCost: number;
+  otherLeads: number;
+}
+
 export interface GadsLeadsData {
   venta: BusinessModel;
   propietarios: BusinessModel;
+  ventaDaily: GadsDailyType[]; // serie diaria de "venta" por tipo (orden cronológico)
   hasAny: boolean; // ¿hubo alguna campaña con actividad en el rango?
   existsEver: boolean; // ¿el cliente tiene Google Ads en cualquier fecha?
   from: string;
@@ -83,13 +98,14 @@ export interface UseGadsLeadsResult {
 interface RawRow {
   campaign_name: string | null;
   campaign_type: string | null;
+  date: string | null;
   impressions: number | null;
   clicks: number | null;
   cost: number | null;
   conversions: number | null;
 }
 
-const SELECT = 'campaign_name, campaign_type, impressions, clicks, cost, conversions';
+const SELECT = 'campaign_name, campaign_type, date, impressions, clicks, cost, conversions';
 const PAGE = 1000;
 
 /** Clasifica una campaña en su modelo de negocio por el nombre. */
@@ -208,6 +224,42 @@ function groupCampaigns(rows: RawRow[]): CampaignLeadRow[] {
   return list;
 }
 
+/** Bucket de tipo de campaña para la serie diaria (dos motores + resto). */
+function typeBucket(type: string | null): 'pmax' | 'search' | 'other' {
+  const t = (type || '').toUpperCase();
+  if (t === 'PERFORMANCE_MAX') return 'pmax';
+  if (t === 'SEARCH') return 'search';
+  return 'other';
+}
+
+/** Serie diaria de un conjunto de filas, separada por tipo (PMAX / Search / otros). */
+function buildDailyByType(rows: RawRow[]): GadsDailyType[] {
+  const map = new Map<string, GadsDailyType>();
+  for (const r of rows) {
+    const date = r.date;
+    if (!date) continue; // sin fecha no entra a la serie diaria
+    let d = map.get(date);
+    if (!d) {
+      d = { date, pmaxCost: 0, pmaxLeads: 0, searchCost: 0, searchLeads: 0, otherCost: 0, otherLeads: 0 };
+      map.set(date, d);
+    }
+    const cost = Number(r.cost) || 0;
+    const leads = Number(r.conversions) || 0;
+    const b = typeBucket(r.campaign_type);
+    if (b === 'pmax') {
+      d.pmaxCost += cost;
+      d.pmaxLeads += leads;
+    } else if (b === 'search') {
+      d.searchCost += cost;
+      d.searchLeads += leads;
+    } else {
+      d.otherCost += cost;
+      d.otherLeads += leads;
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function buildModel(
   key: ModelKey,
   label: string,
@@ -263,6 +315,8 @@ export function useGadsLeads(
           split(prevRows, 'propietarios')
         );
 
+        const ventaDaily = buildDailyByType(split(nowRows, 'venta'));
+
         const hasAny = nowRows.length > 0;
         let existsEver = hasAny;
         if (!existsEver) {
@@ -270,7 +324,7 @@ export function useGadsLeads(
           if (cancelled) return;
         }
 
-        setData({ venta, propietarios, hasAny, existsEver, from: range.from, to: range.to });
+        setData({ venta, propietarios, ventaDaily, hasAny, existsEver, from: range.from, to: range.to });
       } catch (e: any) {
         if (cancelled) return;
         console.error('[useGadsLeads]', e);

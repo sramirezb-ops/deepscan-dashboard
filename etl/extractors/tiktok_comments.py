@@ -297,10 +297,12 @@ def extract_tiktok_comments(
         for win_from, win_to in windows:
             if aborted:
                 break
-            # La API espera 'YYYY-MM-DD HH:MM:SS'. Cada sub-ventana es chica
-            # (WINDOW_DAYS) para no disparar el timeout 51010 de TikTok.
-            start_time = f"{win_from.isoformat()} 00:00:00"
-            end_time = f"{win_to.isoformat()} 23:59:59"
+            # La API de comment/list espera la fecha en formato 'YYYY-MM-DD'
+            # (SIN hora): si se le añade ' 00:00:00' responde code=40002
+            # ("extra text"). Cada sub-ventana es chica (WINDOW_DAYS) para no
+            # disparar el timeout 51010 de TikTok.
+            start_time = win_from.isoformat()
+            end_time = win_to.isoformat()
 
             page = 1
             total_pages = 1

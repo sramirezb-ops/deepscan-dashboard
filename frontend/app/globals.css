@@ -1209,3 +1209,9 @@ body{
 @container (max-width:430px){
   .ttc-kpis{grid-template-columns:1fr}
 }
+/* La tabla vive en una caja con borde propia; el .t global deja la 1ª celda a
+   padding-left:0 y la última a padding-right:0 (pensado para un contenedor con
+   padding). Le devolvemos el margen interno para que el contenido no quede
+   pegado al borde. */
+.ttc-table th:first-child,.ttc-table td:first-child{padding-left:16px}
+.ttc-table th:last-child,.ttc-table td:last-child{padding-right:16px}

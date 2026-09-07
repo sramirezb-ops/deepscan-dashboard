@@ -170,6 +170,9 @@ export interface TikTokData {
   reachDelta: number;
   cplDelta: number; // absoluto
   ctrDelta: number; // absoluto
+  cvrDelta: number; // % vs anterior (tasa de conversión)
+  cpcDelta: number; // % vs anterior (costo por clic)
+  cpmDelta: number; // % vs anterior (costo por mil)
   from: string;
   to: string;
 }
@@ -634,6 +637,9 @@ export function useTikTok(
 
         const cplPrev = p.conversions > 0 ? p.spend / p.conversions : 0;
         const ctrPrev = p.impressions > 0 ? p.clicks / p.impressions : 0;
+        const cvrPrev = p.clicks > 0 ? p.conversions / p.clicks : 0;
+        const cpcPrev = p.clicks > 0 ? p.spend / p.clicks : 0;
+        const cpmPrev = p.impressions > 0 ? p.spend / (p.impressions / 1000) : 0;
 
         setData({
           campaigns,
@@ -652,6 +658,9 @@ export function useTikTok(
           reachDelta: calcDelta(t.reach, p.reach),
           cplDelta: totals.cpl - cplPrev,
           ctrDelta: totals.ctr - ctrPrev,
+          cvrDelta: calcDelta(totals.cvr, cvrPrev),
+          cpcDelta: calcDelta(totals.cpc, cpcPrev),
+          cpmDelta: calcDelta(totals.cpm, cpmPrev),
           from: range.from,
           to: range.to,
         });

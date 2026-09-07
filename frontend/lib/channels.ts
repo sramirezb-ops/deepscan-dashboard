@@ -173,7 +173,9 @@ export const NAV_SECTIONS: NavSection[] = [
       { id: 'gads', label: 'Overview', icon: '◎', href: '/google-ads', crumb1: 'Google Ads', crumb2: 'Overview' },
       { id: 'pmax', label: 'Performance Max', icon: '', href: '/google-ads/pmax', crumb1: 'Google Ads', crumb2: 'PMAX', isSubItem: true },
       { id: 'srch', label: 'Search', icon: '', href: '/google-ads/search', crumb1: 'Google Ads', crumb2: 'Search', isSubItem: true },
-      { id: 'prop', label: 'Propietarios', icon: '', href: '/google-ads/propietarios', crumb1: 'Google Ads', crumb2: 'Propietarios', isSubItem: true },
+      // Propietarios (id 'prop') se retiró del menú: modelo desactivado (foco 100%
+      // en venta de vehículos). La vista y la ruta /google-ads/propietarios siguen
+      // existiendo; para reactivar el ítem, restaurar esta línea.
       { id: 'shop', label: 'Shopping', icon: '', href: '/google-ads/shopping', crumb1: 'Google Ads', crumb2: 'Shopping', isSubItem: true },
       { id: 'yt', label: 'YouTube', icon: '', href: '/google-ads/youtube', crumb1: 'Google Ads', crumb2: 'YouTube', isSubItem: true },
     ],

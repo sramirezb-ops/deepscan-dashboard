@@ -152,19 +152,7 @@ function CreativeLeaderboard({
               onMouseLeave={() => setTip(null)}
             >
               <div className={`pmx-rank ${rank === 1 ? 'g' : ''}`}>{rank}</div>
-              {it.thumbKind === 'video' && (
-                <div className="pmx-thumb">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={it.thumbSrc} alt="" loading="lazy" />
-                  <span className="pmx-play">▶</span>
-                </div>
-              )}
-              {it.thumbKind === 'img' && (
-                <div className="pmx-thumb">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={it.thumbSrc} alt="" loading="lazy" />
-                </div>
-              )}
+              {it.thumbKind && <Thumb kind={it.thumbKind} src={it.thumbSrc} />}
               <div className="pmx-mid">
                 <div className="pmx-title">
                   {it.title}
@@ -217,6 +205,21 @@ function CreativeLeaderboard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Miniatura con fallback: si la imagen falla, muestra un placeholder limpio.
+function Thumb({ kind, src }: { kind: 'video' | 'img'; src?: string }) {
+  const [err, setErr] = useState(false);
+  if (err || !src) {
+    return <div className="pmx-thumb pmx-thumb-ph">{kind === 'video' ? '🎬' : '🖼️'}</div>;
+  }
+  return (
+    <div className="pmx-thumb">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" onError={() => setErr(true)} />
+      {kind === 'video' && <span className="pmx-play">▶</span>}
     </div>
   );
 }
@@ -578,6 +581,7 @@ export function PMAXLeads() {
         .pmx-rank.g{background:color-mix(in srgb,var(--up) 16%,transparent);color:var(--up)}
         .pmx-thumb{flex:none;width:64px;height:38px;border-radius:7px;overflow:hidden;position:relative;background:var(--bg3)}
         .pmx-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+        .pmx-thumb-ph{display:grid;place-items:center;font-size:16px;color:var(--t3)}
         .pmx-play{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.6)}
         .pmx-mid{flex:1;min-width:0}
         .pmx-title{font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}

@@ -1,11 +1,12 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useTikTok } from '@/lib/hooks/useTikTok';
-import type { TikTokCampaignRow, TikTokDailyPoint } from '@/lib/hooks/useTikTok';
+import type { TikTokCampaignRow, TikTokDailyPoint, TikTokAdRow } from '@/lib/hooks/useTikTok';
+import { getMeasurementGaps, gapsInRange, isInGap } from '@/lib/measurementGaps';
 import { useImplementations } from '@/lib/hooks/useImplementations';
 import {
   formatCurrency,
@@ -233,6 +234,12 @@ export function TikTok() {
   });
   const chartMarkers = daily.length >= 2 ? markedImpls.map((m) => ({ index: m.index, n: m.n })) : undefined;
 
+  // ── Gap de medición (pixel de TikTok caído): días que NO se deben leer como
+  //    rendimiento. Se sombrean/excluyen en las tendencias y se avisa. ──
+  const gaps = getMeasurementGaps(client.id);
+  const gapIndices = dailyDates.map((d, i) => (isInGap(d, gaps) ? i : -1)).filter((i) => i >= 0);
+  const gapsHere = gapsInRange(gaps, data.from, data.to);
+
   // ── Top movimientos: campañas con mayor cambio de leads vs. período anterior ──
   const movers = hasPrev
     ? data.campaigns
@@ -400,6 +407,19 @@ export function TikTok() {
           </span>
         </div>
         <div style={{ fontSize: 14.5, color: 'var(--t2)', lineHeight: 1.6 }}>{narrative}</div>
+        {gapsHere.length > 0 && (
+          <div style={{ marginTop: 10, display: 'flex', gap: 9, alignItems: 'flex-start', fontSize: 12, color: MUTED, lineHeight: 1.5, borderTop: '1px solid var(--b2)', paddingTop: 10 }}>
+            <span style={{ flex: 'none', fontSize: 9.5, fontWeight: 700, color: AMBER, border: `1px solid ${AMBER}55`, borderRadius: 6, padding: '3px 7px', letterSpacing: 0.5 }}>MEDICIÓN</span>
+            <span>
+              {gapsHere.map((g, i) => (
+                <span key={i}>
+                  {dayLabel(g.from)}–{dayLabel(g.to)}: {g.reason}{' '}
+                </span>
+              ))}
+              El "{formatDelta(data.conversionsDelta)} en leads" y el alza de CPL vienen <b>inflados por esos días sin tracking</b>: la caída real es menor. Se sombrean y excluyen de las tendencias.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 2 · Leads + CPL en grande (los números que mandan) ──────────────── */}
@@ -426,6 +446,7 @@ export function TikTok() {
           deltaColor={!hasPrev ? MUTED : cplCheaper ? GREEN : cplPricier ? RED : MUTED}
           meta={cplMetaNode}
         />
+        {hasTarget && <MetaGauge cpl={t.cpl} target={cplTarget!} cur={cur} />}
       </div>
 
       {/* 3 · Banda «Inversión y alcance» ─────────────────────────────────── */}
@@ -456,6 +477,10 @@ export function TikTok() {
         <b style={{ color: 'var(--t2)' }}>{formatNumber(v.views)}</b> reproducciones de video.
       </div>
 
+      {/* 4b · Vista rápida: métricas por campaña ─────────────────────────── */}
+      <SectionLabel style={{ margin: '22px 0 10px' }}>Métricas por campaña</SectionLabel>
+      <CampaignTable campaigns={data.campaigns} target={hasTarget ? cplTarget! : undefined} cur={cur} />
+
       {/* 5 · Tendencia diaria ────────────────────────────────────────────── */}
       <SectionLabel style={{ margin: '24px 0 10px' }}>Tendencia diaria</SectionLabel>
       <div
@@ -474,6 +499,7 @@ export function TikTok() {
           color={TT_CYAN}
           format={(n) => formatInt(n)}
           markers={chartMarkers}
+          gapIndices={gapIndices}
         />
         <TrendChart
           title="CPL por día"
@@ -486,6 +512,7 @@ export function TikTok() {
           goal={hasTarget ? cplTarget! : undefined}
           goalLabel={hasTarget ? `Meta ${formatCurrency(cplTarget!, cur)}` : undefined}
           markers={chartMarkers}
+          gapIndices={gapIndices}
         />
         <TrendChart
           title="Inversión por día"
@@ -496,6 +523,7 @@ export function TikTok() {
           color="#a78bfa"
           format={(n) => formatCurrency(n, cur)}
           markers={chartMarkers}
+          gapIndices={gapIndices}
         />
       </div>
 
@@ -561,6 +589,14 @@ export function TikTok() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* 5c · Leaderboard de creativos (lo que engancha y vende) ──────────── */}
+      {data.ads.length > 0 && (
+        <>
+          <SectionLabel style={{ margin: '24px 0 10px' }}>Leaderboard de creativos</SectionLabel>
+          <CreativeLeaderboard ads={data.ads} cur={cur} />
+        </>
       )}
 
       {/* 6 · Top movimientos por campaña (con barra de magnitud) ──────────── */}
@@ -809,6 +845,170 @@ function BigKpi({
         {deltaText}
       </div>
       {meta && <div style={{ fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{meta}</div>}
+    </div>
+  );
+}
+
+// ── Medidor visual del CPL contra la meta (arco tipo gauge) ──
+function MetaGauge({ cpl, target, cur }: { cpl: number; target: number; cur: string }) {
+  const ratio = target > 0 ? cpl / target : 0;
+  const pct = Math.round(ratio * 100);
+  const over = cpl > target;
+  const cx = 80, cy = 88, r = 62;
+  const frac = ratio > 0 ? Math.min(1, 1 / ratio) : 1; // porción del arco bajo meta
+  const pt = (a: number): [number, number] => [cx + r * Math.cos(Math.PI * (1 - a)), cy - r * Math.sin(Math.PI * (1 - a))];
+  const arc = (a0: number, a1: number, col: string, key: string) => {
+    const [x0, y0] = pt(a0);
+    const [x1, y1] = pt(a1);
+    const large = a1 - a0 > 0.5 ? 1 : 0;
+    return <path key={key} d={`M${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`} fill="none" stroke={col} strokeWidth="12" strokeLinecap="round" />;
+  };
+  const [mx, my] = pt(frac);
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 2, padding: 16 }}>
+      <div style={{ fontSize: 12, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.5, alignSelf: 'flex-start' }}>CPL vs meta</div>
+      <svg viewBox="0 0 160 104" style={{ width: 168, maxWidth: '100%', overflow: 'visible' }}>
+        {arc(0, 1, 'var(--b2)', 'base')}
+        {frac > 0 && arc(0, frac, GREEN, 'g')}
+        {arc(frac, 1, RED, 'r')}
+        <circle cx={mx.toFixed(1)} cy={my.toFixed(1)} r="4" fill="var(--bg1, #fff)" stroke={GREEN} strokeWidth="2" />
+        <text x={cx} y={cy - 14} textAnchor="middle" fontFamily="'Space Grotesk',sans-serif" fontWeight="700" fontSize="22" fill={over ? RED : GREEN}>{pct}%</text>
+        <text x={cx} y={cy + 2} textAnchor="middle" fontSize="10" fill={MUTED}>de la meta</text>
+      </svg>
+      <div style={{ fontSize: 12, color: 'var(--t2)' }}>
+        Meta <b>{formatCurrency(target, cur)}</b> · CPL <b style={{ color: over ? RED : GREEN }}>{formatCurrency(cpl, cur)}</b>
+      </div>
+    </div>
+  );
+}
+
+// ── Nombre de campaña acortado para la tabla rápida (quita ruido genérico) ──
+function shortCampaign(name: string): string {
+  const drop = /^(conversi[oó]n website|leads sitio web|website|conversi[oó]n|nacional|\d{4}|(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\w*\.?\s*\d{0,4})$/i;
+  const segs = name.split('|').map((s) => s.trim()).filter((s) => s && !drop.test(s));
+  return (segs.length ? segs : [name]).slice(0, 3).join(' · ');
+}
+
+// ── Tabla rápida de métricas por campaña ──
+function CampaignTable({ campaigns, target, cur }: { campaigns: TikTokCampaignRow[]; target?: number; cur: string }) {
+  const rows = [...campaigns].filter((c) => c.spend > 0).sort((a, b) => b.conversions - a.conversions);
+  const totalSpend = rows.reduce((a, c) => a + c.spend, 0);
+  const totalLeads = rows.reduce((a, c) => a + c.conversions, 0);
+  const totalCpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
+  const overFmt = (cpl: number) => (target ? `${cpl / target >= 1 ? '+' : ''}${Math.round((cpl / target - 1) * 100)}%` : '—');
+  const overColor = (cpl: number) => (!target ? 'var(--t2)' : cpl <= target ? GREEN : RED);
+  return (
+    <div className="card" style={{ padding: '14px 16px' }}>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="t">
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left' }}>Campaña</th>
+              <th style={{ textAlign: 'right' }}>Inversión</th>
+              <th style={{ textAlign: 'right' }}>Leads</th>
+              <th style={{ textAlign: 'right' }}>CPL</th>
+              {target ? <th style={{ textAlign: 'right' }}>vs meta</th> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.campaignId}>
+                <td style={{ textAlign: 'left' }}>
+                  <b>{shortCampaign(c.name)}</b>
+                </td>
+                <td style={{ textAlign: 'right' }}>{formatCurrency(c.spend, cur)}</td>
+                <td style={{ textAlign: 'right' }}>{formatInt(c.conversions)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 800, color: overColor(c.cpl) }}>{c.conversions > 0 ? formatCurrency(c.cpl, cur) : '—'}</td>
+                {target ? <td style={{ textAlign: 'right', color: overColor(c.cpl) }}>{c.conversions > 0 ? overFmt(c.cpl) : '—'}</td> : null}
+              </tr>
+            ))}
+            <tr className="t-avg">
+              <td style={{ textAlign: 'left' }}>Total ({rows.length})</td>
+              <td style={{ textAlign: 'right' }}>{formatCurrency(totalSpend, cur)}</td>
+              <td style={{ textAlign: 'right' }}>{formatInt(totalLeads)}</td>
+              <td style={{ textAlign: 'right', fontWeight: 800 }}>{formatCurrency(totalCpl, cur)}</td>
+              {target ? <td style={{ textAlign: 'right', color: overColor(totalCpl) }}>{overFmt(totalCpl)}</td> : null}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Miniatura del creativo (portada real o marcador honesto) ──
+function AdThumb({ url }: { url: string }) {
+  const [err, setErr] = useState(false);
+  if (!url || err) {
+    return (
+      <div style={{ flex: 'none', width: 42, height: 58, borderRadius: 8, background: `linear-gradient(135deg, ${TT_CYAN}, ${TT_PINK})`, display: 'grid', placeItems: 'center', color: '#fff', fontSize: 14 }}>▶</div>
+    );
+  }
+  return (
+    <div style={{ flex: 'none', width: 42, height: 58, borderRadius: 8, overflow: 'hidden', background: 'var(--b2)' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="" onError={() => setErr(true)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+    </div>
+  );
+}
+
+// ── Leaderboard de creativos: qué video engancha y cuál trae leads ──
+function CreativeLeaderboard({ ads, cur }: { ads: TikTokAdRow[]; cur: string }) {
+  const [tab, setTab] = useState<'hook' | 'leads'>('hook');
+  const pool = ads.filter((a) => a.videoViews > 0 || a.conversions > 0);
+  const rows = [...pool]
+    .sort((a, b) => (tab === 'hook' ? b.video.hookRate - a.video.hookRate : b.conversions - a.conversions))
+    .slice(0, 6);
+  const metric = (a: TikTokAdRow) => (tab === 'hook' ? a.video.hookRate : a.conversions);
+  const max = Math.max(...rows.map(metric), 0.0001);
+  const tabBtn = (k: 'hook' | 'leads', label: string) => (
+    <button
+      onClick={() => setTab(k)}
+      style={{ fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 8, cursor: 'pointer', border: 'none', background: tab === k ? 'var(--bg1)' : 'transparent', color: tab === k ? 'var(--t1)' : 'var(--t2)', boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,.15)' : 'none' }}
+    >
+      {label}
+    </button>
+  );
+  if (rows.length === 0) return null;
+  return (
+    <div className="card" style={{ padding: '16px 18px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
+          El <b style={{ color: 'var(--t2)' }}>gancho (2s)</b> es la primera batalla en TikTok: escala los que enganchan, renueva los de gancho bajo.
+        </div>
+        <div style={{ display: 'inline-flex', background: 'var(--bg3, var(--b2))', border: '1px solid var(--b2)', borderRadius: 10, padding: 3, gap: 2 }}>
+          {tabBtn('hook', '🎣 Por gancho')}
+          {tabBtn('leads', '💰 Por leads')}
+        </div>
+      </div>
+      {rows.map((a, i) => {
+        const good = a.video.hookRate >= 0.3;
+        const val = metric(a);
+        const w = Math.max(2, Math.round((val / max) * 100));
+        const barColor = tab === 'hook' ? (good ? TT_CYAN : AMBER) : TT_PINK;
+        return (
+          <div key={a.adId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: i === 0 ? 'none' : '1px solid var(--b2)' }}>
+            <div style={{ flex: 'none', width: 24, height: 24, borderRadius: 7, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 12, background: i === 0 ? 'rgba(34,211,238,0.16)' : 'var(--b2)', color: i === 0 ? TT_CYAN : 'var(--t2)' }}>{i + 1}</div>
+            <AdThumb url={a.coverUrl} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name || `Anuncio …${a.adId.slice(-6)}`}</div>
+              <div style={{ fontSize: 10, color: MUTED, marginTop: 2 }}>
+                {formatNumber(a.videoViews)} reprod · gancho {formatPercent(a.video.hookRate, 1)} · {formatInt(a.conversions)} leads
+              </div>
+              <div style={{ height: 7, borderRadius: 5, background: 'var(--b2)', overflow: 'hidden', marginTop: 6 }}>
+                <div style={{ height: '100%', width: `${w}%`, background: barColor, borderRadius: 5 }} />
+              </div>
+            </div>
+            <div style={{ flex: 'none', textAlign: 'right', minWidth: 72 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Space Grotesk',sans-serif" }}>{tab === 'hook' ? formatPercent(a.video.hookRate, 1) : formatInt(a.conversions)}</div>
+              <div style={{ fontSize: 9.5, color: MUTED, textTransform: 'uppercase', letterSpacing: 0.4 }}>{tab === 'hook' ? 'gancho 2s' : 'leads'}</div>
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ fontSize: 10.5, color: MUTED, marginTop: 10, lineHeight: 1.5 }}>
+        Dato real por anuncio (retención + conversiones del pixel). El detalle completo está en <b>Retención de los anuncios</b>.
+      </div>
     </div>
   );
 }

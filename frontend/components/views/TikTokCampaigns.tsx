@@ -190,7 +190,7 @@ export function TikTokCampaigns() {
       />
 
       {/* ═══ ZONA 1 · RESUMEN + ACCIONES ═══ */}
-      <div className="card" style={{ padding: '20px 22px' }}>
+      <div className="card ttc-z1" style={{ padding: '20px 22px' }}>
         <HeadlineBlock
           data={data}
           cur={cur}
@@ -266,7 +266,7 @@ function HeadlineBlock({
   const worst = ranked.length > 1 ? ranked[ranked.length - 1] : undefined;
 
   return (
-    <div style={headGridStyle}>
+    <div className="ttc-head">
       <div>
         <SectionLabel style={{ margin: 0 }}>Resumen del período</SectionLabel>
         <div style={headlineStyle}>
@@ -291,7 +291,7 @@ function HeadlineBlock({
           </div>
         )}
       </div>
-      <div style={kpiWrapStyle}>
+      <div className="ttc-kpis">
         <Kpi label="Inversión" value={formatCurrency(t.spend, cur)} delta={data!.spendDelta} good="neutral" />
         <Kpi label="Leads" value={formatInt(t.conversions)} delta={data!.conversionsDelta} good="up" />
         <Kpi
@@ -361,7 +361,7 @@ function ActionsPanel({ ads, meta, cur }: { ads: TikTokAdRow[]; meta: number; cu
   }, [ads, meta]);
 
   return (
-    <div style={actsStyle}>
+    <div className="ttc-acts">
       <ActionCol color={GOOD} title="Escalar" verb="sube presupuesto y clónalo"
         items={escalar} meta={meta} cur={cur} empty="Nada con CPL claramente bajo la meta en este rango." />
       <ActionCol color={WARN} title="Reemplazar" verb="creativo cansado: renuévalo"
@@ -378,7 +378,7 @@ function ActionCol({
   color: string; title: string; verb: string; items: TikTokAdRow[]; meta: number; cur: string; empty: string;
 }) {
   return (
-    <div style={acolStyle}>
+    <div className="ttc-acol">
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
         {title}
@@ -456,8 +456,9 @@ function MetricCells({ m, meta, cur, maxSpend }: { m: Metrics; meta: number; cur
   return (
     <>
       <td className="num" style={{ position: 'relative' }}>
-        <div style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: `${pct}%`, background: 'var(--acc-dim)', borderRadius: 3, zIndex: 0 }} />
         <span style={{ position: 'relative', zIndex: 1 }}>{formatCurrency(m.spend, cur)}</span>
+        {/* Barra fina de magnitud (acento tenue), no un bloque. */}
+        <div style={{ position: 'absolute', left: 8, bottom: 3, height: 3, width: `calc((100% - 16px) * ${pct / 100})`, background: 'var(--acc)', opacity: 0.55, borderRadius: 2, zIndex: 0 }} />
       </td>
       <td className="num">{formatInt(m.conversions)}</td>
       <td className="num" style={{ color: cplColor(m.cpl, m.conversions, meta), fontWeight: 700 }}>
@@ -762,13 +763,9 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 // ── estilos ──────────────────────────────────────────────────────────────────
-const headGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', gap: 18, alignItems: 'start' };
 const headlineStyle: React.CSSProperties = { fontSize: 'clamp(19px,2.3vw,25px)', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.18, marginTop: 4 };
 const headSubStyle: React.CSSProperties = { fontSize: 13, color: 'var(--t2)', marginTop: 10, lineHeight: 1.5 };
-const kpiWrapStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 };
 const kpiStyle: React.CSSProperties = { padding: '10px 12px', borderRadius: 10, background: 'var(--bg3)', border: '1px solid var(--b1)' };
-const actsStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 0, borderTop: '1px solid var(--b1)', marginTop: 18 };
-const acolStyle: React.CSSProperties = { padding: '14px 16px', borderLeft: '1px solid var(--b1)' };
 const explorerHeadStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 11 };
 const tabsStyle: React.CSSProperties = { display: 'inline-flex', background: 'var(--bg3)', border: '1px solid var(--b1)', borderRadius: 10, padding: 3, gap: 2 };
 const tblWrap: React.CSSProperties = { overflowX: 'auto', border: '1px solid var(--b1)', borderRadius: 12, background: 'var(--bg1)' };

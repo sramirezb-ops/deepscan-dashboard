@@ -1187,3 +1187,22 @@ body{
 .t tr.t-avg{background:rgba(139,92,246,0.05)}
 .t tr.t-avg td{color:var(--mu);font-size:11px;font-weight:500;font-style:italic;border-top:1px dashed var(--brh)}
 .t tr.t-avg td b{color:var(--acc2)}
+
+/* TikTok · Resultados por campañas — responsive (container queries sobre la
+   tarjeta de la Zona 1: se adaptan al ancho REAL disponible, no al del viewport,
+   que varía con el sidebar). */
+.ttc-z1{container-type:inline-size}
+.ttc-head{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px;align-items:start}
+.ttc-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.ttc-acts{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--b1);margin-top:18px}
+.ttc-acol{padding:14px 16px;border-left:1px solid var(--b1)}
+.ttc-acol:first-child{border-left:none}
+@container (max-width:700px){
+  .ttc-head{grid-template-columns:1fr;gap:14px}
+  .ttc-acts{grid-template-columns:1fr}
+  .ttc-acol{border-left:none;border-top:1px solid var(--b1)}
+  .ttc-acol:first-child{border-top:none}
+}
+@container (max-width:430px){
+  .ttc-kpis{grid-template-columns:1fr}
+}

@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { HeroHead } from '@/components/ui/BrandLogo';
-import { formatNumber, formatPercent } from '@/lib/utils';
+import { formatNumber, formatPercent, formatPercentRaw } from '@/lib/utils';
 import type { TikTokData, TikTokRetention } from '@/lib/hooks/useTikTok';
 
 // Paleta TikTok
@@ -324,23 +324,28 @@ export function SectionLabel({ children, style }: { children: ReactNode; style?:
 
 // Etiqueta de variación vs. período anterior, honesta y legible.
 // `fmtDelta` presente = el delta es ABSOLUTO (moneda, p.p., s) → se muestra tal cual.
-// `fmtDelta` ausente = el delta es una FRACCIÓN (cambio %); si la base anterior
-// fue casi nula el % se dispara, así que lo acotamos a ">+1000%" en vez de
-// mostrar cifras absurdas (255000%) que parecen un error.
+// `fmtDelta` ausente = el delta ya viene como PORCENTAJE de cambio (lo que devuelve
+// `calcDelta`: ((actual-anterior)/anterior)*100), así que se muestra tal cual con
+// `formatPercentRaw` — NO se vuelve a multiplicar por 100. Si la base anterior fue
+// casi nula el % se dispara, así que lo acotamos a ">1000%" en vez de mostrar
+// cifras absurdas que parecen un error.
 export function deltaParts(
   delta: number | null,
   good: 'up' | 'down' | 'neutral',
   fmtDelta?: (v: number) => string,
 ): { text: string; color: string } {
   if (delta == null) return { text: 'sin período anterior', color: 'var(--mu)' };
-  if (Math.abs(delta) < 5e-4) return { text: '■ sin cambio vs. anterior', color: 'var(--mu)' };
+  // Sin formateador el delta está en escala de porcentaje (ej. 6.5 = +6,5%); con
+  // formateador es un valor absoluto en su propia unidad (moneda, p.p., s).
+  const isPct = !fmtDelta;
+  const eps = isPct ? 0.05 : 5e-4;
+  if (Math.abs(delta) < eps) return { text: '■ sin cambio vs. anterior', color: 'var(--mu)' };
   const dir: 'up' | 'down' = delta > 0 ? 'up' : 'down';
   const tone = good === 'neutral' ? 'neutral' : dir === good ? 'good' : 'bad';
   const color = tone === 'good' ? '#4ade80' : tone === 'bad' ? '#f87171' : 'var(--mu)';
   const arrow = dir === 'up' ? '▲' : '▼';
-  const isFraction = !fmtDelta;
-  if (isFraction && Math.abs(delta) >= 10) return { text: `${arrow} +1000% vs. anterior`, color };
-  const fmt = fmtDelta ?? ((x: number) => formatPercent(x, 1));
+  if (isPct && Math.abs(delta) >= 1000) return { text: `${arrow} >1000% vs. anterior`, color };
+  const fmt = fmtDelta ?? ((x: number) => formatPercentRaw(x, 1));
   return { text: `${arrow} ${fmt(Math.abs(delta))} vs. anterior`, color };
 }
 

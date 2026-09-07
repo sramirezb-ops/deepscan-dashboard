@@ -6,7 +6,9 @@ name: DeepScan ETL · Ofero · Daily
 # principal ya lo jala para todos los clientes (RUN_GOOGLE_ADS_API=0).
 on:
   schedule:
-    - cron: "30 11 * * *"   # 30 min después del workflow principal
+    - cron: "10 7 * * *"
+    - cron: "10 8 * * *"
+    - cron: "10 11 * * *"
   workflow_dispatch:
 jobs:
   etl-ofero:

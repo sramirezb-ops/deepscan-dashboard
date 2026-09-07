@@ -1192,10 +1192,13 @@ body{
    tarjeta de la Zona 1: se adaptan al ancho REAL disponible, no al del viewport,
    que varía con el sidebar). */
 .ttc-z1{container-type:inline-size}
+/* minmax(0,1fr) es CLAVE: sin el mínimo 0, las columnas 1fr toman min-width:auto
+   y un nombre largo (nowrap+ellipsis) las estira hasta desbordar la tarjeta y
+   encimar el texto. min-width:0 + overflow permiten que el ellipsis recorte. */
 .ttc-head{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:18px;align-items:start}
-.ttc-kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.ttc-acts{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--b1);margin-top:18px}
-.ttc-acol{padding:14px 16px;border-left:1px solid var(--b1)}
+.ttc-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.ttc-acts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border-top:1px solid var(--b1);margin-top:18px}
+.ttc-acol{padding:14px 16px;border-left:1px solid var(--b1);min-width:0;overflow:hidden}
 .ttc-acol:first-child{border-left:none}
 @container (max-width:700px){
   .ttc-head{grid-template-columns:1fr;gap:14px}

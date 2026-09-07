@@ -29,9 +29,17 @@ export interface GoogleAdsTotals {
   roas: number;
 }
 
+// Punto diario del segmento (para la tendencia de CPL/CPA por día).
+export interface SegmentDailyPoint {
+  date: string; // 'YYYY-MM-DD'
+  cost: number;
+  conversions: number;
+}
+
 export interface GoogleAdsData {
   campaigns: CampaignRow[]; // ordenadas por ROAS desc
   totals: GoogleAdsTotals;
+  daily: SegmentDailyPoint[]; // serie diaria del segmento (orden cronológico)
   campaignCount: number;
   // ¿El cliente tiene campañas de este segmento en CUALQUIER fecha?
   // Permite distinguir "no existe el canal" de "no hubo actividad en el rango".
@@ -55,6 +63,7 @@ export interface UseGoogleAdsResult {
 interface RawRow {
   campaign_name: string | null;
   campaign_type: string | null;
+  date: string | null;
   impressions: number | null;
   clicks: number | null;
   cost: number | null;
@@ -63,7 +72,7 @@ interface RawRow {
 }
 
 const SELECT =
-  'campaign_name, campaign_type, impressions, clicks, cost, conversions, conv_value';
+  'campaign_name, campaign_type, date, impressions, clicks, cost, conversions, conv_value';
 
 async function fetchRows(clientId: string, from: string, to: string): Promise<RawRow[]> {
   const { data, error } = await supabase
@@ -132,6 +141,22 @@ function sumTotals(rows: RawRow[]) {
     },
     { cost: 0, revenue: 0, conversions: 0, impressions: 0, clicks: 0 }
   );
+}
+
+/** Serie diaria del segmento (cost + conversions por fecha). */
+function buildDaily(rows: RawRow[]): SegmentDailyPoint[] {
+  const map = new Map<string, SegmentDailyPoint>();
+  for (const r of rows) {
+    if (!r.date) continue;
+    let d = map.get(r.date);
+    if (!d) {
+      d = { date: r.date, cost: 0, conversions: 0 };
+      map.set(r.date, d);
+    }
+    d.cost += Number(r.cost) || 0;
+    d.conversions += Number(r.conversions) || 0;
+  }
+  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** Agrupa filas diarias por nombre de campaña y consolida métricas. */
@@ -234,6 +259,7 @@ export function useGoogleAds(
         setData({
           campaigns,
           totals,
+          daily: buildDaily(nowRows),
           campaignCount: campaigns.length,
           segmentExistsEver,
           costDelta: calcDelta(t.cost, p.cost),

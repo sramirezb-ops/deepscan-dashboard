@@ -1,7 +1,9 @@
 name: DeepScan ETL · Daily
 on:
   schedule:
-    - cron: "0 11 * * *"
+    - cron: "3 7 * * *"
+    - cron: "3 8 * * *"
+    - cron: "3 11 * * *"
   workflow_dispatch:
 jobs:
   etl:

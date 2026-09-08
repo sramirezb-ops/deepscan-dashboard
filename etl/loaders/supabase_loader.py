@@ -91,6 +91,15 @@ class SupabaseLoader:
         except Exception as e:
             log.warning(f"   {table}: no se pudo limpiar la fecha {day}: {e}")
 
+    def delete_for_client(self, table: str, client_id: str):
+        """Borra TODAS las filas de un cliente en una tabla (sin filtrar fecha).
+
+        Para tablas agregadas por ventana (no por fecha), como ga4_routes: la
+        foto se reemplaza en cada corrida para no acumular pares viejos.
+        Requiere service key (ignora RLS)."""
+        self.client.table(table).delete().eq("client_id", client_id).execute()
+        log.info(f"   ✓ {table}: filas del cliente limpiadas antes de reinsertar")
+
     def delete_for_date_range(self, table: str, client_id: str, date_from, date_to):
         """Borra filas de (client_id, date in [date_from, date_to]).
 
@@ -140,6 +149,7 @@ class SupabaseLoader:
             "ga4_pages":                "client_id,date,page_path",
             "ga4_landing":              "client_id,date,landing_page,property_id",
             "ga4_items":                "client_id,date,item_name,property_id",
+            "ga4_routes":               "client_id,from_label,to_path,kind,property_id",
             "gmc_products":             "client_id,product_id",
             "shopify_orders":           "client_id,date",
             "shopify_products":         "client_id,period_start,product_id",

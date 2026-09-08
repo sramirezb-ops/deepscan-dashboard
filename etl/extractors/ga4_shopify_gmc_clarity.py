@@ -501,29 +501,109 @@ def extract_ga4_pages(
     except Exception as e:
         log.warning(f"   GA4 landing falló: {e}")
 
-    # ── [DEBUG temporal] ¿pageReferrer da transiciones INTERNAS (ruta de 1 salto)?
-    # Loguea las 15 parejas referrer→página con más sesiones para decidir si se
-    # puede montar la exploración de ruta sin BigQuery. Se elimina tras confirmar.
+    return top_pages_rows, landing_rows
+
+
+# Hosts externos conocidos → etiqueta legible (para clasificar el referrer).
+_EXT_HOSTS = [
+    ("google.", "Google"), ("bing.", "Bing"), ("duckduckgo", "DuckDuckGo"),
+    ("tiktok.", "TikTok"), ("youtube.", "YouTube"), ("youtu.be", "YouTube"),
+    ("facebook.", "Facebook"), ("fb.", "Facebook"), ("instagram.", "Instagram"),
+    ("l.instagram", "Instagram"), ("t.co", "Twitter/X"), ("x.com", "Twitter/X"),
+    ("linkedin.", "LinkedIn"), ("whatsapp", "WhatsApp"), ("chatgpt", "ChatGPT"),
+    ("openai", "ChatGPT"), ("perplexity", "Perplexity"), ("bard.", "Gemini"),
+    ("gemini.", "Gemini"),
+]
+
+
+def extract_ga4_routes(
+    property_id: str,
+    credentials_path: str,
+    date_from: date,
+    date_to: date,
+) -> list[dict]:
+    """
+    Exploración de ruta de 1 SALTO (sin BigQuery): de qué página/fuente vino el
+    usuario y a qué página llegó, usando la dimensión `pageReferrer` de GA4.
+
+    Clasifica cada transición:
+      · kind='internal' → el referrer es del propio sitio → from_label = su ruta
+        (ej. /vehiculos-electricos). Sirve para ver los caminos de navegación.
+      · kind='external' → buscador/red social → from_label = "Google", "TikTok"…
+      · kind='direct'   → sin referrer → from_label = "(entrada directa)".
+
+    Se agrega por (from_label, to_path, kind) sobre la ventana. Devuelve las filas
+    listas para loader.upsert("ga4_routes", ...). El flujo multi-paso (Sankey
+    1→2→3) sí requiere BigQuery; esto es 1 salto, que la API estándar sí da.
+    """
+    import os
+    from urllib.parse import urlparse
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import (
+        RunReportRequest, DateRange, Dimension, Metric, OrderBy
+    )
+
+    client = BetaAnalyticsDataClient()
+
+    def classify(ref: str) -> tuple[str, str]:
+        """Devuelve (from_label, kind) a partir del referrer."""
+        ref = (ref or "").strip()
+        if not ref:
+            return "(entrada directa)", "direct"
+        try:
+            u = urlparse(ref)
+            host = (u.netloc or "").lower().replace("www.", "")
+            path = u.path or "/"
+        except Exception:
+            return "(otro)", "external"
+        for frag, label in _EXT_HOSTS:
+            if frag in host:
+                return label, "external"
+        # No es externo conocido → lo tratamos como interno (el propio sitio):
+        # usamos la RUTA del referrer como origen del salto.
+        return (path or "/"), "internal"
+
+    rows: list[dict] = []
     try:
         req = RunReportRequest(
             property=f"properties/{property_id}",
             dimensions=[Dimension(name="pageReferrer"), Dimension(name="pagePath")],
-            metrics=[Metric(name="sessions")],
+            metrics=[Metric(name="sessions"), Metric(name="screenPageViews")],
             date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
             order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"), desc=True)],
-            limit=25,
+            limit=100000,
         )
         resp = client.run_report(req)
-        log.info("   [DEBUG-ROUTE] top pageReferrer → pagePath (sesiones):")
-        for row in resp.rows[:15]:
-            ref = (row.dimension_values[0].value or "")[:70]
-            pth = row.dimension_values[1].value or ""
-            se = row.metric_values[0].value
-            log.info(f"   [DEBUG-ROUTE] {se:>7} | {ref} -> {pth}")
+        agg: dict[tuple, dict] = {}
+        for row in resp.rows:
+            ref = row.dimension_values[0].value or ""
+            to_path = row.dimension_values[1].value or "(not set)"
+            sess = int(row.metric_values[0].value or 0)
+            views = int(row.metric_values[1].value or 0)
+            from_label, kind = classify(ref)
+            # Evita el auto-bucle trivial (misma ruta → misma ruta) para no ensuciar.
+            if kind == "internal" and from_label == to_path:
+                continue
+            key = (from_label, to_path, kind)
+            g = agg.get(key)
+            if not g:
+                g = {"from_label": from_label, "to_path": to_path, "kind": kind, "sessions": 0, "views": 0}
+                agg[key] = g
+            g["sessions"] += sess
+            g["views"] += views
+        # Nos quedamos con las transiciones relevantes (>=10 sesiones) para no
+        # guardar la cola larga de ruido.
+        for g in agg.values():
+            if g["sessions"] >= 10:
+                g["property_id"] = str(property_id)
+                rows.append(g)
+        log.info(f"   GA4 rutas: {len(rows)} transiciones (1 salto) de {len(resp.rows)} pares")
     except Exception as e:
-        log.warning(f"   [DEBUG-ROUTE] pageReferrer falló: {e}")
+        log.warning(f"   GA4 rutas falló: {e}")
 
-    return top_pages_rows, landing_rows
+    return rows
 
 
 # ════════════════════════════════════════════════════════════════

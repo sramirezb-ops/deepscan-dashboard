@@ -9,6 +9,7 @@ import { useGA4 } from '@/lib/hooks/useGA4';
 import { useGA4Pages } from '@/lib/hooks/useGA4Pages';
 import { useGA4Cities } from '@/lib/hooks/useGA4Cities';
 import { useGA4Funnel } from '@/lib/hooks/useGA4Funnel';
+import { useGA4Routes } from '@/lib/hooks/useGA4Routes';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ComparisonAreaChart } from '@/components/ui/ComparisonAreaChart';
 import { GA4Funnel } from '@/components/views/GA4Funnel';
@@ -185,6 +186,10 @@ export function GA4() {
         events={funnelR.data ? Array.from(funnelR.data.byName.entries()).map(([name, a]) => ({ name, count: a.count, key: a.isKeyEvent })) : []}
         totalSessions={t.sessions}
       />
+
+      {/* ═══ EXPLORACIÓN DE RUTA (1 salto) ═══ */}
+      <div style={{ ...slabel, margin: '24px 0 10px' }}>Exploración de ruta · patrones de navegación</div>
+      <RoutesSection clientId={client.id} />
 
       <div className="card" style={{ marginTop: 16, borderStyle: 'dashed', borderColor: 'var(--b2)' }}>
         <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.6 }}>
@@ -438,6 +443,67 @@ function EventsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: { 
         })}
       </tbody>
     </>
+  );
+}
+
+// ── Exploración de ruta (1 salto) ────────────────────────────────────────────
+function RoutesSection({ clientId }: { clientId: string }) {
+  const { data, loading } = useGA4Routes(clientId);
+
+  if (loading && !data) {
+    return <div className="card" style={{ padding: 20, fontSize: 12, color: 'var(--mu)' }}>Cargando rutas…</div>;
+  }
+  if (!data || !data.existsEver) {
+    return (
+      <div className="card" style={{ padding: '18px 20px', borderStyle: 'dashed', borderColor: 'var(--b2)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Ruta de 1 salto — esperando datos</div>
+        <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.5 }}>
+          El extractor ya deriva las transiciones "de dónde vino → a qué página" con la dimensión <code>pageReferrer</code> de GA4 (sin BigQuery). En cuanto el ETL escriba en <code>ga4_routes</code>, aquí verás los <b>caminos internos más comunes</b> y las <b>entradas por fuente</b>. El flujo multi-paso (Sankey 1→2→3) sí requiere BigQuery.
+        </div>
+      </div>
+    );
+  }
+
+  const maxInt = Math.max(1, ...data.internal.map((r) => r.sessions));
+  const maxExt = Math.max(1, ...data.external.map((r) => r.sessions));
+  const short = (p: string) => (p.length > 30 ? p.slice(0, 29) + '…' : p);
+
+  return (
+    <div className="cmt-grid2">
+      <div className="card" style={{ padding: '14px 16px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 10 }}>Caminos internos · página → página</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {data.internal.slice(0, 10).map((r, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <span style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6, ...ellipsis }} title={`${r.fromLabel} → ${r.toPath}`}>
+                <b style={{ color: 'var(--t1)' }}>{short(r.fromLabel)}</b>
+                <span style={{ color: 'var(--acc)' }}>→</span>
+                <b style={{ color: 'var(--t1)' }}>{short(r.toPath)}</b>
+              </span>
+              <span style={{ position: 'relative', width: 70, flex: 'none', textAlign: 'right', fontWeight: 800, fontFamily: "'Space Grotesk',sans-serif" }}>
+                {formatNumber(r.sessions)}
+              </span>
+            </div>
+          ))}
+          {data.internal.length === 0 && <div style={{ fontSize: 12, color: 'var(--mu)' }}>Sin caminos internos detectados.</div>}
+        </div>
+      </div>
+      <div className="card" style={{ padding: '14px 16px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--t3)', marginBottom: 10 }}>Entradas por fuente externa</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {data.external.slice(0, 8).map((r) => (
+            <div key={r.source} style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+              <div style={{ width: 110, flex: 'none', fontSize: 12, fontWeight: 600, ...ellipsis }} title={r.source}>{r.source}</div>
+              <div style={{ flex: 1, height: 16, background: 'var(--track)', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(r.sessions / maxExt) * 100}%`, borderRadius: 6, background: '#4285F4' }} />
+              </div>
+              <div style={{ width: 56, flex: 'none', textAlign: 'right', fontSize: 12, fontWeight: 800, fontFamily: "'Space Grotesk',sans-serif" }}>{formatNumber(r.sessions)}</div>
+            </div>
+          ))}
+          {data.external.length === 0 && <div style={{ fontSize: 12, color: 'var(--mu)' }}>Sin entradas externas detectadas.</div>}
+        </div>
+      </div>
+    </div>
   );
 }
 

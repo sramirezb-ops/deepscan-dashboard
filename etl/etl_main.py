@@ -31,6 +31,7 @@ from extractors.instagram_organic import extract_instagram_organic
 from extractors.ga4             import (
     extract_ga4,
     extract_ga4_cities,
+    extract_ga4_routes,
     extract_ga4_events,
     extract_ga4_pages,
     extract_ga4_items,
@@ -524,6 +525,39 @@ def run_etl(client_id: str, days_back: int = 30):
             log.error(f"   ✗ GA4 páginas {property_id}: {e}")
     loader.upsert("ga4_pages",   list(ga4_pages_merge.values()),   client_id)
     loader.upsert("ga4_landing", list(ga4_landing_merge.values()), client_id)
+
+    # Exploración de RUTA de 1 salto (de qué página/fuente vino → a qué página
+    # llegó), vía pageReferrer. Agregada sobre la ventana (sin fecha), separada
+    # por property_id. Alimenta la sección "caminos más comunes" del dashboard.
+    ga4_routes_merge: dict[tuple, dict] = {}
+    for property_id in GA4_PROPERTIES:
+        try:
+            route_rows = extract_ga4_routes(
+                property_id=property_id,
+                credentials_path=os.environ["GOOGLE_CREDENTIALS_PATH"],
+                date_from=date_from,
+                date_to=date_to,
+            )
+            for r in route_rows:
+                key = (r["from_label"], r["to_path"], r["kind"], r["property_id"])
+                acc = ga4_routes_merge.get(key)
+                if acc is None:
+                    ga4_routes_merge[key] = dict(r)
+                else:
+                    acc["sessions"] += r["sessions"]
+                    acc["views"] += r["views"]
+            log.info(f"   ✓ GA4 rutas {property_id}: {len(route_rows)} transiciones")
+        except Exception as e:
+            log.error(f"   ✗ GA4 rutas {property_id}: {e}")
+    # Reemplaza la foto anterior de rutas del cliente (agregado por ventana, no
+    # por fecha): borramos y reinsertamos para no acumular ventanas viejas.
+    # Best-effort: si la tabla ga4_routes aún no existe (migración sin aplicar),
+    # no tumbamos el ETL.
+    try:
+        loader.delete_for_client("ga4_routes", client_id)
+        loader.upsert("ga4_routes", list(ga4_routes_merge.values()), client_id)
+    except Exception as e:
+        log.warning(f"   GA4 rutas: no se pudo escribir (¿migración 0014 sin aplicar?): {e}")
 
     # Detalle POR PRODUCTO (item-scoped): vistas, add-to-cart, checkout, compras
     # y revenue por par de tenis. Alimenta el análisis "qué pares se ven y cuáles

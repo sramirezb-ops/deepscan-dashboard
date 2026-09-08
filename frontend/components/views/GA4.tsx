@@ -1,321 +1,485 @@
 'use client';
 
+import { useMemo, useState, type ReactNode } from 'react';
 import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useGA4 } from '@/lib/hooks/useGA4';
+import { useGA4Pages } from '@/lib/hooks/useGA4Pages';
+import { useGA4Cities } from '@/lib/hooks/useGA4Cities';
+import { useGA4Funnel } from '@/lib/hooks/useGA4Funnel';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ComparisonAreaChart } from '@/components/ui/ComparisonAreaChart';
 import { GA4Funnel } from '@/components/views/GA4Funnel';
-import { GA4Pages } from '@/components/views/GA4Pages';
-import { GA4Cities } from '@/components/views/GA4Cities';
 import { formatInt, formatNumber, formatPercentRaw } from '@/lib/utils';
 
-// 90.5 segundos → "1m 31s"
-function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '—';
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
+// ============================================================
+// Analytics · GA4 (rediseño "ojo quirúrgico")
+// ============================================================
+// Deja de ser un clon de Looker: da un VEREDICTO (el tráfico pago convierte
+// peor que el orgánico, Cross-network es la joya, y hay fugas de medición) y
+// un explorador con semáforo para diagnosticar a detalle:
+//   ZONA 1 — Diagnóstico + KPIs + acciones (Escalar/Revisar/Arreglar medición).
+//   ZONA 2 — Gráficas acumuladas (tráfico + eventos clave, actual vs anterior),
+//            Funnel de leads a color, y explorador con pestañas Canales ·
+//            Páginas (conv. por producto) · Entrada · Ciudades · Eventos.
+// GA4 mide leads/engagement (no dinero: es lead-gen). Todo dinámico por fecha.
+// ============================================================
 
-// "2026-06-19" → "19 jun"
+const GOOD = 'var(--up)';
+const WARN = 'var(--warn)';
+const BAD = 'var(--dn)';
+
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 function shortDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!m) return iso;
-  const day = Number(m[3]);
-  const mon = MONTHS[Number(m[2]) - 1] ?? '';
-  return `${day} ${mon}`;
+  return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1] ?? ''}`;
 }
+// "485875757 / Organic Search" → "Organic Search"
+const cleanChannel = (s: string) => s.replace(/^\d+\s*\/\s*/, '').trim() || s;
+const convDot = (cr: number, avg: number) => (cr >= avg * 1.2 ? GOOD : cr >= avg * 0.8 ? WARN : BAD);
+const bounceDot = (b: number) => (b < 40 ? GOOD : b < 60 ? WARN : BAD);
 
-// Píldora de delta reutilizable (verde si mejora). `lowerIsBetter` invierte el color.
-function DeltaPill({
-  delta,
-  suffix = '%',
-  lowerIsBetter = false,
-}: {
-  delta: number;
-  suffix?: string;
-  lowerIsBetter?: boolean;
-}) {
-  const good = lowerIsBetter ? delta <= 0 : delta >= 0;
-  const sign = delta >= 0 ? '+' : '';
-  const val = suffix === '%' || suffix === 'pp' ? delta.toFixed(1) : String(Math.round(delta));
-  return <span className={`kpi-delta ${good ? 'tgu' : 'tgd'}`}>{sign + val + suffix}</span>;
-}
+type Tab = 'ch' | 'pg' | 'ld' | 'ci' | 'ev';
+type SortDir = 'asc' | 'desc';
 
 export function GA4() {
   const client = useClient();
   const { range, previous } = usePeriod();
   const { data, loading, error } = useGA4(client.id, range, previous);
+  const pagesR = useGA4Pages(client.id, range, previous);
+  const citiesR = useGA4Cities(client.id, range, previous);
+  const funnelR = useGA4Funnel(client.id, range, previous);
 
   const rangeLabel = formatRangeLabel(range);
-  const previousLabel = formatRangeLabel(previous);
 
   if (loading && !data) {
     return (
       <div className="view on">
         <div className="hero" style={{ textAlign: 'center', padding: 60 }}>
-          <div style={{ fontSize: 14, color: 'var(--mu)' }}>
-            Cargando datos de GA4 de {client.name}…
-          </div>
+          <div style={{ fontSize: 14, color: 'var(--mu)' }}>Cargando datos de GA4 de {client.name}…</div>
         </div>
       </div>
     );
   }
-
   if (error) {
     return (
       <div className="view on">
-        <div
-          className="card"
-          style={{ padding: 40, textAlign: 'center', borderColor: 'rgba(239,68,68,0.3)' }}
-        >
+        <div className="card" style={{ padding: 40, textAlign: 'center', borderColor: 'rgba(239,68,68,0.3)' }}>
           <div style={{ fontSize: 16, color: '#ef4444', marginBottom: 8 }}>Error cargando GA4</div>
           <div style={{ fontSize: 12, color: 'var(--mu)' }}>{error}</div>
         </div>
       </div>
     );
   }
-
   if (!data || data.totals.sessions === 0) {
     return (
-      <EmptyState
-        icon="📊"
-        title="Sin datos de GA4 en este período"
-        message={
-          <>
-            No hay datos de Google Analytics 4 para {client.name} entre <b>{rangeLabel}</b>.
-          </>
-        }
-        hint="Prueba ampliar el rango de fechas con el filtro de arriba."
-      />
+      <EmptyState icon="📊" title="Sin datos de GA4 en este período"
+        message={<>No hay datos de Google Analytics 4 para {client.name} entre <b>{rangeLabel}</b>.</>}
+        hint="Prueba ampliar el rango de fechas con el filtro de arriba." />
     );
   }
 
   const t = data.totals;
   const labels = data.series.map((p) => shortDate(p.date));
   const labelsPrev = data.seriesPrev.map((p) => shortDate(p.date));
-  // Tasa de evento clave = eventos clave / sesiones (proxy de conversión web).
-  const keyEventRate = t.sessions > 0 ? (t.conversions / t.sessions) * 100 : 0;
-  const sessionsPerUser = t.users > 0 ? t.sessions / t.users : 0;
-  const maxSourceSessions = Math.max(...data.sources.map((s) => s.sessions), 1);
+  const avgConv = t.sessions > 0 ? (t.conversions / t.sessions) * 100 : 0;
+  const newPct = t.users > 0 ? (t.newUsers / t.users) * 100 : 0;
+
+  // ── Diagnóstico de canales ──
+  const channels = data.sources.map((s) => ({
+    name: cleanChannel(s.sourceMedium),
+    sessions: s.sessions,
+    conversions: s.conversions,
+    cr: s.sessions > 0 ? (s.conversions / s.sessions) * 100 : 0,
+  }));
+  // El "canal a escalar" debe ser uno PAGABLE (donde se puede meter presupuesto),
+  // no "Unassigned" ni "Direct" ni "(not set)" que son huecos de atribución.
+  const scalable = [...channels]
+    .filter((c) => /paid|cross-network|display|\bads\b|cpc|video/i.test(c.name) && c.sessions >= 1000)
+    .sort((a, b) => b.cr - a.cr);
+  const bestChannel = scalable[0];
+  const organic = channels.find((c) => /organic search/i.test(c.name));
+  const worstPaid = [...channels].filter((c) => /paid/i.test(c.name)).sort((a, b) => a.cr - b.cr)[0];
+
+  // Fuga de medición: clics a WhatsApp NO marcados como evento clave.
+  let nonKeyWhatsApp = 0;
+  if (funnelR.data) {
+    for (const [name, agg] of funnelR.data.byName.entries()) {
+      if (/whatsapp/i.test(name) && !/flotante/i.test(name) && name !== 'clic_whatsapp' && !agg.isKeyEvent) {
+        nonKeyWhatsApp += agg.count;
+      }
+    }
+  }
+  const brokenLanding = (pagesR.data?.landings ?? []).find((l) => /not set|no definido|\(/.test(l.landing) && l.bounceRate > 0.9);
 
   return (
     <div className="view on">
       <div className="hero">
         <HeroHead brand="google-analytics">Google Analytics 4</HeroHead>
         <div className="hero-sub" suppressHydrationWarning>
-          Comportamiento web · {client.name} · {rangeLabel}
+          Comportamiento web · {client.name} · {rangeLabel} · {formatNumber(t.sessions)} sesiones
         </div>
       </div>
 
-      {/* KPIs principales — replican la cabecera de Looker */}
-      <div className="kpis">
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Usuarios</div>
-          <div className="kpi-val">{formatNumber(t.users)}</div>
-          <div className="kpi-bot">
-            <DeltaPill delta={data.usersDelta} />
-            <span className="dcmp">vs {previousLabel}</span>
+      {/* ═══ ZONA 1 · DIAGNÓSTICO ═══ */}
+      <div className="card ttc-z1" style={{ padding: '20px 22px', marginTop: 4 }}>
+        <div className="ttc-head">
+          <div>
+            <div style={slabel}>Diagnóstico del período</div>
+            <div style={headline}>
+              {formatPercentRaw(avgConv, 1)} de las sesiones llegan a lead
+              {organic && worstPaid && worstPaid.cr < organic.cr ? (
+                <> — pero el <span style={{ color: BAD }}>tráfico pago convierte peor</span> que el orgánico</>
+              ) : null}
+            </div>
+            <div style={headSub}>
+              {organic ? <>Organic ({formatPercentRaw((organic.sessions / t.sessions) * 100, 0)} del tráfico) convierte {formatPercentRaw(organic.cr, 1)}. </> : null}
+              {bestChannel ? <><b>{bestChannel.name} ({formatPercentRaw(bestChannel.cr, 1)}) es el canal pago más eficiente</b>. </> : null}
+              Y hay fugas de medición que esconden leads reales.
+            </div>
+          </div>
+          <div className="ret-kpis">
+            <Kpi label="Sesiones" value={formatNumber(t.sessions)} delta={data.sessionsDelta} good />
+            <Kpi label="Usuarios" value={formatNumber(t.users)} delta={data.usersDelta} good />
+            <Kpi label="Eventos clave" value={formatInt(t.conversions)} delta={data.conversionsDelta} good />
+            <Kpi label="Conv. a lead" value={formatPercentRaw(avgConv, 1)} sub="evento/sesión" />
+            <Kpi label="Rebote" value={formatPercentRaw(t.bounceRate * 100, 1)} sub="ponderado" />
+            <Kpi label="Nuevos" value={formatPercentRaw(newPct, 0)} sub="del total" />
           </div>
         </div>
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Usuarios nuevos</div>
-          <div className="kpi-val">{formatNumber(t.newUsers)}</div>
-          <div className="kpi-bot">
-            <DeltaPill delta={data.newUsersDelta} />
-            <span className="dcmp">
-              {t.users > 0 ? formatPercentRaw((t.newUsers / t.users) * 100, 0) : '—'} del total
-            </span>
-          </div>
-        </div>
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Sesiones</div>
-          <div className="kpi-val">{formatNumber(t.sessions)}</div>
-          <div className="kpi-bot">
-            <DeltaPill delta={data.sessionsDelta} />
-            <span className="dcmp">
-              {t.users > 0 ? (t.sessions / t.users).toFixed(2) : '—'}/usuario
-            </span>
-          </div>
-        </div>
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Eventos clave</div>
-          <div className="kpi-val">{formatInt(t.conversions)}</div>
-          <div className="kpi-bot">
-            <DeltaPill delta={data.conversionsDelta} />
-            <span className="dcmp">{formatPercentRaw(keyEventRate, 1)} de sesiones</span>
-          </div>
+        <div className="ttc-acts">
+          <ActionStrip color={GOOD} title="Escalar" big={bestChannel ? `${bestChannel.name}` : '—'} lab={bestChannel ? `${formatPercentRaw(bestChannel.cr, 1)} conv · súbele presupuesto` : ''} small />
+          <ActionStrip color={WARN} title="Revisar" big={worstPaid ? `${worstPaid.name}` : 'Landing de pago'} lab={worstPaid ? `${formatPercentRaw(worstPaid.cr, 1)} conv · alinear página` : 'rebote alto'} small />
+          <ActionStrip color={BAD} title="Arreglar medición" big={nonKeyWhatsApp > 0 ? formatInt(nonKeyWhatsApp) : '—'} lab="clics WhatsApp sin marcar como clave" />
         </div>
       </div>
 
-      {/* Crecimiento acumulado: período actual vs anterior (estilo Looker) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: 16,
-          marginTop: 20,
-        }}
-      >
+      {/* ═══ GRÁFICAS ACUMULADAS ═══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginTop: 16 }}>
         <ComparisonAreaChart
-          title="Crecimiento del tráfico (acumulado)"
-          headline={formatNumber(t.sessions)}
+          title="Crecimiento del tráfico (acumulado)" headline={formatNumber(t.sessions)}
           sub={`Sesiones · ${rangeLabel} vs anterior`}
-          current={data.series.map((p) => p.sessions)}
-          previous={data.seriesPrev.map((p) => p.sessions)}
-          labelsCurrent={labels}
-          labelsPrevious={labelsPrev}
-          color="#38bdf8"
-          format={formatNumber}
-        />
+          current={data.series.map((p) => p.sessions)} previous={data.seriesPrev.map((p) => p.sessions)}
+          labelsCurrent={labels} labelsPrevious={labelsPrev} color="#4285F4" format={formatNumber} />
         <ComparisonAreaChart
-          title="Eventos clave (acumulado)"
-          headline={formatInt(t.conversions)}
+          title="Eventos clave · leads (acumulado)" headline={formatInt(t.conversions)}
           sub={`Eventos clave · ${rangeLabel} vs anterior`}
-          current={data.series.map((p) => p.conversions)}
-          previous={data.seriesPrev.map((p) => p.conversions)}
-          labelsCurrent={labels}
-          labelsPrevious={labelsPrev}
-          color="#34d399"
-          format={formatInt}
-        />
+          current={data.series.map((p) => p.conversions)} previous={data.seriesPrev.map((p) => p.conversions)}
+          labelsCurrent={labels} labelsPrevious={labelsPrev} color="#34A853" format={formatInt} />
       </div>
 
-      {/* Engagement secundario */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 16,
-          marginTop: 16,
-        }}
-      >
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Tasa de rebote</div>
-          <div className="kpi-val">{formatPercentRaw(t.bounceRate * 100, 1)}</div>
-          <div className="kpi-bot">
-            <DeltaPill delta={data.bounceRateDelta} suffix="pp" lowerIsBetter />
-            <span className="dcmp">vs {previousLabel}</span>
-          </div>
-        </div>
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Duración media</div>
-          <div className="kpi-val">{formatDuration(t.avgDuration)}</div>
-          <div className="kpi-bot">
-            <DeltaPill delta={data.durationDelta} suffix="s" />
-            <span className="dcmp">vs {previousLabel}</span>
-          </div>
-        </div>
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Sesiones por usuario</div>
-          <div className="kpi-val">{sessionsPerUser.toFixed(2)}</div>
-          <div className="kpi-bot">
-            <span className="dcmp">sesiones ÷ usuarios</span>
-          </div>
-        </div>
-        <div className="kpi k-ga4">
-          <div className="kpi-lbl">Tasa de evento clave</div>
-          <div className="kpi-val">{formatPercentRaw(keyEventRate, 2)}</div>
-          <div className="kpi-bot">
-            <span className="dcmp">eventos clave ÷ sesiones</span>
-          </div>
-        </div>
-      </div>
+      {/* ═══ FUNNEL ═══ */}
+      <GA4Funnel clientId={client.id} range={range} previous={previous} totals={t} totalsPrev={data.totalsPrev} />
 
-      {/* Canales de adquisición de tráfico — barras horizontales estilo Looker */}
-      <div className="card" style={{ marginTop: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: '0', fontSize: '15px' }}>Canales de adquisición de tráfico</h3>
-          <span className="period-pill">
-            {data.sources.length} canales · <b>por sesiones</b>
-          </span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {data.sources.map((s) => {
-            const w = Math.max(2, Math.round((s.sessions / maxSourceSessions) * 100));
-            return (
-              <div
-                key={s.sourceMedium}
-                style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 12, alignItems: 'center' }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: 'var(--tx)',
-                    textAlign: 'right',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title={s.sourceMedium}
-                >
-                  {s.sourceMedium}
-                </div>
-                <div style={{ position: 'relative', height: 22 }}>
-                  <div
-                    style={{
-                      width: `${w}%`,
-                      height: '100%',
-                      background: '#34d399',
-                      borderRadius: 4,
-                      minWidth: 2,
-                      transition: 'width .3s',
-                    }}
-                  />
-                  <span
-                    style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: `calc(${w}% + 8px)`,
-                      transform: 'translateY(-50%)',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: 'var(--mu)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {formatNumber(s.sessions)}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Funnel de leads — eventos clave reales (ga4_events) */}
-      <GA4Funnel
-        clientId={client.id}
-        range={range}
-        previous={previous}
-        totals={t}
-        totalsPrev={data.totalsPrev}
+      {/* ═══ EXPLORADOR ═══ */}
+      <div style={{ ...slabel, margin: '24px 0 10px' }}>El desglose quirúrgico</div>
+      <Explorer
+        avgConv={avgConv}
+        channels={channels}
+        pages={pagesR.data?.pages ?? []}
+        landings={pagesR.data?.landings ?? []}
+        cities={citiesR.data?.cities ?? []}
+        events={funnelR.data ? Array.from(funnelR.data.byName.entries()).map(([name, a]) => ({ name, count: a.count, key: a.isKeyEvent })) : []}
+        totalSessions={t.sessions}
       />
 
-      {/* Páginas con más tráfico + exploración de ruta — datos reales (ga4_pages / ga4_landing) */}
-      <GA4Pages clientId={client.id} range={range} previous={previous} />
-
-      {/* Ciudades — datos reales (ga4_cities) */}
-      <GA4Cities clientId={client.id} range={range} previous={previous} />
-
-      {/* Bloques sin fuente real — aviso honesto */}
-      <div
-        className="card"
-        style={{ marginTop: '20px', borderStyle: 'dashed', borderColor: 'var(--b2)' }}
-      >
-        <h3 style={{ margin: '0 0 8px 0', fontSize: '15px' }}>Próximamente en esta vista</h3>
+      <div className="card" style={{ marginTop: 16, borderStyle: 'dashed', borderColor: 'var(--b2)' }}>
         <div style={{ fontSize: 12, color: 'var(--mu)', lineHeight: 1.6 }}>
-          El <b>Agente Web Analytics IA</b> y el <b>flujo de ruta paso a paso</b> (Sankey
-          página 1 → 2 → 3) requieren la exportación de eventos de GA4 a BigQuery, que aún no está
-          conectada para esta cuenta. Por ahora esta vista muestra solo datos reales y verificables:
-          usuarios, sesiones, eventos clave, rebote, duración, canales de adquisición,{' '}
-          <b>funnel de leads</b>, <b>páginas con más tráfico</b>, <b>páginas de entrada</b> y ciudades.
+          Dato real de GA4, dinámico por fecha. GA4 mide <b>leads/engagement</b>, no dinero (es lead-gen; el clic a WhatsApp es el evento clave). El <b>semáforo</b> compara la conversión de cada fila contra el promedio de la cuenta ({formatPercentRaw(avgConv, 1)}). Los hallazgos de <b>medición</b> (eventos sin marcar como clave, "(not set)", "Unassigned") son de configuración de GA4.
+          {brokenLanding ? <> Ojo: la entrada <code>{brokenLanding.landing}</code> rebota {formatPercentRaw(brokenLanding.bounceRate * 100, 0)} — probable tracking roto.</> : null}
         </div>
       </div>
     </div>
   );
 }
+
+// ── Explorador con pestañas ──────────────────────────────────────────────────
+interface ChRow { name: string; sessions: number; conversions: number; cr: number; }
+function Explorer({
+  avgConv, channels, pages, landings, cities, events, totalSessions,
+}: {
+  avgConv: number;
+  channels: ChRow[];
+  pages: { path: string; title: string; views: number; sessions: number; bounceRate: number; conversions: number }[] | any[];
+  landings: { landing: string; sessions: number; bounceRate: number; conversions: number }[] | any[];
+  cities: { city: string; sessions: number; conversions: number }[] | any[];
+  events: { name: string; count: number; key: boolean }[];
+  totalSessions: number;
+}) {
+  const [tab, setTab] = useState<Tab>('ch');
+  const [sortCol, setSortCol] = useState<string>('');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const onSort = (col: string) => {
+    if (col === sortCol) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir('desc'); }
+  };
+  const changeTab = (n: Tab) => { setTab(n); setSortCol(''); setSortDir('desc'); };
+  const sortBy = <T,>(arr: T[], get: (r: T) => number, defaultDesc = true): T[] => {
+    if (!sortCol) return arr;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...arr].sort((a, b) => (get(a) - get(b)) * dir);
+  };
+
+  const meta: Record<Tab, { label: string; legend: string }> = {
+    ch: { label: 'Canales', legend: `Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}` },
+    pg: { label: 'Páginas (conv. por producto)', legend: 'Conv % = eventos ÷ vistas · semáforo por rebote' },
+    ld: { label: 'Entrada', legend: 'Semáforo por rebote' },
+    ci: { label: 'Ciudades', legend: `Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}` },
+    ev: { label: 'Eventos', legend: '★ = evento clave · rojo = clic a WhatsApp NO contado como clave' },
+  };
+
+  return (
+    <>
+      <div style={expHead}>
+        <div style={tabsWrap}>
+          {(Object.keys(meta) as Tab[]).map((k) => (
+            <button key={k} onClick={() => changeTab(k)} style={tabBtn(tab === k)}>{meta[k].label}</button>
+          ))}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--mu)' }}>{meta[tab].legend}</span>
+      </div>
+      <div style={tblWrap}>
+        <table className="t ttc-table" style={{ minWidth: 720 }}>
+          {tab === 'ch' && <ChannelsTable rows={channels} avgConv={avgConv} total={totalSessions} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} />}
+          {tab === 'pg' && <PagesTable rows={pages} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} avgConv={avgConv} />}
+          {tab === 'ld' && <LandingsTable rows={landings} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} avgConv={avgConv} />}
+          {tab === 'ci' && <CitiesTable rows={cities} avgConv={avgConv} total={totalSessions} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} />}
+          {tab === 'ev' && <EventsTable rows={events} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} />}
+        </table>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--mu)', margin: '10px 2px 0', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <span><Dot c={GOOD} /> mejor</span><span><Dot c={WARN} /> promedio</span><span><Dot c={BAD} /> peor</span>
+        <span>· clic en una columna para ordenar</span>
+      </div>
+    </>
+  );
+}
+
+type SortFn = <T,>(arr: T[], get: (r: T) => number) => T[];
+interface TP { sortBy: SortFn; sortCol: string; sortDir: SortDir; onSort: (c: string) => void; }
+function Th({ col, sortCol, sortDir, onSort, children, first }: { col?: string; sortCol: string; sortDir: SortDir; onSort: (c: string) => void; children: ReactNode; first?: boolean }) {
+  if (!col) return <th className="nos" style={{ textAlign: first ? 'left' : 'right' }}>{children}</th>;
+  return (
+    <th className="th-sort" data-sort={sortCol === col ? sortDir : 'none'} role="button" tabIndex={0}
+      style={{ textAlign: first ? 'left' : 'right' }}
+      onClick={() => onSort(col)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(col); } }}>
+      {children}
+    </th>
+  );
+}
+function NameCell({ name, dot, sub, flag, flagColor }: { name: string; dot: string; sub?: string; flag?: string; flagColor?: string }) {
+  return (
+    <td>
+      <div style={nameCell}>
+        <span style={{ ...dotStyle, background: dot }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...ellipsis, fontWeight: 600, maxWidth: 300 }} title={name}>
+            {name}{flag ? <span style={{ fontSize: 9, fontWeight: 700, color: flagColor || BAD, border: `1px solid ${flagColor || BAD}`, borderRadius: 5, padding: '1px 5px', marginLeft: 6 }}>{flag}</span> : null}
+          </div>
+          {sub ? <div style={subStyle}>{sub}</div> : null}
+        </div>
+      </div>
+    </td>
+  );
+}
+function Bar({ v, max }: { v: number; max: number }) {
+  return (
+    <td className="num" style={{ position: 'relative' }}>
+      <span style={{ position: 'relative', zIndex: 1 }}>{formatNumber(v)}</span>
+      <div style={{ position: 'absolute', left: 10, bottom: 3, height: 3, width: `calc((100% - 20px) * ${max > 0 ? v / max : 0})`, background: 'var(--acc)', opacity: 0.5, borderRadius: 2, zIndex: 0 }} />
+    </td>
+  );
+}
+
+function ChannelsTable({ rows, avgConv, total, sortBy, sortCol, sortDir, onSort }: TP & { rows: ChRow[]; avgConv: number; total: number }) {
+  const max = Math.max(1, ...rows.map((r) => r.sessions));
+  const sorted = sortBy(rows, (r) => (sortCol === 'cr' ? r.cr : sortCol === 'ev' ? r.conversions : r.sessions));
+  const view = sortCol ? sorted : [...rows].sort((a, b) => b.sessions - a.sessions);
+  return (
+    <>
+      <thead><tr>
+        <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Canal</Th>
+        <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
+        <th className="nos" style={{ textAlign: 'right' }}>Share</th>
+        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos</Th>
+        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv %</Th>
+      </tr></thead>
+      <tbody>
+        {view.map((r) => {
+          const flag = /unassigned/i.test(r.name) ? 'sin UTM' : undefined;
+          return (
+            <tr key={r.name}>
+              <NameCell name={r.name} dot={convDot(r.cr, avgConv)} flag={flag} flagColor={WARN} />
+              <Bar v={r.sessions} max={max} />
+              <td className="num">{formatPercentRaw((r.sessions / total) * 100, 1)}</td>
+              <td className="num">{formatInt(r.conversions)}</td>
+              <td className="num" style={{ color: convDot(r.cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(r.cr, 1)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </>
+  );
+}
+function PagesTable({ rows, sortBy, sortCol, sortDir, onSort, avgConv }: TP & { rows: any[]; avgConv: number }) {
+  const max = Math.max(1, ...rows.map((r) => r.views));
+  const get = (r: any) => (sortCol === 'cr' ? (r.views > 0 ? r.conversions / r.views * 100 : 0) : sortCol === 'ev' ? r.conversions : sortCol === 'b' ? r.bounceRate : r.views);
+  const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.views - a.views);
+  return (
+    <>
+      <thead><tr>
+        <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Página</Th>
+        <Th col="v" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Vistas</Th>
+        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos</Th>
+        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv % (ev/vista)</Th>
+        <Th col="b" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Rebote</Th>
+      </tr></thead>
+      <tbody>
+        {view.slice(0, 25).map((r) => {
+          const cr = r.views > 0 ? (r.conversions / r.views) * 100 : 0;
+          const b = r.bounceRate * 100;
+          return (
+            <tr key={r.path}>
+              <NameCell name={r.path} dot={bounceDot(b)} sub={r.title} />
+              <Bar v={r.views} max={max} />
+              <td className="num">{formatInt(r.conversions)}</td>
+              <td className="num" style={{ color: convDot(cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(cr, 1)}</td>
+              <td className="num" style={{ color: bounceDot(b), fontWeight: 700 }}>{formatPercentRaw(b, 0)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </>
+  );
+}
+function LandingsTable({ rows, sortBy, sortCol, sortDir, onSort, avgConv }: TP & { rows: any[]; avgConv: number }) {
+  const max = Math.max(1, ...rows.map((r) => r.sessions));
+  const get = (r: any) => (sortCol === 'cr' ? (r.sessions > 0 ? r.conversions / r.sessions * 100 : 0) : sortCol === 'b' ? r.bounceRate : r.sessions);
+  const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
+  return (
+    <>
+      <thead><tr>
+        <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Entrada</Th>
+        <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
+        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv %</Th>
+        <Th col="b" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Rebote</Th>
+      </tr></thead>
+      <tbody>
+        {view.slice(0, 25).map((r) => {
+          const cr = r.sessions > 0 ? (r.conversions / r.sessions) * 100 : 0;
+          const b = r.bounceRate * 100;
+          const flag = b > 90 ? 'roto' : undefined;
+          return (
+            <tr key={r.landing}>
+              <NameCell name={r.landing} dot={bounceDot(b)} flag={flag} />
+              <Bar v={r.sessions} max={max} />
+              <td className="num" style={{ color: convDot(cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(cr, 1)}</td>
+              <td className="num" style={{ color: bounceDot(b), fontWeight: 700 }}>{formatPercentRaw(b, 0)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </>
+  );
+}
+function CitiesTable({ rows, avgConv, total, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[]; avgConv: number; total: number }) {
+  const max = Math.max(1, ...rows.map((r) => r.sessions));
+  const get = (r: any) => (sortCol === 'cr' ? (r.sessions > 0 ? r.conversions / r.sessions * 100 : 0) : r.sessions);
+  const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
+  return (
+    <>
+      <thead><tr>
+        <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Ciudad</Th>
+        <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
+        <th className="nos" style={{ textAlign: 'right' }}>Share</th>
+        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv %</Th>
+      </tr></thead>
+      <tbody>
+        {view.slice(0, 25).map((r) => {
+          const cr = r.sessions > 0 ? (r.conversions / r.sessions) * 100 : 0;
+          return (
+            <tr key={r.city}>
+              <NameCell name={r.city} dot={convDot(cr, avgConv)} />
+              <Bar v={r.sessions} max={max} />
+              <td className="num">{formatPercentRaw((r.sessions / total) * 100, 1)}</td>
+              <td className="num" style={{ color: convDot(cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(cr, 1)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </>
+  );
+}
+function EventsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: { name: string; count: number; key: boolean }[] }) {
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  const view = sortCol ? sortBy(rows, (r) => r.count) : [...rows].sort((a, b) => b.count - a.count);
+  return (
+    <>
+      <thead><tr>
+        <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Evento</Th>
+        <Th col="c" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conteo</Th>
+        <th className="nos" style={{ textAlign: 'right' }}>¿Clave?</th>
+      </tr></thead>
+      <tbody>
+        {view.slice(0, 30).map((r) => {
+          const isWa = /whatsapp/i.test(r.name);
+          const flag = isWa && !r.key ? 'NO clave' : undefined;
+          return (
+            <tr key={r.name}>
+              <NameCell name={r.name} dot={r.key ? GOOD : isWa ? BAD : 'var(--mu)'} sub={isWa ? 'clic a WhatsApp' : undefined} flag={flag} />
+              <Bar v={r.count} max={max} />
+              <td className="num" style={{ color: r.key ? GOOD : isWa ? BAD : 'var(--t2)', fontWeight: 800 }}>{r.key ? '★ Sí' : '✗ No'}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </>
+  );
+}
+
+// ── piezas ───────────────────────────────────────────────────────────────────
+function Kpi({ label, value, delta, good, sub }: { label: string; value: string; delta?: number; good?: boolean; sub?: string }) {
+  const showDelta = typeof delta === 'number';
+  const up = (delta ?? 0) >= 0;
+  return (
+    <div style={{ padding: '9px 11px', borderRadius: 10, background: 'var(--bg3)', border: '1px solid var(--b1)' }}>
+      <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--mu)' }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2, color: 'var(--t1)', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 9.5, marginTop: 1, color: showDelta ? (up === !!good ? GOOD : up ? GOOD : BAD) : 'var(--t3)' }}>
+        {showDelta ? `${up ? '▲ +' : '▼ '}${Math.abs(delta!).toFixed(1)}%` : sub}
+      </div>
+    </div>
+  );
+}
+function ActionStrip({ color, title, big, lab, small }: { color: string; title: string; big: string; lab: string; small?: boolean }) {
+  return (
+    <div className="ttc-acol">
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', color, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />{title}
+      </div>
+      <div style={{ fontSize: small ? 16 : 22, fontWeight: 800, fontFamily: "'Space Grotesk',sans-serif", lineHeight: 1.15, color, ...ellipsis }} title={big}>{big}</div>
+      <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1, lineHeight: 1.3 }}>{lab}</div>
+    </div>
+  );
+}
+function Dot({ c }: { c: string }) {
+  return <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: c, verticalAlign: 1, marginRight: 4 }} />;
+}
+
+const slabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--t3)' };
+const headline: React.CSSProperties = { fontSize: 'clamp(18px,2.2vw,24px)', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2, marginTop: 4 };
+const headSub: React.CSSProperties = { fontSize: 12.5, color: 'var(--t2)', marginTop: 9, lineHeight: 1.5 };
+const expHead: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 11 };
+const tabsWrap: React.CSSProperties = { display: 'inline-flex', background: 'var(--bg3)', border: '1px solid var(--b1)', borderRadius: 10, padding: 3, gap: 2, flexWrap: 'wrap' };
+function tabBtn(on: boolean): React.CSSProperties {
+  return { fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', border: 'none', background: on ? 'var(--bg1)' : 'transparent', color: on ? 'var(--t1)' : 'var(--t2)', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.12)' : 'none' };
+}
+const tblWrap: React.CSSProperties = { overflowX: 'auto', border: '1px solid var(--b1)', borderRadius: 14, background: 'var(--bg1)' };
+const nameCell: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 };
+const dotStyle: React.CSSProperties = { flex: 'none', width: 8, height: 8, borderRadius: '50%', display: 'inline-block' };
+const subStyle: React.CSSProperties = { fontSize: 9.5, color: 'var(--mu)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300 };
+const ellipsis: React.CSSProperties = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };

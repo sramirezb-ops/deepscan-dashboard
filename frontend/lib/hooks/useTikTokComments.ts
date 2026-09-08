@@ -39,6 +39,8 @@ export interface TikTokCommentItem {
   replies: number;
   commentType: string;
   commentStatus: string;
+  parentCommentId: string; // '' si es comentario raíz; id del padre si es respuesta
+  isPinned: boolean;
   createdAt: string | null;
   sentiment: Sentiment;
   sentimentScore: number;
@@ -91,13 +93,15 @@ interface RawComment {
   replies: number | null;
   comment_type: string | null;
   comment_status: string | null;
+  parent_comment_id: string | null;
+  is_pinned: boolean | null;
   created_at: string | null;
   sentiment: string | null;
   sentiment_score: number | null;
 }
 
 const SELECT =
-  'comment_id, ad_id, ad_name, adgroup_name, campaign_name, author, author_avatar, content, likes, replies, comment_type, comment_status, created_at, sentiment, sentiment_score';
+  'comment_id, ad_id, ad_name, adgroup_name, campaign_name, author, author_avatar, content, likes, replies, comment_type, comment_status, parent_comment_id, is_pinned, created_at, sentiment, sentiment_score';
 
 /** Trae los comentarios del rango paginando. Devuelve null si la tabla no existe
  *  o no hay permiso (→ la hoja muestra el marcador honesto, sin pantalla de error). */
@@ -160,6 +164,8 @@ function toItem(r: RawComment): TikTokCommentItem {
     replies: Number(r.replies) || 0,
     commentType: r.comment_type || '',
     commentStatus: r.comment_status || '',
+    parentCommentId: (r.parent_comment_id || '').trim(),
+    isPinned: Boolean(r.is_pinned),
     createdAt: r.created_at || null,
     sentiment: normSentiment(r.sentiment),
     sentimentScore: Number(r.sentiment_score) || 0,

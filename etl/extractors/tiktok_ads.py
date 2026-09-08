@@ -53,6 +53,11 @@ METRICS = [
     # Video — tiempo de reproducción promedio (segundos, lo da TikTok directo)
     "average_video_play",            # promedio por reproducción
     "average_video_play_per_user",   # promedio por usuario
+    # Engagement social del anuncio (corazones, comentarios, compartidos). Sirve
+    # para leer la reacción de la audiencia a cada creativo en el dashboard.
+    "likes",
+    "comments",
+    "shares",
 ]
 
 PAGE_SIZE = 1000
@@ -141,6 +146,11 @@ def extract_tiktok_ads(
             avg_watch       = round(_num(m, "average_video_play"), 2)
             avg_watch_user  = round(_num(m, "average_video_play_per_user"), 2)
 
+            # Engagement social del creativo (all-time = suma sobre todas las fechas).
+            likes    = int(_num(m, "likes"))
+            comments = int(_num(m, "comments"))
+            shares   = int(_num(m, "shares"))
+
             # Derivadas (calculadas por nosotros, fracciones 0-1 donde aplica).
             ctr  = round(clicks / impressions, 4) if impressions > 0 else 0.0
             cpc  = round(spend / clicks, 2)        if clicks > 0      else 0.0
@@ -176,6 +186,9 @@ def extract_tiktok_ads(
                 "video_completes":     video_completes,
                 "avg_watch_time":          avg_watch,
                 "avg_watch_time_per_user": avg_watch_user,
+                "likes":                   likes,
+                "comments":                comments,
+                "shares":                  shares,
             })
 
         page += 1

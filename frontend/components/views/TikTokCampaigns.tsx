@@ -11,6 +11,8 @@ import {
   type TikTokAdRow,
 } from '@/lib/hooks/useTikTok';
 import { formatCurrency, formatInt, formatPercent } from '@/lib/utils';
+import { useTikTokAdEngagement, type AdEngagement } from '@/lib/hooks/useTikTokAdEngagement';
+import type { Sentiment } from '@/lib/hooks/useTikTokComments';
 import {
   TikTokLoading,
   TikTokError,
@@ -145,6 +147,12 @@ export function TikTokCampaigns() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [query, setQuery] = useState('');
 
+  // Reacción social por anuncio (all-time, NO filtrado por fecha) + popover de
+  // "qué se comenta" en cada asset.
+  const engagementR = useTikTokAdEngagement(client.id);
+  const engagement = engagementR.data?.byAd ?? new Map<string, AdEngagement>();
+  const [commentsAd, setCommentsAd] = useState<TikTokAdRow | null>(null);
+
   const changeTab = (next: Tab) => {
     setTab(next);
     // Campañas: inversión desc (el motor arriba). Ciudades/Creativos: CPL asc
@@ -229,7 +237,7 @@ export function TikTokCampaigns() {
       </div>
 
       {tab === 'camp' && (
-        <CampaignsTab data={data} meta={meta} cur={cur} sortKey={sortKey} sortDir={sortDir} onSort={onSort} query={query} />
+        <CampaignsTab data={data} meta={meta} cur={cur} sortKey={sortKey} sortDir={sortDir} onSort={onSort} query={query} engagement={engagement} onOpenComments={setCommentsAd} />
       )}
       {tab === 'city' && (
         <CitiesTab data={data} meta={meta} cur={cur} sortKey={sortKey} sortDir={sortDir} onSort={onSort} query={query} />
@@ -248,7 +256,87 @@ export function TikTokCampaigns() {
         </div>
       </div>
 
+      {commentsAd && (
+        <CommentsModal ad={commentsAd} eng={engagement.get(commentsAd.adId)} onClose={() => setCommentsAd(null)} />
+      )}
+
       <BackToTop />
+    </div>
+  );
+}
+
+// ── Línea de engagement por anuncio (♥ likes · 💬 comentarios + sentimiento) ──
+function AdEngagementLine({ eng, onOpen }: { eng?: AdEngagement; onOpen?: () => void }) {
+  if (!eng || (eng.likes === 0 && eng.commentRows === 0 && eng.comments === 0)) {
+    return <div style={{ ...subStyle }}>anuncio</div>;
+  }
+  const nComments = Math.max(eng.commentRows, eng.comments);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 10, color: 'var(--mu)', marginTop: 1 }}>
+      <span title="Likes del video">♥ {formatInt(eng.likes)}</span>
+      <button
+        onClick={(e) => { e.stopPropagation(); onOpen?.(); }}
+        disabled={!onOpen}
+        title={onOpen ? 'Ver qué se comenta' : 'Sin comentarios con texto'}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'transparent', border: 'none', padding: 0, cursor: onOpen ? 'pointer' : 'default', color: onOpen ? 'var(--acc)' : 'var(--mu)', fontWeight: onOpen ? 600 : 400, fontSize: 10 }}
+      >
+        💬 {formatInt(nComments)}{onOpen ? ' · ver' : ''}
+      </button>
+      {eng.commentRows > 0 && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          {eng.positive > 0 && <span style={{ color: 'var(--up)' }}>+{eng.positive}</span>}
+          {eng.negative > 0 && <span style={{ color: 'var(--dn)' }}>−{eng.negative}</span>}
+        </span>
+      )}
+      {eng.shares > 0 && <span title="Compartidos">↗ {formatInt(eng.shares)}</span>}
+    </div>
+  );
+}
+
+const SENT_C: Record<Sentiment, string> = { positive: 'var(--up)', neutral: 'var(--mu)', negative: 'var(--dn)' };
+const SENT_L: Record<Sentiment, string> = { positive: 'Positivo', neutral: 'Neutral', negative: 'Negativo' };
+
+// ── Modal: qué se comenta en un anuncio (comentarios reales, all-time) ───────
+function CommentsModal({ ad, eng, onClose }: { ad: TikTokAdRow; eng?: AdEngagement; onClose: () => void }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(10,8,20,0.55)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px 16px' }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: 'min(640px, 100%)', maxHeight: '84vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--b1)', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <CreativeThumb name={ad.name} coverUrl={ad.coverUrl} videoUrl={ad.videoUrl} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, ...ellipsis }} title={ad.name}>{ad.name}</div>
+            <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 3 }}>
+              ♥ {formatInt(eng?.likes ?? 0)} likes · 💬 {formatInt(eng?.commentRows ?? 0)} comentarios
+              {eng && eng.commentRows > 0 ? <> · <span style={{ color: 'var(--up)' }}>+{eng.positive}</span> / <span style={{ color: 'var(--dn)' }}>−{eng.negative}</span></> : null}
+              {' '}· <span style={{ color: 'var(--t3)' }}>histórico (sin filtro de fecha)</span>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ flex: 'none', background: 'var(--bg3)', border: '1px solid var(--b1)', borderRadius: 8, width: 28, height: 28, cursor: 'pointer', color: 'var(--t2)', fontSize: 15 }}>×</button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: '10px 14px' }}>
+          {(eng?.top ?? []).length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--mu)', textAlign: 'center', padding: 24 }}>No hay comentarios con texto para este anuncio.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(eng?.top ?? []).map((c, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 10, background: 'var(--bg3)', border: '1px solid var(--b1)' }}>
+                  <span style={{ flex: 'none', width: 28, height: 28, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 700, background: 'linear-gradient(150deg,#22d3ee22,#f472b622)' }}>{(c.author || '?').trim().charAt(0).toUpperCase() || '?'}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700 }}>{c.author}</span>
+                      <span style={{ fontSize: 9.5, display: 'inline-flex', alignItems: 'center', gap: 3, color: SENT_C[c.sentiment] }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: SENT_C[c.sentiment] }} />{SENT_L[c.sentiment]}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--t2)', lineHeight: 1.45, wordBreak: 'break-word' }}>{c.content || <span style={{ fontStyle: 'italic', color: 'var(--mu)' }}>(sin texto)</span>}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--mu)', marginTop: 3 }}>♥ {formatInt(c.likes)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -477,10 +565,11 @@ const ADS_SHOWN = 5;
 
 // ── PESTAÑA CAMPAÑAS: drill-down campaña → conjunto → anuncio ────────────────
 function CampaignsTab({
-  data, meta, cur, sortKey, sortDir, onSort, query,
+  data, meta, cur, sortKey, sortDir, onSort, query, engagement, onOpenComments,
 }: {
   data: NonNullable<ReturnType<typeof useTikTok>['data']>; meta: number; cur: string;
   sortKey: SortKey; sortDir: 'asc' | 'desc'; onSort: (k: SortKey) => void; query: string;
+  engagement: Map<string, AdEngagement>; onOpenComments: (a: TikTokAdRow) => void;
 }) {
   const [openCamps, setOpenCamps] = useState<Set<string>>(new Set());
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
@@ -576,19 +665,26 @@ function CampaignsTab({
                         </tr>
 
                         {/* Nivel 3 · Anuncios (top 5 + ver más) */}
-                        {gOpen && shown.map((a) => (
+                        {gOpen && shown.map((a) => {
+                          const eng = engagement.get(a.adId);
+                          const hasComments = (eng?.commentRows ?? 0) > 0;
+                          return (
                           <tr key={a.adId}>
                             <td data-cat="dim">
                               <div style={{ ...nameCell, paddingLeft: 44 }}>
                                 <span style={{ ...statusDot(statusOf(a.cpl, a.conversions, a.spend, meta).dot) }} />
                                 <CreativeThumb name={a.name} coverUrl={a.coverUrl} videoUrl={a.videoUrl} />
-                                <span style={{ ...ellipsis, maxWidth: 260 }} title={a.name}>{a.name}</span>
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ ...ellipsis, maxWidth: 260 }} title={a.name}>{a.name}</div>
+                                  <AdEngagementLine eng={eng} onOpen={hasComments ? () => onOpenComments(a) : undefined} />
+                                </div>
                               </div>
                             </td>
                             <EstadoCell m={toMetrics(a)} meta={meta} />
                             <MetricCells m={toMetrics(a)} meta={meta} cur={cur} maxSpend={maxSpend} />
                           </tr>
-                        ))}
+                          );
+                        })}
                         {gOpen && ads.length > ADS_SHOWN && !showAll && (
                           <tr onClick={() => setMoreGroups((p) => new Set(p).add(gid))} style={{ cursor: 'pointer' }}>
                             <td colSpan={10} style={{ paddingLeft: 44, color: 'var(--acc)', fontWeight: 600, fontSize: 11.5 }}>

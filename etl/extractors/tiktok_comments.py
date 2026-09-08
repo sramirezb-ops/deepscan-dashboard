@@ -65,6 +65,10 @@ WINDOW_DAYS = 7          # tamaño de cada sub-ventana de fechas
 # search_field=ADGROUP_ID se codifica como "2" en la API (ver comment_list.yml).
 SEARCH_FIELD_ADGROUP = "ADGROUP_ID"
 
+# [DEBUG temporal] cuántos REPLY loguear para descubrir el nombre del campo del
+# comentario padre (threading). Se elimina tras confirmar.
+_DBG_LEFT = 5
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sentimiento (heurística de léxico en español) — capa de análisis NUESTRA
@@ -348,6 +352,18 @@ def extract_tiktok_comments(
                     cid = _str(it.get("comment_id"))
                     if not cid:
                         continue
+                    # [DEBUG temporal] confirmar si la API trae el id del padre en
+                    # los REPLY (para el threading). Se loguea solo los primeros.
+                    global _DBG_LEFT
+                    if _DBG_LEFT > 0 and _str(it.get("comment_type")) == "REPLY":
+                        log.info(
+                            f"   [DEBUG-THREAD] REPLY keys={sorted(it.keys())} "
+                            f"parent_comment_id={it.get('parent_comment_id')!r} "
+                            f"parent_id={it.get('parent_id')!r} "
+                            f"reply_id={it.get('reply_id')!r} "
+                            f"reply_to={it.get('reply_to_comment_id')!r}"
+                        )
+                        _DBG_LEFT -= 1
                     content = _str(it.get("content"))
                     sentiment, score = score_sentiment(content)
                     by_id[cid] = {

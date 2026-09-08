@@ -365,6 +365,10 @@ def extract_tiktok_comments(
                         "replies":        _int(it.get("replies")),
                         "comment_type":   _str(it.get("comment_type")),
                         "comment_status": _str(it.get("comment_status")),
+                        # id del comentario padre (la API lo llama original_comment_id):
+                        # permite reconstruir los hilos (respuestas colgadas del padre).
+                        "parent_comment_id": _str(it.get("original_comment_id")),
+                        "is_pinned":      bool(it.get("is_pinned")),
                         "created_at":     _created_at(it.get("create_time")),
                         "sentiment":      sentiment,
                         "sentiment_score": score,

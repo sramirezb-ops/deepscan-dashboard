@@ -1219,3 +1219,7 @@ body{
 /* TikTok · Retención de anuncios — KPIs (3 col) sobre la tarjeta .ttc-z1 */
 .ret-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 @container (max-width:520px){.ret-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* TikTok · Comentarios — grilla de 2 gráficas (Intención / Temas) */
+.cmt-grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.cmt-grid2{grid-template-columns:1fr}}

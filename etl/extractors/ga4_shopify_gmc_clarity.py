@@ -501,6 +501,28 @@ def extract_ga4_pages(
     except Exception as e:
         log.warning(f"   GA4 landing falló: {e}")
 
+    # ── [DEBUG temporal] ¿pageReferrer da transiciones INTERNAS (ruta de 1 salto)?
+    # Loguea las 15 parejas referrer→página con más sesiones para decidir si se
+    # puede montar la exploración de ruta sin BigQuery. Se elimina tras confirmar.
+    try:
+        req = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name="pageReferrer"), Dimension(name="pagePath")],
+            metrics=[Metric(name="sessions")],
+            date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
+            order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"), desc=True)],
+            limit=25,
+        )
+        resp = client.run_report(req)
+        log.info("   [DEBUG-ROUTE] top pageReferrer → pagePath (sesiones):")
+        for row in resp.rows[:15]:
+            ref = (row.dimension_values[0].value or "")[:70]
+            pth = row.dimension_values[1].value or ""
+            se = row.metric_values[0].value
+            log.info(f"   [DEBUG-ROUTE] {se:>7} | {ref} -> {pth}")
+    except Exception as e:
+        log.warning(f"   [DEBUG-ROUTE] pageReferrer falló: {e}")
+
     return top_pages_rows, landing_rows
 
 

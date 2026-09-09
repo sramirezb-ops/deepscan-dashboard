@@ -43,3 +43,9 @@ create table if not exists aura_sales (
 
 create index if not exists aura_sales_client_date on aura_sales (client_id, fecha_date);
 create index if not exists aura_sales_client_bucket on aura_sales (client_id, bucket);
+
+-- RLS: solo lectura para el frontend (anon/authenticated), como el resto de tablas.
+alter table aura_sales enable row level security;
+drop policy if exists "lectura_aura_sales_temporal" on aura_sales;
+create policy "lectura_aura_sales_temporal"
+  on aura_sales for select to anon, authenticated using (true);

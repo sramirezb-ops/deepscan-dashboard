@@ -150,6 +150,7 @@ class SupabaseLoader:
             "ga4_landing":              "client_id,date,landing_page,property_id",
             "ga4_items":                "client_id,date,item_name,property_id",
             "ga4_routes":               "client_id,from_label,to_path,kind,property_id",
+            "aura_sales":               "client_id,row_key",
             "gmc_products":             "client_id,product_id",
             "shopify_orders":           "client_id,date",
             "shopify_products":         "client_id,period_start,product_id",

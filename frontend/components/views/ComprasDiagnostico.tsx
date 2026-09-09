@@ -192,7 +192,7 @@ export function ComprasDiagnostico() {
                 const open = !!exp[r.id];
                 const k = r.lvl === 3 ? adKind(r.node.name) : null;
                 return (
-                  <tr key={r.id || 'ad' + i} className={`r${r.lvl}`}
+                  <tr key={r.id || 'ad' + i} className={`mcr${r.lvl}`}
                     onClick={() => (r.lvl === 3 ? setPreview({ node: r.node, cmp: r.cmp || '', set: r.set || '' }) : toggle(r.id))}>
                     <td>
                       <div className="mc-nmcell" style={{ paddingLeft: (r.lvl - 1) * 20 }}>
@@ -333,16 +333,16 @@ table.mc-t{border-collapse:collapse;width:100%;min-width:1200px;font-size:12.5px
 .mc-t td{padding:11px 12px;border-bottom:1px solid var(--b1);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--t2)}
 .mc-t td:first-child{text-align:left;position:sticky;left:0;z-index:1;background:var(--bg1);box-shadow:1px 0 0 var(--b1)}
 .mc-t tr:hover td{background:var(--bg2)}.mc-t tr:hover td:first-child{background:var(--bg2)}
-.mc-t tr.r1{cursor:pointer;font-weight:600}.mc-t tr.r1 td{color:var(--t1)}
-.mc-t tr.r2{cursor:pointer}.mc-t tr.r2 td:first-child{background:color-mix(in srgb,var(--acc) 4%,var(--bg1))}
-.mc-t tr.r3{cursor:pointer}.mc-t tr.r3 td:first-child{background:color-mix(in srgb,var(--acc) 7%,var(--bg1))}
+.mc-t tr.mcr1{cursor:pointer;font-weight:600}.mc-t tr.mcr1 td{color:var(--t1)}
+.mc-t tr.mcr2{cursor:pointer}.mc-t tr.mcr2 td:first-child{background:color-mix(in srgb,var(--acc) 4%,var(--bg1))}
+.mc-t tr.mcr3{cursor:pointer}.mc-t tr.mcr3 td:first-child{background:color-mix(in srgb,var(--acc) 7%,var(--bg1))}
 .mc-t td.mc-good{color:var(--up)!important;font-weight:700}.mc-t td.mc-warn{color:var(--warn)!important;font-weight:700}.mc-t td.mc-bad{color:var(--dn)!important;font-weight:700}
 .mc-nmcell{display:flex;align-items:center;gap:9px;min-width:0}
 .mc-cx{width:11px;color:var(--t3);font-size:9px;transition:transform .15s;flex:none}.mc-cx.open{transform:rotate(90deg)}
 .mc-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}
 .mc-thmb{width:28px;height:28px;border-radius:6px;flex:none;display:grid;place-items:center;font-size:12px;color:#fff;object-fit:cover}
 .mc-thmb.mc-img{background:linear-gradient(135deg,#f0975b,#e0655b)}.mc-thmb.mc-vid{background:linear-gradient(135deg,#5b6cff,#8e5bff)}.mc-thmb.mc-prd{background:linear-gradient(135deg,#0f9d58,#12b877)}
-.mc-pvhint{margin-left:auto;font-size:10px;color:var(--acc);opacity:0;transition:opacity .12s;padding-left:8px}.mc-t tr.r3:hover .mc-pvhint{opacity:1}
+.mc-pvhint{margin-left:auto;font-size:10px;color:var(--acc);opacity:0;transition:opacity .12s;padding-left:8px}.mc-t tr.mcr3:hover .mc-pvhint{opacity:1}
 .mc-funnel{display:flex;flex-direction:column;gap:7px}
 .mc-fstep{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center}.mc-fstep .fl{font-size:12.5px;font-weight:600;color:var(--t1)}
 .mc-fstep .ft{position:relative;height:30px;background:var(--bg3);border-radius:7px;overflow:hidden}

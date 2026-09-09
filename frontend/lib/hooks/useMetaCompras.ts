@@ -105,6 +105,12 @@ export interface MetaComprasData {
   otherCampaignCount: number; // alcance / visitas a perfil (sin intención de compra)
   otherSpend: number; // inversión de esas campañas (no aparece en los totales)
   metaExistsEver: boolean;
+  // ── Explorador jerárquico + contexto de los 3 objetivos de Meta ──
+  hierarchy: ComprasHierNode[];   // campaña → conjunto → anuncio (solo compras)
+  whatsappSpend: number;          // gasto de las campañas de mensajería
+  waConversations: number;        // conversaciones (píxel) de esas campañas
+  spendSplit: { sales: number; whatsapp: number; brand: number };
+  monthlyRoas: { month: string; roas: number }[];
   // Deltas vs período anterior (mismo criterio de "compras")
   spendDelta: number;
   revenueDelta: number;
@@ -137,10 +143,11 @@ interface RawRow {
   add_to_cart: number | null;
   initiate_checkout: number | null;
   view_content: number | null;
+  conversations: number | null;
 }
 
 const SELECT =
-  'date, ad_id, ad_name, campaign_name, adset_name, thumb_url, spend, impressions, clicks, reach, purchases, purchase_value, add_to_cart, initiate_checkout, view_content';
+  'date, ad_id, ad_name, campaign_name, adset_name, thumb_url, spend, impressions, clicks, reach, purchases, purchase_value, add_to_cart, initiate_checkout, view_content, conversations';
 
 const PAGE = 1000;
 const AD_LIMIT = 60; // top anuncios por inversión
@@ -426,6 +433,87 @@ function totalsFrom(campaigns: ComprasCampaignRow[]): ComprasTotals {
   };
 }
 
+// ── Jerarquía campaña → conjunto → anuncio, con TODAS las métricas ──────────
+export interface ComprasMetric {
+  spend: number; impressions: number; clicks: number; reach: number;
+  viewContent: number; addToCart: number; initiateCheckout: number;
+  purchases: number; purchaseValue: number;
+}
+export interface ComprasHierNode {
+  name: string;
+  adId?: string;             // solo anuncios
+  thumbUrl?: string | null;  // solo anuncios
+  m: ComprasMetric;
+  kids?: ComprasHierNode[];  // campañas y conjuntos
+}
+
+const zeroM = (): ComprasMetric => ({
+  spend: 0, impressions: 0, clicks: 0, reach: 0,
+  viewContent: 0, addToCart: 0, initiateCheckout: 0, purchases: 0, purchaseValue: 0,
+});
+function addM(t: ComprasMetric, r: RawRow) {
+  t.spend += Number(r.spend) || 0;
+  t.impressions += Number(r.impressions) || 0;
+  t.clicks += Number(r.clicks) || 0;
+  t.reach += Number(r.reach) || 0;
+  t.viewContent += Number(r.view_content) || 0;
+  t.addToCart += Number(r.add_to_cart) || 0;
+  t.initiateCheckout += Number(r.initiate_checkout) || 0;
+  t.purchases += Number(r.purchases) || 0;
+  t.purchaseValue += Number(r.purchase_value) || 0;
+}
+
+/** Árbol campaña→conjunto→anuncio para las campañas de compra dadas. */
+function buildHierarchy(rows: RawRow[], salesNames: Set<string>): ComprasHierNode[] {
+  const camps = new Map<
+    string,
+    { m: ComprasMetric; sets: Map<string, { m: ComprasMetric; ads: Map<string, ComprasHierNode> }> }
+  >();
+  for (const r of rows) {
+    const cn = r.campaign_name || '(sin nombre)';
+    if (!salesNames.has(cn)) continue;
+    let c = camps.get(cn);
+    if (!c) { c = { m: zeroM(), sets: new Map() }; camps.set(cn, c); }
+    addM(c.m, r);
+    const an = r.adset_name || '(sin conjunto)';
+    let s = c.sets.get(an);
+    if (!s) { s = { m: zeroM(), ads: new Map() }; c.sets.set(an, s); }
+    addM(s.m, r);
+    const adId = r.ad_id || `(sin id) ${r.ad_name || ''}`;
+    let a = s.ads.get(adId);
+    if (!a) { a = { name: r.ad_name || '(sin nombre)', adId, thumbUrl: r.thumb_url || null, m: zeroM() }; s.ads.set(adId, a); }
+    if (!a.thumbUrl && r.thumb_url) a.thumbUrl = r.thumb_url;
+    if (a.name === '(sin nombre)' && r.ad_name) a.name = r.ad_name;
+    addM(a.m, r);
+  }
+  const bySpend = (x: { m: ComprasMetric }, y: { m: ComprasMetric }) => y.m.spend - x.m.spend;
+  return Array.from(camps.entries())
+    .map(([name, c]) => ({
+      name, m: c.m,
+      kids: Array.from(c.sets.entries())
+        .map(([sn, s]) => ({ name: sn, m: s.m, kids: Array.from(s.ads.values()).sort(bySpend) }))
+        .sort(bySpend),
+    }))
+    .sort(bySpend);
+}
+
+/** ROAS por mes de las campañas de compra. */
+function monthlyRoasFrom(rows: RawRow[], salesNames: Set<string>): { month: string; roas: number }[] {
+  const m = new Map<string, { s: number; v: number }>();
+  for (const r of rows) {
+    if (!salesNames.has(r.campaign_name || '')) continue;
+    const mo = (r.date || '').slice(0, 7);
+    if (!mo) continue;
+    let a = m.get(mo);
+    if (!a) { a = { s: 0, v: 0 }; m.set(mo, a); }
+    a.s += Number(r.spend) || 0;
+    a.v += Number(r.purchase_value) || 0;
+  }
+  return Array.from(m.entries())
+    .map(([month, a]) => ({ month, roas: a.s > 0 ? a.v / a.s : 0 }))
+    .sort((x, y) => x.month.localeCompare(y.month));
+}
+
 export function useMetaCompras(
   clientId: string,
   range: DateRange,
@@ -472,6 +560,19 @@ export function useMetaCompras(
         const ads = aggregateAds(nowRows, purchaseNames).slice(0, AD_LIMIT);
         const daily = buildDaily(nowRows, purchaseNames);
 
+        // Explorador jerárquico + los tres objetivos de Meta (venta / WhatsApp / marca).
+        const hierarchy = buildHierarchy(nowRows, purchaseNames);
+        const monthlyRoas = monthlyRoasFrom(nowRows, purchaseNames);
+        let whatsappSpend = 0;
+        let waConversations = 0;
+        for (const r of nowRows) {
+          if (msgNow.has(r.campaign_name || '')) {
+            whatsappSpend += Number(r.spend) || 0;
+            waConversations += Number(r.conversations) || 0;
+          }
+        }
+        const brandSpend = otherAgg.reduce((s, c) => s + c.spend, 0);
+
         // ── Período anterior (mismo criterio) ───────────────────
         const prevPurchase = aggregateCampaigns(prevRows, msgPrev)
           .filter(hasPurchaseIntent)
@@ -497,8 +598,13 @@ export function useMetaCompras(
           withThumb: ads.filter((a) => !!a.thumbUrl).length,
           messagingCampaignCount: msgNow.size,
           otherCampaignCount: otherAgg.length,
-          otherSpend: otherAgg.reduce((s, c) => s + c.spend, 0),
+          otherSpend: brandSpend,
           metaExistsEver,
+          hierarchy,
+          whatsappSpend,
+          waConversations,
+          spendSplit: { sales: totals.spend, whatsapp: whatsappSpend, brand: brandSpend },
+          monthlyRoas,
           spendDelta: calcDelta(totals.spend, pt.spend),
           revenueDelta: calcDelta(totals.purchaseValue, pt.purchaseValue),
           roasDelta: totals.roas - roasPrev,

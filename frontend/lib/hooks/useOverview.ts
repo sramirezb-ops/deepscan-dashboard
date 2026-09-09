@@ -98,6 +98,37 @@ export interface OverviewData {
   metaRevenueDelta: number;
   metaRoasDelta: number;
 
+  // ── MUNDO VENTA REAL (AURA · venta cobrada) — NORTH-STAR ecommerce ──
+  // AURA es el sistema de ventas del cliente (manual/WhatsApp/POS/web). Aquí vive
+  // la venta real cobrada, que el checkout web subregistra. Solo aplica a clientes
+  // con aura_sheet_id configurado; para el resto auraExists=false.
+  auraExists: boolean;
+  auraCobrado: number;      // medición cobrada — el north-star
+  auraCobradoDelta: number;
+  auraBruto: number;        // bruto cobrado (todas las filas, dedup)
+  auraTicket: number;       // ticket promedio (ventas medición, sin abonos)
+  mer: number;              // auraCobrado / inversión total
+  merDelta: number;
+  auraCambio: number;       // excluido: cambios (exchange)
+  auraCowmmerce: number;    // excluido: marketplace / mercadolibre
+  auraPrueba: number;       // excluido: pruebas (<=50)
+
+  // ── WHATSAPP (meta_messaging · conversaciones) ──
+  waConversations: number;
+  waConversationsDelta: number;
+  waCostPerConv: number;    // spend / conversations
+  waSpend: number;
+  waShareOfMeta: number;    // waSpend / metaSpend (0-1)
+
+  // ── SHOPIFY (cobro real: bruto / cobrado / pendiente) ──
+  shopBruto: number;
+  shopCobrado: number;      // bruto − pendiente
+  shopPendiente: number;
+  shopCollectedPct: number; // cobrado / bruto (0-1)
+
+  // ── GA4 por propiedad (las 2 webs, separadas, sin sumar) ──
+  ga4Sites: { property: string; sessions: number; revenue: number }[];
+
   // Serie diaria de revenue para la evolución (período actual vs anterior,
   // alineados por índice de día). `previous` es null si el período anterior
   // tiene menos días con datos que el actual en ese índice.
@@ -153,12 +184,51 @@ async function fetchGoogleAdsRows(clientId: string, from: string, to: string) {
 async function fetchGA4Rows(clientId: string, from: string, to: string) {
   const { data, error } = await supabase
     .from('ga4_metrics')
-    .select('date, sessions, active_users, conv_rate, revenue')
+    .select('date, sessions, active_users, conv_rate, revenue, source_medium')
     .eq('client_id', clientId)
     .gte('date', from)
     .lte('date', to);
 
   if (error) throw error;
+  return (data || []) as any[];
+}
+
+/**
+ * AURA (venta real). Filas por venta con bucket ya clasificado. Resiliente: si la
+ * tabla no existe (clientes sin AURA), devuelve []. Se filtra por fecha_date.
+ */
+async function fetchAuraRows(clientId: string, from: string, to: string) {
+  const { data, error } = await supabase
+    .from('aura_sales')
+    .select('bucket, tipo, cobrado')
+    .eq('client_id', clientId)
+    .gte('fecha_date', from)
+    .lte('fecha_date', to);
+  if (error) return [] as any[];
+  return (data || []) as any[];
+}
+
+/** WhatsApp: conversaciones y gasto de campañas de mensajería (meta_messaging). */
+async function fetchMessagingRows(clientId: string, from: string, to: string) {
+  const { data, error } = await supabase
+    .from('meta_messaging')
+    .select('conversations, spend')
+    .eq('client_id', clientId)
+    .gte('date', from)
+    .lte('date', to);
+  if (error) return [] as any[];
+  return (data || []) as any[];
+}
+
+/** Shopify: revenue bruto y pendiente (para separar cobrado). Agregado diario. */
+async function fetchShopifyRows(clientId: string, from: string, to: string) {
+  const { data, error } = await supabase
+    .from('shopify_orders')
+    .select('revenue, revenue_pending')
+    .eq('client_id', clientId)
+    .gte('date', from)
+    .lte('date', to);
+  if (error) return [] as any[];
   return (data || []) as any[];
 }
 
@@ -277,6 +347,59 @@ function sumGA4(rows: any[]) {
   );
 }
 
+/** Totales AURA por bucket (cobrado) + ticket promedio de ventas medición. */
+function sumAura(rows: any[]) {
+  let cobrado = 0, cambio = 0, cowmmerce = 0, prueba = 0;
+  let medVentaSum = 0, medVentaCount = 0;
+  for (const r of rows) {
+    const c = Number(r.cobrado) || 0;
+    const bucket = r.bucket;
+    if (bucket === 'medicion') {
+      cobrado += c;
+      if ((r.tipo || '').toUpperCase() === 'VENTA') { medVentaSum += c; medVentaCount += 1; }
+    } else if (bucket === 'cambio') cambio += c;
+    else if (bucket === 'cowmmerce') cowmmerce += c;
+    else if (bucket === 'prueba') prueba += c;
+  }
+  const bruto = cobrado + cambio + cowmmerce + prueba;
+  const ticket = medVentaCount > 0 ? medVentaSum / medVentaCount : 0;
+  return { cobrado, cambio, cowmmerce, prueba, bruto, ticket, exists: rows.length > 0 };
+}
+
+/** Totales WhatsApp (meta_messaging). */
+function sumMessaging(rows: any[]) {
+  let conversations = 0, spend = 0;
+  for (const r of rows) { conversations += Number(r.conversations) || 0; spend += Number(r.spend) || 0; }
+  return { conversations, spend, costPerConv: conversations > 0 ? spend / conversations : 0 };
+}
+
+/** Totales Shopify (bruto / pendiente → cobrado). */
+function sumShopify(rows: any[]) {
+  let bruto = 0, pendiente = 0;
+  for (const r of rows) { bruto += Number(r.revenue) || 0; pendiente += Number(r.revenue_pending) || 0; }
+  const cobrado = Math.max(0, bruto - pendiente);
+  return { bruto, pendiente, cobrado, collectedPct: bruto > 0 ? cobrado / bruto : 0 };
+}
+
+/**
+ * Sesiones/revenue por propiedad GA4. El id de propiedad viene como prefijo de
+ * source_medium ("508597206 / Organic Search"). Este cliente envía tráfico a DOS
+ * webs (dos propiedades): se reportan SEPARADAS, nunca sumadas.
+ */
+function ga4ByProperty(rows: any[]): { property: string; sessions: number; revenue: number }[] {
+  const m = new Map<string, { sessions: number; revenue: number }>();
+  for (const r of rows) {
+    const prop = String(r.source_medium || '').split('/')[0].trim() || '(nd)';
+    const e = m.get(prop) || { sessions: 0, revenue: 0 };
+    e.sessions += Number(r.sessions) || 0;
+    e.revenue += Number(r.revenue) || 0;
+    m.set(prop, e);
+  }
+  return Array.from(m.entries())
+    .map(([property, v]) => ({ property, ...v }))
+    .sort((a, b) => b.sessions - a.sessions);
+}
+
 /**
  * Serie diaria de revenue de COMPRA REAL, tomada SOLO de GA4 (revenue). No se
  * mezcla con el valor de add-to-cart de Google (que es intención, no venta, y
@@ -323,6 +446,11 @@ export function useOverview(
           metaNowRows,
           metaPrevRows,
           shopifyDays,
+          auraNowRows,
+          auraPrevRows,
+          msgNowRows,
+          msgPrevRows,
+          shopNowRows,
         ] = await Promise.all([
           fetchGoogleAdsRows(clientId, current.from, current.to),
           fetchGoogleAdsRows(clientId, previous.from, previous.to),
@@ -331,6 +459,11 @@ export function useOverview(
           fetchMetaRows(clientId, current.from, current.to),
           fetchMetaRows(clientId, previous.from, previous.to),
           fetchShopifyDays(clientId, current.from, current.to),
+          fetchAuraRows(clientId, current.from, current.to),
+          fetchAuraRows(clientId, previous.from, previous.to),
+          fetchMessagingRows(clientId, current.from, current.to),
+          fetchMessagingRows(clientId, previous.from, previous.to),
+          fetchShopifyRows(clientId, current.from, current.to),
         ]);
 
         if (cancelled) return;
@@ -360,6 +493,22 @@ export function useOverview(
         const metaSpendPrev = metaPrev.spend;
         const investment = googleSpend + metaSpend;
         const investmentPrev = googleSpendPrev + metaSpendPrev;
+
+        // ── VENTA REAL (AURA) ──────────────────────────────────────
+        const auraNow = sumAura(auraNowRows);
+        const auraPrev = sumAura(auraPrevRows);
+        const mer = investment > 0 ? auraNow.cobrado / investment : 0;
+        const merPrev = investmentPrev > 0 ? auraPrev.cobrado / investmentPrev : 0;
+
+        // ── WHATSAPP (meta_messaging) ──────────────────────────────
+        const msgNow = sumMessaging(msgNowRows);
+        const msgPrev = sumMessaging(msgPrevRows);
+
+        // ── SHOPIFY (cobro) ────────────────────────────────────────
+        const shop = sumShopify(shopNowRows);
+
+        // ── GA4 por propiedad (2 webs) ─────────────────────────────
+        const ga4Sites = ga4ByProperty(ga4NowRows);
 
         // ── MUNDO COMPRA REAL (GA4) ────────────────────────────────
         // Revenue de compra: SOLO GA4. Ya no se hace max() con el valor de
@@ -444,6 +593,34 @@ export function useOverview(
           metaPurchasesDelta: calcDelta(metaPurchases, metaPurchasesPrev),
           metaRevenueDelta: calcDelta(metaRevenue, metaRevenuePrev),
           metaRoasDelta: metaRoas - metaRoasPrev,
+
+          // AURA (venta real · north-star)
+          auraExists: auraNow.exists,
+          auraCobrado: auraNow.cobrado,
+          auraCobradoDelta: calcDelta(auraNow.cobrado, auraPrev.cobrado),
+          auraBruto: auraNow.bruto,
+          auraTicket: auraNow.ticket,
+          mer,
+          merDelta: mer - merPrev,
+          auraCambio: auraNow.cambio,
+          auraCowmmerce: auraNow.cowmmerce,
+          auraPrueba: auraNow.prueba,
+
+          // WhatsApp
+          waConversations: Math.round(msgNow.conversations),
+          waConversationsDelta: calcDelta(msgNow.conversations, msgPrev.conversations),
+          waCostPerConv: msgNow.costPerConv,
+          waSpend: msgNow.spend,
+          waShareOfMeta: metaSpend > 0 ? msgNow.spend / metaSpend : 0,
+
+          // Shopify (cobro)
+          shopBruto: shop.bruto,
+          shopCobrado: shop.cobrado,
+          shopPendiente: shop.pendiente,
+          shopCollectedPct: shop.collectedPct,
+
+          // GA4 por propiedad (2 webs)
+          ga4Sites,
 
           dailyRevenue,
 

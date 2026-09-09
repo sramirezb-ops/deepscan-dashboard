@@ -17,6 +17,7 @@ from extractors.google_sheets   import (
     extract_pmax_search_terms,
     extract_flowboost,
 )
+from extractors.aura            import extract_aura
 from extractors.implementations   import extract_implementations
 from extractors.meta_ads          import (
     extract_meta_ads, extract_meta_platform, extract_meta_messaging,
@@ -80,6 +81,27 @@ def run_etl(client_id: str, days_back: int = 30):
 
     date_from = date.today() - timedelta(days=days_back)
     date_to   = date.today() - timedelta(days=1)
+
+    # ── 0. AURA · venta real (Google Sheet) ────────────────────
+    # El id del Sheet vive en clients.aura_sheet_id (público de lectura). Solo los
+    # clientes que lo tengan configurado (p.ej. Sneaker Store) corren este bloque.
+    # Se sincroniza por reemplazo (delete + upsert) para reflejar cambios de estado
+    # y bajas de la hoja. Best-effort: si falla, no tumba el resto del ETL.
+    try:
+        _c = loader.client.table("clients").select("aura_sheet_id").eq("id", client_id).limit(1).execute()
+        aura_sheet_id = (_c.data[0].get("aura_sheet_id") if _c.data else "") or ""
+    except Exception as e:
+        log.warning(f"   AURA: no se pudo leer clients.aura_sheet_id: {e}")
+        aura_sheet_id = ""
+    if aura_sheet_id:
+        log.info("── AURA (venta real · Google Sheet)")
+        try:
+            aura_rows = extract_aura(aura_sheet_id)
+            if aura_rows:
+                loader.delete_for_client("aura_sales", client_id)
+                loader.upsert("aura_sales", aura_rows, client_id)
+        except Exception as e:
+            log.warning(f"   AURA: extracción/carga falló: {e}")
 
     # ── 1. PMAX INSIGHTS · Mike Rhodes v30 ─────────────────────
     # Fuente del script de Google Ads (Mike Rhodes) por Google Sheet. Es

@@ -442,9 +442,26 @@ export interface ComprasMetric {
 export interface ComprasHierNode {
   name: string;
   adId?: string;             // solo anuncios
-  thumbUrl?: string | null;  // solo anuncios
+  thumbUrl?: string | null;  // solo anuncios (creativo real desde meta_ad_creatives)
+  isVideo?: boolean;         // solo anuncios
   m: ComprasMetric;
   kids?: ComprasHierNode[];  // campañas y conjuntos
+}
+
+/** Creativo por anuncio (imagen o thumbnail de video) desde meta_ad_creatives. */
+async function fetchAdCreatives(clientId: string): Promise<Map<string, { img: string | null; isVideo: boolean }>> {
+  const m = new Map<string, { img: string | null; isVideo: boolean }>();
+  const { data, error } = await supabase
+    .from('meta_ad_creatives')
+    .select('ad_id, image_url, thumbnail_url, is_video')
+    .eq('client_id', clientId)
+    .range(0, 4999);
+  if (error) return m; // tabla ausente → sin creativos, la UI usa placeholder
+  for (const r of (data || []) as any[]) {
+    const img = (r.image_url || r.thumbnail_url || '') || null;
+    if (r.ad_id) m.set(r.ad_id, { img, isVideo: !!r.is_video });
+  }
+  return m;
 }
 
 const zeroM = (): ComprasMetric => ({
@@ -464,7 +481,11 @@ function addM(t: ComprasMetric, r: RawRow) {
 }
 
 /** Árbol campaña→conjunto→anuncio para las campañas de compra dadas. */
-function buildHierarchy(rows: RawRow[], salesNames: Set<string>): ComprasHierNode[] {
+function buildHierarchy(
+  rows: RawRow[],
+  salesNames: Set<string>,
+  creatives: Map<string, { img: string | null; isVideo: boolean }>
+): ComprasHierNode[] {
   const camps = new Map<
     string,
     { m: ComprasMetric; sets: Map<string, { m: ComprasMetric; ads: Map<string, ComprasHierNode> }> }
@@ -481,7 +502,11 @@ function buildHierarchy(rows: RawRow[], salesNames: Set<string>): ComprasHierNod
     addM(s.m, r);
     const adId = r.ad_id || `(sin id) ${r.ad_name || ''}`;
     let a = s.ads.get(adId);
-    if (!a) { a = { name: r.ad_name || '(sin nombre)', adId, thumbUrl: r.thumb_url || null, m: zeroM() }; s.ads.set(adId, a); }
+    if (!a) {
+      const cr = r.ad_id ? creatives.get(r.ad_id) : undefined;
+      a = { name: r.ad_name || '(sin nombre)', adId, thumbUrl: cr?.img ?? (r.thumb_url || null), isVideo: cr?.isVideo, m: zeroM() };
+      s.ads.set(adId, a);
+    }
     if (!a.thumbUrl && r.thumb_url) a.thumbUrl = r.thumb_url;
     if (a.name === '(sin nombre)' && r.ad_name) a.name = r.ad_name;
     addM(a.m, r);
@@ -532,11 +557,12 @@ export function useMetaCompras(
       setLoading(true);
       setError(null);
       try {
-        const [nowRows, prevRows, msgNow, msgPrev] = await Promise.all([
+        const [nowRows, prevRows, msgNow, msgPrev, creatives] = await Promise.all([
           fetchRows(clientId, range.from, range.to),
           fetchRows(clientId, previous.from, previous.to),
           fetchMessagingCampaigns(clientId, range.from, range.to),
           fetchMessagingCampaigns(clientId, previous.from, previous.to),
+          fetchAdCreatives(clientId),
         ]);
         if (cancelled) return;
 
@@ -561,7 +587,7 @@ export function useMetaCompras(
         const daily = buildDaily(nowRows, purchaseNames);
 
         // Explorador jerárquico + los tres objetivos de Meta (venta / WhatsApp / marca).
-        const hierarchy = buildHierarchy(nowRows, purchaseNames);
+        const hierarchy = buildHierarchy(nowRows, purchaseNames, creatives);
         const monthlyRoas = monthlyRoasFrom(nowRows, purchaseNames);
         let whatsappSpend = 0;
         let waConversations = 0;

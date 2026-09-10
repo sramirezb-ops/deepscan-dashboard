@@ -105,12 +105,6 @@ body{
 }
 
 .app{display:flex;height:100vh;height:100dvh;min-height:640px;background:var(--bg0);color:var(--t1)}
-/* Escala del UI por cliente. El zoom escala todo proporcionalmente; usamos 1/zoom
-   en la altura para no desbordar el viewport. Cada deployment expone su slug en
-   #app[data-slug] (via NEXT_PUBLIC_DEFAULT_CLIENT_SLUG), así se afina cliente por
-   cliente sin afectar a los demás. Default (Ofero y otros): 1.20. */
-#app{zoom:1.20;height:calc(100vh / 1.20);height:calc(100dvh / 1.20)}
-#app[data-slug="sneakers-store"]{zoom:1.20;height:calc(100vh / 1.20);height:calc(100dvh / 1.20)}
 
 /* ================= SIDEBAR ================= */
 .sb{

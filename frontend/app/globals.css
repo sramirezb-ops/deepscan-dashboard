@@ -107,7 +107,7 @@ body{
 .app{display:flex;height:100vh;height:100dvh;min-height:640px;background:var(--bg0);color:var(--t1)}
 /* Escala global del UI (un poco más grande para lectura cómoda). El zoom escala
    todo proporcionalmente; usamos 1/zoom en la altura para no desbordar el viewport. */
-#app{zoom:1.10;height:calc(100vh / 1.10);height:calc(100dvh / 1.10)}
+#app{zoom:1.20;height:calc(100vh / 1.20);height:calc(100dvh / 1.20)}
 
 /* ================= SIDEBAR ================= */
 .sb{

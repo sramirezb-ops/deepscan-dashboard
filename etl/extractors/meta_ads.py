@@ -348,7 +348,10 @@ def extract_meta_catalog_products(
     }
     url = f"{BASE_URL}/act_{ad_account_id}/insights"
     agg: dict = {}   # name → {spend, impr, vc, atc, purch, pv, retailer_id, availability}
-    _dbg = 0         # log de depuración: primera fila con gasto
+    # NOTA: hoy el app de Meta NO tiene permiso para conversiones por producto de
+    # catálogo (App Review / catalog_management). La API devuelve solo spend/impr por
+    # product_id; vc/atc/purch/pv quedan en 0 hasta que se apruebe ese acceso. Los
+    # campos de conversión ya se piden arriba para que "se enciendan solos" ese día.
     page = 0
     while url:
         page += 1
@@ -379,12 +382,6 @@ def extract_meta_catalog_products(
             a["atc"]   += _get_action(acts,  "add_to_cart")
             a["purch"] += _get_action(acts,  "purchase")
             a["pv"]    += _get_action(avals, "purchase")
-            if _dbg < 1 and float(r.get("spend", 0) or 0) > 0:
-                _dbg += 1
-                log.info(f"   [debug catálogo] keys={list(r.keys())} "
-                         f"csa={str(r.get('catalog_segment_actions'))[:200]} "
-                         f"csv={str(r.get('catalog_segment_value'))[:120]} "
-                         f"actions={str(r.get('actions'))[:120]}")
         url = data.get("paging", {}).get("next"); params = {}
         if url:
             time.sleep(0.3)

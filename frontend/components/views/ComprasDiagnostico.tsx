@@ -317,7 +317,7 @@ const CSS = `
 .mc-thesis .hl{color:var(--up)}
 .mc-sub{font-size:13px;color:var(--t2);margin-top:14px;line-height:1.6}.mc-sub b{color:var(--t1)}
 .mc-north .k{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:8px}
-.mc-north .v{font-size:clamp(38px,5vw,54px);font-weight:800;letter-spacing:-.03em;line-height:.95;color:var(--up);font-family:'Space Grotesk',sans-serif}
+.mc-north .v{font-size:clamp(30px,3.4vw,38px);font-weight:800;letter-spacing:-.03em;line-height:.95;color:var(--up);font-family:'Space Grotesk',sans-serif}
 .mc-north .old{font-size:12px;color:var(--t3);margin-top:8px}.mc-north .old s{color:var(--dn)}
 .mc-north .r{display:flex;gap:20px;margin-top:14px}.mc-north .r .l{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
 .mc-north .r .rv{font-size:17px;font-weight:800;margin-top:2px;font-family:'Space Grotesk',sans-serif}

@@ -337,14 +337,14 @@ def extract_meta_catalog_products(
               for v in (prod_map or {}).values() if v.get("retailer_id")}
     params = {
         "level":        "account",
-        "fields":       "spend,impressions",
+        "fields":       "spend,impressions,actions,action_values",
         "breakdowns":   "product_id",
         "time_range":   f'{{"since":"{date_from}","until":"{date_to}"}}',
         "limit":        500,
         "access_token": access_token,
     }
     url = f"{BASE_URL}/act_{ad_account_id}/insights"
-    agg: dict = {}   # name → {spend, impr, retailer_id, availability}
+    agg: dict = {}   # name → {spend, impr, vc, atc, purch, pv, retailer_id, availability}
     page = 0
     while url:
         page += 1
@@ -362,19 +362,29 @@ def extract_meta_catalog_products(
             name = name.strip()
             if not name:
                 continue
-            a = agg.setdefault(name, {"spend": 0.0, "impr": 0, "retailer_id": rid,
+            a = agg.setdefault(name, {"spend": 0.0, "impr": 0, "vc": 0.0, "atc": 0.0,
+                                      "purch": 0.0, "pv": 0.0, "retailer_id": rid,
                                       "availability": ravail.get(rid, "")})
             a["spend"] += float(r.get("spend", 0) or 0)
             a["impr"]  += int(r.get("impressions", 0) or 0)
+            acts  = r.get("actions", []); avals = r.get("action_values", [])
+            a["vc"]    += _get_action(acts,  "view_content")
+            a["atc"]   += _get_action(acts,  "add_to_cart")
+            a["purch"] += _get_action(acts,  "purchase")
+            a["pv"]    += _get_action(avals, "purchase")
         url = data.get("paging", {}).get("next"); params = {}
         if url:
             time.sleep(0.3)
     rows = [{
-        "product_name": name,
-        "retailer_id":  v["retailer_id"],
-        "availability": v["availability"],
-        "spend":        round(v["spend"], 2),
-        "impressions":  v["impr"],
+        "product_name":   name,
+        "retailer_id":    v["retailer_id"],
+        "availability":   v["availability"],
+        "spend":          round(v["spend"], 2),
+        "impressions":    v["impr"],
+        "view_content":   int(v["vc"]),
+        "add_to_cart":    int(v["atc"]),
+        "purchases":      int(v["purch"]),
+        "purchase_value": round(v["pv"], 2),
     } for name, v in agg.items()]
     log.info(f"   Meta Catálogo entrega: {len(rows)} productos con pauta")
     return rows

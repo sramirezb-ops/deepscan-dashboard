@@ -45,7 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ClientProvider client={client}>
           <PeriodProvider>
             <ChannelModalProvider>
-              <div className={LIGHT_SLUGS.includes(DEFAULT_SLUG) ? 'app lm' : 'app'} id="app">
+              <div className={LIGHT_SLUGS.includes(DEFAULT_SLUG) ? 'app lm' : 'app'} id="app" data-slug={DEFAULT_SLUG}>
                 <MobileOverlay />
                 <Sidebar />
                 <main className="mn">

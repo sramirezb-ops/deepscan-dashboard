@@ -197,9 +197,14 @@ export function ComprasDiagnostico() {
                     <td>
                       <div className="mc-nmcell" style={{ paddingLeft: (r.lvl - 1) * 20 }}>
                         {hasKids ? <span className={`mc-cx${open ? ' open' : ''}`}>▸</span> : <span style={{ width: 11, flex: 'none' }} />}
-                        {k && (r.node.thumbUrl
-                          ? <img className="mc-thmb" src={r.node.thumbUrl} alt="" loading="lazy" />
-                          : <span className={`mc-thmb mc-${k.c}`}>{k.i}</span>)}
+                        {k && (
+                          <span className="mc-thwrap">
+                            {r.node.thumbUrl
+                              ? <img className="mc-thmb" src={r.node.thumbUrl} alt="" loading="lazy" />
+                              : <span className={`mc-thmb mc-${k.c}`}>{k.i}</span>}
+                            {r.node.isVideo && <span className="mc-vbadge">▶</span>}
+                          </span>
+                        )}
                         <span className="mc-nm" title={r.node.name}>{r.node.name}</span>
                         {r.lvl === 3 && <span className="mc-pvhint">🔍 preview</span>}
                       </div>
@@ -291,7 +296,7 @@ function Preview({ p, cur, onClose }: { p: { node: ComprasHierNode; cmp: string;
         <div className={`mc-media mc-${k.c}`}>
           <button className="mc-x" onClick={onClose}>✕</button>
           {p.node.thumbUrl
-            ? <img src={p.node.thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ? <><img src={p.node.thumbUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />{p.node.isVideo && <div className="mc-playbig">▶</div>}</>
             : <><div className="ico">{k.i}</div><div className="lbl">{k.t} · sin miniatura</div></>}
         </div>
         <div className="mc-body">
@@ -342,6 +347,9 @@ table.mc-t{border-collapse:collapse;width:100%;min-width:1200px;font-size:12.5px
 .mc-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}
 .mc-thmb{width:28px;height:28px;border-radius:6px;flex:none;display:grid;place-items:center;font-size:12px;color:#fff;object-fit:cover}
 .mc-thmb.mc-img{background:linear-gradient(135deg,#f0975b,#e0655b)}.mc-thmb.mc-vid{background:linear-gradient(135deg,#5b6cff,#8e5bff)}.mc-thmb.mc-prd{background:linear-gradient(135deg,#0f9d58,#12b877)}
+.mc-thwrap{position:relative;flex:none;width:28px;height:28px;display:grid}
+.mc-vbadge{position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:10px;text-shadow:0 1px 3px rgba(0,0,0,.7);pointer-events:none}
+.mc-playbig{position:absolute;inset:0;display:grid;place-items:center;font-size:44px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.6);pointer-events:none}
 .mc-pvhint{margin-left:auto;font-size:10px;color:var(--acc);opacity:0;transition:opacity .12s;padding-left:8px}.mc-t tr.mcr3:hover .mc-pvhint{opacity:1}
 .mc-funnel{display:flex;flex-direction:column;gap:7px}
 .mc-fstep{display:grid;grid-template-columns:120px 1fr auto;gap:14px;align-items:center}.mc-fstep .fl{font-size:12.5px;font-weight:600;color:var(--t1)}

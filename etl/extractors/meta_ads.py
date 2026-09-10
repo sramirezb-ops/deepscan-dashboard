@@ -335,9 +335,12 @@ def extract_meta_catalog_products(
     con Shopify por título. `prod_map` (opcional) solo enriquece con disponibilidad."""
     ravail = {v.get("retailer_id", ""): v.get("availability", "")
               for v in (prod_map or {}).values() if v.get("retailer_id")}
+    # OJO: con breakdowns=product_id, las CONVERSIONES por producto NO llegan en
+    # `actions`/`action_values` (que salen vacíos), sino en `catalog_segment_actions`
+    # / `catalog_segment_value` — las conversiones atribuidas al segmento de catálogo.
     params = {
         "level":        "account",
-        "fields":       "spend,impressions,actions,action_values",
+        "fields":       "spend,impressions,actions,action_values,catalog_segment_actions,catalog_segment_value",
         "breakdowns":   "product_id",
         "time_range":   f'{{"since":"{date_from}","until":"{date_to}"}}',
         "limit":        500,
@@ -345,6 +348,7 @@ def extract_meta_catalog_products(
     }
     url = f"{BASE_URL}/act_{ad_account_id}/insights"
     agg: dict = {}   # name → {spend, impr, vc, atc, purch, pv, retailer_id, availability}
+    _dbg = 0         # log de depuración: primera fila con gasto
     page = 0
     while url:
         page += 1
@@ -367,11 +371,20 @@ def extract_meta_catalog_products(
                                       "availability": ravail.get(rid, "")})
             a["spend"] += float(r.get("spend", 0) or 0)
             a["impr"]  += int(r.get("impressions", 0) or 0)
-            acts  = r.get("actions", []); avals = r.get("action_values", [])
+            # Conversiones de catálogo: preferir catalog_segment_* (donde vienen con
+            # breakdowns=product_id); caer a actions/action_values si estuvieran.
+            acts  = r.get("catalog_segment_actions") or r.get("actions") or []
+            avals = r.get("catalog_segment_value")   or r.get("action_values") or []
             a["vc"]    += _get_action(acts,  "view_content")
             a["atc"]   += _get_action(acts,  "add_to_cart")
             a["purch"] += _get_action(acts,  "purchase")
             a["pv"]    += _get_action(avals, "purchase")
+            if _dbg < 1 and float(r.get("spend", 0) or 0) > 0:
+                _dbg += 1
+                log.info(f"   [debug catálogo] keys={list(r.keys())} "
+                         f"csa={str(r.get('catalog_segment_actions'))[:200]} "
+                         f"csv={str(r.get('catalog_segment_value'))[:120]} "
+                         f"actions={str(r.get('actions'))[:120]}")
         url = data.get("paging", {}).get("next"); params = {}
         if url:
             time.sleep(0.3)

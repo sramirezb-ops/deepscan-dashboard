@@ -118,10 +118,21 @@ def run_etl(client_id: str, days_back: int = 30):
             # exactas y ad_strength real cuando Google lo calcula. El sheet solo
             # conserva lo que la API no expone: productos, zombies y el split de
             # redes (placements). Así una sola fuente manda por tabla.
-            loader.upsert("gads_products",     mike_data["products_30d"],      client_id)
-            loader.upsert("gads_products",     mike_data["products_180d"],     client_id)
-            loader.upsert("gads_zombies",      mike_data["zombies"],           client_id)
-            loader.upsert("gads_placements",   mike_data["placements_pmax"] + mike_data["placements_detail"], client_id)
+            # SNAPSHOT: el sheet es la foto actual del feed. Reemplazo total para
+            # que productos/campañas de la cuenta ANTERIOR (o de meses viejos) no
+            # se acumulen y contaminen los tiers over/index. Solo borramos si el
+            # extract sí trajo datos, para no vaciar por un error transitorio.
+            if mike_data["products_30d"] or mike_data["products_180d"]:
+                loader.delete_for_client("gads_products", client_id)
+                loader.upsert("gads_products",     mike_data["products_30d"],      client_id)
+                loader.upsert("gads_products",     mike_data["products_180d"],     client_id)
+            if mike_data["zombies"]:
+                loader.delete_for_client("gads_zombies", client_id)
+                loader.upsert("gads_zombies",      mike_data["zombies"],           client_id)
+            placements = mike_data["placements_pmax"] + mike_data["placements_detail"]
+            if placements:
+                loader.delete_for_client("gads_placements", client_id)
+                loader.upsert("gads_placements",   placements, client_id)
             log.info(f"   ✓ Productos 30d: {len(mike_data['products_30d'])} filas")
             log.info(f"   ✓ Zombies: {len(mike_data['zombies'])} filas")
             log.info(f"   ✓ Placements: {len(mike_data['placements_pmax']) + len(mike_data['placements_detail'])} filas")
@@ -141,7 +152,11 @@ def run_etl(client_id: str, days_back: int = 30):
     if pmax_channels_sheet:
         try:
             channels = extract_pmax_channels(pmax_channels_sheet)
-            loader.upsert("gads_pmax_channels", channels, client_id)
+            # SNAPSHOT: reemplazo total. Sin esto, campañas viejas quedaban
+            # sumándose al split de redes (Shopping/Search/Display/Video).
+            if channels:
+                loader.delete_for_client("gads_pmax_channels", client_id)
+                loader.upsert("gads_pmax_channels", channels, client_id)
             log.info(f"   ✓ Redes PMax: {len(channels)} filas (campaña × red)")
         except Exception as e:
             log.error(f"   ✗ PMAX Channel Split error: {e}")
@@ -183,8 +198,13 @@ def run_etl(client_id: str, days_back: int = 30):
     flowboost_sheet_id = os.environ.get("FLOWBOOST_SHEET_ID", "")
     if flowboost_sheet_id:
         fb_data = extract_flowboost(flowboost_sheet_id)
-        loader.upsert("gads_flowboost_products", fb_data["products"], client_id)
-        loader.upsert("gads_flowboost_summary",  fb_data["summary"],  client_id)
+        # SNAPSHOT: reemplazo total para no acumular product_item_id de feeds viejos.
+        if fb_data["products"]:
+            loader.delete_for_client("gads_flowboost_products", client_id)
+            loader.upsert("gads_flowboost_products", fb_data["products"], client_id)
+        if fb_data["summary"]:
+            loader.delete_for_client("gads_flowboost_summary", client_id)
+            loader.upsert("gads_flowboost_summary",  fb_data["summary"],  client_id)
         log.info(f"   ✓ Flowboost productos: {len(fb_data['products'])} filas")
     else:
         log.warning("   ⚠ FLOWBOOST_SHEET_ID no configurado")

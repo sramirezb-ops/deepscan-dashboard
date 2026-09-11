@@ -168,6 +168,10 @@ def run_etl(client_id: str, days_back: int = 30):
     pmax_st_sheet_id = os.environ.get("PMAX_SEARCH_TERMS_SHEET_ID", "")
     if pmax_st_sheet_id:
         pmax_st = extract_pmax_search_terms(pmax_st_sheet_id)
+        # Reemplazo total: el sheet es un snapshot del período actual. Sin esto,
+        # datos viejos (de otra cuenta/mes) se acumulan y contaminan la vista.
+        loader.delete_for_client("gads_search_categories", client_id)
+        loader.delete_for_client("gads_search_term_details", client_id)
         loader.upsert("gads_search_categories", pmax_st["categories"], client_id)
         loader.upsert("gads_search_term_details", pmax_st["terms"],    client_id)
         log.info(f"   ✓ Categorías: {len(pmax_st['categories'])} · Términos: {len(pmax_st['terms'])} filas")

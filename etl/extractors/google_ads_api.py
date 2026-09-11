@@ -61,6 +61,14 @@ def upsert(table: str, rows: list, conflict: str):
     return total
 
 
+def delete_for_client(table: str, client_id: str):
+    """Borra todas las filas de un cliente antes de reescribir una tabla-SNAPSHOT
+    (sin dimensión de fecha, como gads_assets). Sin esto, los assets/grupos de la
+    cuenta ANTERIOR quedan pegados para siempre y contaminan la vista al cambiar
+    de cuenta de Google Ads."""
+    supabase.table(table).delete().eq("client_id", client_id).execute()
+
+
 # ── QUERIES GAQL ─────────────────────────────────────────────────────────────
 
 def extract_campaigns(client, customer_id, client_id, date_start, date_end):
@@ -863,9 +871,14 @@ def run():
             n = upsert("gads_ad_assets", rows, "client_id,date_start,ad_id,asset_id,field_type")
             log.info(f"   ✓ gads_ad_assets: {n} filas")
 
+            # SNAPSHOT del inventario actual de assets: se reemplaza entero cada
+            # corrida. Borramos primero para que los asset groups de la cuenta
+            # anterior no queden pegados (una campaña "Feed Only" no tiene assets
+            # creativos, así que quedar en 0 es el estado honesto).
             rows = extract_pmax_assets(gads, customer_id, cid, date_start, date_end)
+            delete_for_client("gads_assets", cid)
             n = upsert("gads_assets", rows, "client_id,asset_group_id,asset_id,field_type")
-            log.info(f"   ✓ gads_assets (PMax): {n} filas")
+            log.info(f"   ✓ gads_assets (PMax): {n} filas (snapshot reemplazado)")
 
             rows = extract_asset_groups(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_asset_groups", rows, "client_id,date,campaign_name,asset_group_name")

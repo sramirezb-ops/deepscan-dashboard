@@ -433,31 +433,34 @@ def extract_flowboost(sheet_id: str) -> dict:
     log.info(f"   Flowboost sheet: {sheet_id}")
     result = {"products": [], "summary": []}
 
-    # Flowbelizer — producto por producto con label
+    # Flowbelizer — producto por producto con label.
+    # Columnas reales del sheet (headers normalizados por _read_sheet_csv):
+    #   id · impressions · clicks · costs · conversions · conv_value · roas · custom_label_1
+    # Se mantienen los nombres viejos como fallback por si otro cliente usa otro layout.
     for r in _read_sheet_csv(sheet_id, "Flowbelizer"):
-        product_id = r.get("offer_id", r.get("segments_product_item_id", ""))
+        product_id = r.get("id") or r.get("offer_id") or r.get("segments_product_item_id", "")
         if not product_id:
             continue
         result["products"].append({
             "product_item_id": product_id,
             "impressions":     _safe_int(r.get("impressions", 0)),
             "clicks":          _safe_int(r.get("clicks", 0)),
-            "cost":            _safe_float(r.get("cost", 0)),
+            "cost":            _safe_float(r.get("costs", r.get("cost", 0))),
             "conversions":     _safe_float(r.get("conversions", 0)),
-            "conv_value":      _safe_float(r.get("conversionvalue", r.get("conversion_value", 0))),
-            "roas":            _safe_float(r.get("convvaluepercostvp", r.get("conv_value_per_cost", 0))),
-            "label":           r.get("isproducttype", r.get("label", "")),  # over-index, index, near-index, under-index, no-index
+            "conv_value":      _safe_float(r.get("conv_value", r.get("conversionvalue", r.get("conversion_value", 0)))),
+            "roas":            _safe_float(r.get("roas", r.get("convvaluepercostvp", r.get("conv_value_per_cost", 0)))),
+            "label":           r.get("custom_label_1", r.get("isproducttype", r.get("label", ""))),  # over-index, index, near-index, under-index, no-index
         })
     log.info(f"   Flowbelizer: {len(result['products'])} productos")
 
-    # productSummary
+    # productSummary — resumen por label (columnas: custom_label_1 · amount · impressions · clicks · costs · conv_value · roas)
     for r in _read_sheet_csv(sheet_id, "productSummary"):
         result["summary"].append({
-            "label":       r.get("label", r.get("isproducttype", "")),
-            "count":       _safe_int(r.get("count", 0)),
+            "label":       r.get("custom_label_1", r.get("label", r.get("isproducttype", ""))),
+            "count":       _safe_int(r.get("amount", r.get("count", 0))),
             "impressions": _safe_int(r.get("impressions", 0)),
             "clicks":      _safe_int(r.get("clicks", 0)),
-            "cost":        _safe_float(r.get("cost", 0)),
+            "cost":        _safe_float(r.get("costs", r.get("cost", 0))),
             "conversions": _safe_float(r.get("conversions", 0)),
             "conv_value":  _safe_float(r.get("conv_value", 0)),
             "roas":        _safe_float(r.get("roas", 0)),

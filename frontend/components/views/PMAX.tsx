@@ -2,10 +2,9 @@
 
 import { useClient } from '@/lib/useClient';
 import { GoogleAdsSegmentView } from './GoogleAdsSegmentView';
-import { GadsPmaxChannels } from './GadsPmaxChannels';
+import { GadsProductBible } from './GadsProductBible';
 import { GadsAssetGroups } from './GadsAssetGroups';
 import { GadsAssets } from './GadsAssets';
-import { GadsProducts } from './GadsProducts';
 import { PMAXLeads } from './PMAXLeads';
 
 // Vista ecommerce de PMAX (Revenue/ROAS + productos): la composición original.
@@ -18,9 +17,8 @@ function PMAXEcommerce() {
       icon="🅿"
       extraSection={
         <>
-          <GadsPmaxChannels />
+          <GadsProductBible />
           <GadsAssetGroups />
-          <GadsProducts />
           <GadsAssets />
         </>
       }

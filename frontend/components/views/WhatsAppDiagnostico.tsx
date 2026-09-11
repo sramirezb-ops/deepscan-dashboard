@@ -26,13 +26,18 @@ const cpcOf = (m: WaMetric) => (m.conversations > 0 ? m.spend / m.conversations 
 const money = (v: number, cur: string) => formatCurrency(v, cur);
 const cpcFmt = (v: number) => (v > 0 ? '$' + v.toFixed(1) : '—');
 
-type SortKey = 'spend' | 'cpc' | 'conversations' | 'pct';
+type SortKey = 'spend' | 'cpc' | 'conversations' | 'impressions' | 'pct';
 const COLS: { k: SortKey; l: string }[] = [
   { k: 'spend', l: 'Gasto' },
-  { k: 'cpc', l: 'Costo/conv' },
-  { k: 'conversations', l: 'Conv.' },
+  { k: 'conversations', l: 'Mensajes' },
+  { k: 'cpc', l: 'Costo/msg' },
+  { k: 'impressions', l: 'Impres.' },
   { k: 'pct', l: '% gasto' },
 ];
+const ST_LABEL: Record<string, [string, string]> = {
+  active: ['Activo', 'wa-st-on'], paused: ['Pausado', 'wa-st-off'],
+  rejected: ['Rechazado', 'wa-st-bad'], unknown: ['—', 'wa-st-off'],
+};
 
 export function WhatsAppDiagnostico() {
   const client = useClient();
@@ -42,12 +47,16 @@ export function WhatsAppDiagnostico() {
   const rangeLabel = formatRangeLabel(range);
 
   const [exp, setExp] = useState<Record<string, boolean>>({});
+  const [expPar, setExpPar] = useState<Record<string, boolean>>({});
   const [sortKey, setSortKey] = useState<SortKey>('spend');
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
 
   const withIds = useMemo(() => {
-    const hier = data?.hierarchy ?? [];
-    return hier.map((c, ci) => ({ ...c, _id: 'c' + ci }));
+    const hier = data?.adHierarchy ?? [];
+    return hier.map((c, ci) => ({
+      ...c, _id: 'c' + ci,
+      kids: (c.kids ?? []).map((s, si) => ({ ...s, _id: 'c' + ci + 's' + si })),
+    }));
   }, [data]);
 
   if (loading && !data) {
@@ -97,18 +106,22 @@ export function WhatsAppDiagnostico() {
   const onSort = (k: SortKey) => { if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1)); else { setSortKey(k); setSortDir(-1); } };
   const toggle = (id: string) => setExp((e) => ({ ...e, [id]: !e[id] }));
 
-  type Row = { lvl: 1 | 2; id: string; node: WaHierNode };
+  type Row = { lvl: 1 | 2 | 3; id: string; node: WaHierNode };
   const rows: Row[] = [];
   sortNodes(withIds).forEach((c: any) => {
     rows.push({ lvl: 1, id: c._id, node: c });
-    if (exp[c._id]) sortNodes(c.kids ?? []).forEach((s: any, si: number) => {
-      rows.push({ lvl: 2, id: c._id + 's' + si, node: s });
+    if (exp[c._id]) sortNodes(c.kids ?? []).forEach((s: any) => {
+      rows.push({ lvl: 2, id: s._id, node: s });
+      if (exp[s._id]) sortNodes(s.kids ?? []).forEach((a: any, ai: number) => {
+        rows.push({ lvl: 3, id: s._id + 'a' + ai, node: a });
+      });
     });
   });
 
   const cell = (m: WaMetric, k: SortKey) => {
     if (k === 'spend') return money(m.spend, cur);
     if (k === 'conversations') return formatInt(Math.round(m.conversations));
+    if (k === 'impressions') return formatInt(Math.round(m.impressions));
     if (k === 'pct') return pctOf(m.spend) + '%';
     const c = cpcOf(m);
     return <span className={'wa-pill ' + (semCls(c) === 'wa-good' ? 'wa-pg' : semCls(c) === 'wa-warn' ? 'wa-pw' : 'wa-pb')}>{cpcFmt(c)}</span>;
@@ -173,6 +186,23 @@ export function WhatsAppDiagnostico() {
                 </div>
               </div>
             </div>
+            {aura.advisors.length > 0 && (
+              <div className="wa-adv">
+                <div className="wa-adv-h">Cierres por asesor<span className="hint"> · quién cierra la venta manual</span></div>
+                {(() => {
+                  const maxc = Math.max(...aura.advisors.map((a) => a.cobrado), 1);
+                  return aura.advisors.map((a) => (
+                    <div className="wa-adv-row" key={a.name}>
+                      <div className="an">{a.name}</div>
+                      <div className="ab"><i style={{ width: (a.cobrado / maxc) * 100 + '%' }} /></div>
+                      <div className="at">{a.tickets} <span className="mu">tks</span></div>
+                      <div className="ac">{money(a.cobrado, cur)}</div>
+                      <div className="ap">{Math.round((a.cobrado / aura.manualCobrado) * 100)}%</div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
             <div className="wa-caveat">
               <span className="q">⚠️</span>
               <p><b>Contexto, no atribución.</b> El canal “manual” de AURA es donde el equipo registra los cierres por conversación, pero incluye también DM orgánico, referidos y recompra. La plataforma <b>no puede ligar una venta específica a una conversación específica</b>. Lo mostramos para dimensionar el rol del canal — el {Math.round(aura.manualPct * 100)}% de la venta nueva del período ({money(aura.totalMedicion, cur)}) se cierra por esta vía.</p>
@@ -236,8 +266,72 @@ export function WhatsAppDiagnostico() {
         </>
       )}
 
+      {/* BALANCE DE PARES */}
+      {data.pares.length > 0 && (() => {
+        const P = data.pares;
+        const totMsg = data.paresTotals.messages || 1;
+        const maxMsg = Math.max(...P.map((p) => p.messages), 1);
+        const parCpm = (p: typeof P[number]) => (p.messages > 0 ? p.spend / p.messages : 0);
+        const cpmCls = (v: number) => (v <= 0 ? 'mid' : v < 5 ? 'cheap' : v <= 10 ? 'mid' : 'dear');
+        const conc = data.concentration;
+        const palette = ['#e08a00', '#f2a93b', '#7bbf5a', '#38bdf8', '#a78bfa'];
+        const top = P.slice(0, 3);
+        const restShare = 1 - top.reduce((s, p) => s + p.messages, 0) / totMsg;
+        return (
+          <>
+            <div className="wa-sh"><h2>⚖️ Balance de pares</h2><span className="hint">concentración por modelo · clic en un par para ver sus anuncios</span></div>
+            <div className="card">
+              <div className="wa-conc">
+                <div className="stat"><div className="k">Par top</div><div className="v mono">{Math.round(conc.topShare * 100)}%</div></div>
+                <div className="stat"><div className="k">Top 3 pares</div><div className="v mono">{Math.round(conc.top3Share * 100)}%</div><div className="sub">de los mensajes</div></div>
+                <div className="stat"><div className="k">Pares activos</div><div className="v mono">{conc.parCount}</div></div>
+                <div className="wa-stack">
+                  {top.map((p, i) => <i key={i} style={{ width: (p.messages / totMsg) * 100 + '%', background: palette[i] }}>{(p.messages / totMsg) >= 0.1 ? Math.round((p.messages / totMsg) * 100) + '%' : ''}</i>)}
+                  {restShare > 0.001 && <i style={{ width: restShare * 100 + '%', background: 'var(--track)', color: 'var(--t2)' }}>{restShare >= 0.1 ? 'resto' : ''}</i>}
+                </div>
+              </div>
+
+              {P.map((p, pi) => {
+                const cpm = parCpm(p);
+                const open = !!expPar['p' + pi];
+                return (
+                  <div key={p.model} className="wa-parwrap">
+                    <div className={'wa-par' + (open ? ' open' : '')} onClick={() => setExpPar((e) => ({ ...e, ['p' + pi]: !e['p' + pi] }))}>
+                      <span className="cx">▸</span>
+                      {p.thumbUrl ? <img className="pthumb" src={p.thumbUrl} alt="" /> : <span className="pthumb ph">👟</span>}
+                      <div className="pnm"><div className="t">{p.model}</div><div className="s">{p.ads.length} anuncio{p.ads.length !== 1 ? 's' : ''} · {formatInt(Math.round(p.impressions))} impr</div></div>
+                      <div className="pbar"><i style={{ width: (p.messages / maxMsg) * 100 + '%' }} /></div>
+                      <div className="pmsg"><div className="n mono">{formatInt(Math.round(p.messages))}</div><div className="pp">{Math.round((p.messages / totMsg) * 100)}%</div></div>
+                      <div className={'pcpm mono ' + cpmCls(cpm)}>{cpcFmt(cpm)}<span className="u">/msg</span></div>
+                    </div>
+                    {open && (
+                      <div className="wa-parads">
+                        {p.ads.map((a) => {
+                          const st = ST_LABEL[a.status];
+                          return (
+                            <div className="wa-parad" key={a.adId}>
+                              {a.thumbUrl ? <img className="athumb" src={a.thumbUrl} alt="" /> : <span className="athumb ph">{a.isVideo ? '▶' : '👟'}</span>}
+                              <div className="anm"><div className="t">{a.adName}</div><div className="s">{a.adsetName}</div></div>
+                              <span className={'wa-st ' + st[1]}>{st[0]}</span>
+                              <div className="av"><span className="mono">{formatInt(Math.round(a.messages))}</span><span className="u">msgs</span></div>
+                              <div className="av"><span className="mono">{money(a.spend, cur)}</span><span className="u">gasto</span></div>
+                              <div className="av"><span className="mono">{formatInt(Math.round(a.impressions))}</span><span className="u">impr</span></div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div className="wa-note" style={{ marginTop: 14 }}>💡 Un par que crece mucho no siempre es malo — pero conviene tenerlo <b>vigilado</b>. Ojo: un <b>costo/msg bajo</b> suele traer <b>más volumen pero peor lead</b>. Clic en cada par para ver qué anuncio está activo y cuánto consumió.</div>
+            </div>
+          </>
+        );
+      })()}
+
       {/* EXPLORADOR */}
-      <div className="wa-sh"><h2>Explorador · campaña → conjunto</h2><span className="hint">clic para desplegar · ordena por cualquier métrica</span>
+      <div className="wa-sh"><h2>Explorador · campaña → conjunto → anuncio</h2><span className="hint">clic para desplegar hasta el anuncio · ordena por cualquier métrica</span>
         <div className="wa-legend">
           <div className="lk"><span className="sq" style={{ background: 'var(--up)' }} />≤ ${GOAL}</div>
           <div className="lk"><span className="sq" style={{ background: 'var(--warn)' }} />${GOAL}–{GOAL * 1.5}</div>
@@ -255,17 +349,27 @@ export function WhatsAppDiagnostico() {
             ))}
           </tr></thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id + r.node.name} className={r.lvl === 1 ? 'wa-camp' : 'wa-set'} onClick={r.lvl === 1 ? () => toggle(r.id) : undefined}>
-                <td>
-                  <span className="nm">
-                    {r.lvl === 1 ? <span className={'cx' + (exp[r.id] ? ' open' : '')}>▸</span> : <span className="cxsp" />}
-                    {r.node.name}
-                  </span>
-                </td>
-                {COLS.map((c) => <td key={c.k}>{cell(r.node.m, c.k)}</td>)}
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const cls = r.lvl === 1 ? 'wa-camp' : r.lvl === 2 ? 'wa-set' : 'wa-ad';
+              const canToggle = r.lvl < 3;
+              const st = r.node.status ? ST_LABEL[r.node.status] : null;
+              return (
+                <tr key={r.id + r.node.name} className={cls} onClick={canToggle ? () => toggle(r.id) : undefined}>
+                  <td>
+                    <span className="nm">
+                      {canToggle
+                        ? <span className={'cx' + (exp[r.id] ? ' open' : '')}>▸</span>
+                        : (r.node.thumbUrl
+                            ? <img className="wa-thmb" src={r.node.thumbUrl} alt="" />
+                            : <span className="wa-thmb ph">{r.node.isVideo ? '▶' : '👟'}</span>)}
+                      <span className="nmtxt">{r.node.name}</span>
+                      {st && <span className={'wa-st ' + st[1]}>{st[0]}</span>}
+                    </span>
+                  </td>
+                  {COLS.map((c) => <td key={c.k}>{cell(r.node.m, c.k)}</td>)}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -321,16 +425,26 @@ const CSS = `
 .wa-fcard.wa{border-color:rgba(37,211,102,.25)}.wa-fcard.au{border-color:rgba(139,92,246,.28)}
 .wa-fcard .fk{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:7px;margin-bottom:14px}
 .wa-fcard .dot{width:8px;height:8px;border-radius:50%}
-.wa-fcard .fv{font-size:29px;font-weight:800;letter-spacing:-.02em;line-height:1;font-family:'Space Grotesk',sans-serif}
+.wa-fcard .fv{font-size:29px;font-weight:800;letter-spacing:-.02em;line-height:1;font-family:'Space Grotesk',sans-serif;color:var(--t1)}
 .wa-fcard .fv.up{color:var(--up)}
 .wa-fcard .fl{font-size:12px;color:var(--t2);margin-top:7px}.wa-fcard .fl b{color:var(--t1)}
 .wa-fcard .frow{display:flex;gap:20px;margin-top:15px;padding-top:13px;border-top:1px solid var(--b1)}
-.wa-fcard .frow .nv{font-size:15px;font-weight:800;font-family:'Space Grotesk',sans-serif}
+.wa-fcard .frow .nv{font-size:15px;font-weight:800;font-family:'Space Grotesk',sans-serif;color:var(--t1)}
 .wa-fcard .frow .tl{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--t3);margin-top:2px}
 .wa-arrow{display:grid;place-items:center;color:var(--t3);font-size:20px}
 .wa-caveat{display:flex;gap:10px;align-items:flex-start;margin-top:16px;background:var(--bg2);border-radius:10px;padding:12px 15px}
 .wa-caveat .q{font-size:15px;line-height:1;margin-top:1px}
 .wa-caveat p{font-size:11.5px;color:var(--t3);line-height:1.55}.wa-caveat b{color:var(--t2)}
+.wa-adv{margin-top:16px;background:var(--bg2);border-radius:10px;padding:14px 16px}
+.wa-adv-h{font-size:12px;font-weight:800;color:var(--t1);margin-bottom:12px}.wa-adv-h .hint{font-weight:500;color:var(--t3)}
+.wa-adv-row{display:grid;grid-template-columns:130px 1fr 52px 96px 40px;align-items:center;gap:12px;padding:5px 0}
+.wa-adv-row .an{font-size:12px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wa-adv-row .ab{height:8px;background:var(--track,rgba(255,255,255,.06));border-radius:5px;overflow:hidden}
+.wa-adv-row .ab i{display:block;height:100%;background:var(--up);border-radius:5px}
+.wa-adv-row .at{font-size:11px;color:var(--t2);text-align:right;font-family:'Space Grotesk',sans-serif}.wa-adv-row .at .mu{color:var(--t3)}
+.wa-adv-row .ac{font-size:12.5px;font-weight:800;text-align:right;font-family:'Space Grotesk',sans-serif}
+.wa-adv-row .ap{font-size:11px;color:var(--t3);text-align:right}
+@media(max-width:640px){.wa-adv-row{grid-template-columns:104px 1fr 78px;gap:8px}.wa-adv-row .at,.wa-adv-row .ap{display:none}}
 .wa-trend{display:flex;align-items:flex-end;gap:14px;height:150px;margin-top:4px}
 .wa-trend .tcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:7px;height:100%}
 .wa-trend .tbar{width:100%;max-width:58px;border-radius:6px 6px 0 0}
@@ -372,5 +486,40 @@ table.wa-t{border-collapse:collapse;width:100%;min-width:640px;font-size:12.5px}
 .wa-act .tag .d{width:9px;height:9px;border-radius:50%}
 .wa-act .body{font-size:13px;color:var(--t2);line-height:1.55}.wa-act .body b{color:var(--t1)}
 .wa-fn{margin-top:34px;font-size:11px;color:var(--t3);border-top:1px solid var(--b1);padding-top:16px;line-height:1.6}.wa-fn b{color:var(--t2)}
-@media(max-width:760px){.wa-hero{grid-template-columns:1fr}.wa-north{text-align:left}.wa-north .row{justify-content:flex-start}.wa-flow{grid-template-columns:1fr}.wa-arrow{transform:rotate(90deg);height:38px}.wa-acts{grid-template-columns:1fr}}
+/* ── Balance de pares ── */
+.wa-conc{display:grid;grid-template-columns:auto auto auto 1fr;gap:26px;align-items:center;padding-bottom:16px;margin-bottom:6px;border-bottom:1px solid var(--b1)}
+.wa-conc .stat .k{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.wa-conc .stat .v{font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1;margin-top:4px;color:var(--t1)}
+.wa-conc .stat .sub{font-size:9.5px;color:var(--t3);margin-top:3px}
+.wa-stack{height:20px;border-radius:6px;overflow:hidden;display:flex;border:1px solid var(--b1)}
+.wa-stack>i{height:100%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden}
+.wa-parwrap{border-top:1px solid var(--b1)}
+.wa-par{display:grid;grid-template-columns:12px 34px 1fr 110px 66px 66px;gap:12px;align-items:center;padding:9px 0;cursor:pointer}
+.wa-par .cx{color:var(--t3);font-size:9px;transition:transform .15s}.wa-par.open .cx{transform:rotate(90deg)}
+.pthumb{width:34px;height:34px;border-radius:8px;object-fit:cover;display:grid;place-items:center;font-size:15px;background:var(--bg3,#1c1c28)}
+.pthumb.ph{color:var(--t3)}
+.wa-par .pnm{min-width:0}
+.wa-par .pnm .t{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--t1)}
+.wa-par .pnm .s{font-size:10.5px;color:var(--t3);margin-top:1px}
+.wa-par .pbar{height:9px;background:var(--track);border-radius:5px;overflow:hidden}
+.wa-par .pbar i{display:block;height:100%;background:var(--up);border-radius:5px}
+.wa-par .pmsg{text-align:right}.wa-par .pmsg .n{font-size:14px;font-weight:800;font-family:'Space Grotesk',sans-serif;color:var(--t1)}.wa-par .pmsg .pp{font-size:9.5px;color:var(--t3)}
+.wa-par .pcpm{text-align:right;font-size:12.5px;font-weight:800;font-family:'Space Grotesk',sans-serif}
+.wa-par .pcpm.cheap{color:var(--up)}.wa-par .pcpm.mid{color:var(--t2)}.wa-par .pcpm.dear{color:var(--dn)}
+.wa-par .pcpm .u{font-size:8.5px;color:var(--t3);font-weight:500}
+.wa-parads{padding:2px 0 10px 58px;display:flex;flex-direction:column;gap:6px}
+.wa-parad{display:grid;grid-template-columns:26px 1fr 74px 58px 78px 58px;gap:10px;align-items:center;background:var(--bg2);border-radius:8px;padding:7px 10px}
+.athumb{width:26px;height:26px;border-radius:6px;object-fit:cover;display:grid;place-items:center;font-size:11px;background:var(--bg3,#1c1c28);color:var(--t3)}
+.wa-parad .anm{min-width:0}.wa-parad .anm .t{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--t1)}.wa-parad .anm .s{font-size:9.5px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wa-parad .av{text-align:right}.wa-parad .av .mono{font-size:11.5px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:var(--t1)}.wa-parad .av .u{font-size:8.5px;color:var(--t3);display:block}
+.wa-st{font-size:9px;font-weight:800;padding:2px 7px;border-radius:20px;white-space:nowrap;letter-spacing:.02em}
+.wa-st-on{color:var(--up);background:rgba(34,217,122,.12)}
+.wa-st-off{color:var(--t3);background:var(--track)}
+.wa-st-bad{color:var(--dn);background:rgba(244,88,106,.12)}
+/* miniatura y fila de anuncio en el explorador */
+.wa-thmb{width:24px;height:24px;border-radius:5px;object-fit:cover;flex:none;display:grid;place-items:center;font-size:11px;background:var(--bg3,#1c1c28);color:var(--t3)}
+.wa-t tr.wa-ad td{color:var(--t2)}
+.wa-t tr.wa-ad td:first-child{background:var(--bg1);padding-left:30px;font-weight:500}
+.wa-t tr.wa-ad .nmtxt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+@media(max-width:760px){.wa-hero{grid-template-columns:1fr}.wa-north{text-align:left}.wa-north .row{justify-content:flex-start}.wa-flow{grid-template-columns:1fr}.wa-arrow{transform:rotate(90deg);height:38px}.wa-acts{grid-template-columns:1fr}.wa-conc{grid-template-columns:1fr 1fr;gap:14px}.wa-stack{grid-column:1/-1}.wa-parad{grid-template-columns:26px 1fr 60px}.wa-parad .av:nth-child(n+5){display:none}}
 `;

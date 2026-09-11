@@ -37,15 +37,20 @@ const ZERO_METRICS: AssetMetrics = {
   cost: 0,
 };
 
+// Origen del asset: lo crea Google automáticamente o lo subió el anunciante.
+export type AssetSource = 'auto' | 'advertiser' | 'unknown';
+
 export interface VideoAsset extends AssetMetrics {
   videoId: string;
   title: string;
+  source: AssetSource;
   groups: string[]; // asset groups que lo usan
 }
 
 export interface TextAsset extends AssetMetrics {
   text: string;
   fieldType: string;
+  source: AssetSource;
   groups: string[];
 }
 
@@ -57,6 +62,7 @@ export interface TypeCount {
 export interface ImageAsset extends AssetMetrics {
   url: string;
   fieldType: string;
+  source: AssetSource;
   groups: string[]; // asset groups que la usan
 }
 
@@ -72,6 +78,11 @@ export interface GadsAssetsData {
   videoCount: number; // videos distintos
   textCount: number; // total filas de texto
   assetCount: number; // total filas
+  // Origen de las piezas distintas (para el resumen de arriba).
+  autoCount: number; // piezas que Google generó automáticamente
+  advertiserCount: number; // piezas que subió el anunciante
+  unknownCount: number; // piezas sin origen declarado
+  distinctCount: number; // total de piezas distintas (videos + textos + imágenes)
   // Banderas de honestidad para el aviso de la UI.
   hasAnyImageUrl: boolean;
   hasAnyPerfLabel: boolean;
@@ -89,6 +100,7 @@ interface RawAsset {
   asset_type: string | null;
   field_type: string | null;
   performance_label: string | null;
+  source: string | null;
   asset_text: string | null;
   image_url: string | null;
   youtube_video_id: string | null;
@@ -102,7 +114,20 @@ interface RawAsset {
 }
 
 const SELECT =
-  'asset_type, field_type, performance_label, asset_text, image_url, youtube_video_id, youtube_title, asset_group_name, impressions, clicks, conversions, conv_value, cost';
+  'asset_type, field_type, performance_label, source, asset_text, image_url, youtube_video_id, youtube_title, asset_group_name, impressions, clicks, conversions, conv_value, cost';
+
+/** Normaliza el campo `source` de Google a nuestras 3 categorías. */
+function srcOf(r: RawAsset): AssetSource {
+  const s = (r.source || '').toUpperCase();
+  if (s.includes('AUTOMATICALLY')) return 'auto';
+  if (s.includes('ADVERTISER')) return 'advertiser';
+  return 'unknown';
+}
+
+/** Al deduplicar, un origen declarado (auto/advertiser) gana sobre 'unknown'. */
+function mergeSource(prev: AssetSource, next: AssetSource): AssetSource {
+  return prev === 'unknown' ? next : prev;
+}
 
 /** Suma las métricas de una fila cruda sobre un acumulador. */
 function addMetrics(acc: AssetMetrics, r: RawAsset) {
@@ -151,8 +176,10 @@ function dedupeText(rows: RawAsset[]): TextAsset[] {
     const key = `${ft}␟${text}`;
     let a = map.get(key);
     if (!a) {
-      a = { text, fieldType: ft, groups: [], ...ZERO_METRICS };
+      a = { text, fieldType: ft, source: srcOf(r), groups: [], ...ZERO_METRICS };
       map.set(key, a);
+    } else {
+      a.source = mergeSource(a.source, srcOf(r));
     }
     const g = r.asset_group_name || '';
     if (g && !a.groups.includes(g)) a.groups.push(g);
@@ -195,10 +222,13 @@ export function useGadsAssets(clientId: string): UseGadsAssetsResult {
             v = {
               videoId: id,
               title: (r.youtube_title || '').trim() || 'Video sin título',
+              source: srcOf(r),
               groups: [],
               ...ZERO_METRICS,
             };
             vmap.set(id, v);
+          } else {
+            v.source = mergeSource(v.source, srcOf(r));
           }
           const g = r.asset_group_name || '';
           if (g && !v.groups.includes(g)) v.groups.push(g);
@@ -231,14 +261,31 @@ export function useGadsAssets(clientId: string): UseGadsAssetsResult {
           if (!url) continue; // honestidad: si no hay URL, no se pinta
           let im = imgMap.get(url);
           if (!im) {
-            im = { url, fieldType: r.field_type || 'IMAGE', groups: [], ...ZERO_METRICS };
+            im = { url, fieldType: r.field_type || 'IMAGE', source: srcOf(r), groups: [], ...ZERO_METRICS };
             imgMap.set(url, im);
+          } else {
+            im.source = mergeSource(im.source, srcOf(r));
           }
           const g = r.asset_group_name || '';
           if (g && !im.groups.includes(g)) im.groups.push(g);
           addMetrics(im, r);
         }
         const images = Array.from(imgMap.values()).sort(byPerformance);
+
+        // Origen de las piezas distintas (videos + textos + imágenes con URL).
+        const allDistinct: { source: AssetSource }[] = [
+          ...videos,
+          ...allText,
+          ...images,
+        ];
+        let autoCount = 0;
+        let advertiserCount = 0;
+        let unknownCount = 0;
+        for (const a of allDistinct) {
+          if (a.source === 'auto') autoCount++;
+          else if (a.source === 'advertiser') advertiserCount++;
+          else unknownCount++;
+        }
 
         setData({
           videos,
@@ -252,6 +299,10 @@ export function useGadsAssets(clientId: string): UseGadsAssetsResult {
           videoCount: videos.length,
           textCount: textRows.length,
           assetCount: rows.length,
+          autoCount,
+          advertiserCount,
+          unknownCount,
+          distinctCount: allDistinct.length,
           hasAnyImageUrl: rows.some((r) => (r.image_url || '').trim() !== ''),
           hasAnyPerfLabel: rows.some((r) => (r.performance_label || '').trim() !== ''),
           hasAnyMetric: rows.some(

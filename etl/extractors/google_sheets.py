@@ -8,6 +8,7 @@ Lee los 4 scripts via CSV público (sheets públicos, sin autenticación):
 """
 
 import logging
+import re
 import requests
 import csv
 import io

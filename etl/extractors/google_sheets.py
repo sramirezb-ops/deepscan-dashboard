@@ -47,8 +47,11 @@ def _read_sheet_csv(sheet_id: str, tab_name: str) -> list[dict]:
 
 
 def _safe_float(val: Any, default=0.0) -> float:
+    # Quita separadores de miles y CUALQUIER símbolo de moneda ($, €, £, %, etc.):
+    # algunos sheets (p.ej. FlowBoost) traen "€ 89.44" y antes devolvían 0.
     try:
-        return float(str(val).replace(",", "").replace("$", "").strip() or 0)
+        s = re.sub(r"[^0-9.\-]", "", str(val).replace(",", ""))
+        return float(s or 0)
     except (ValueError, TypeError):
         return default
 

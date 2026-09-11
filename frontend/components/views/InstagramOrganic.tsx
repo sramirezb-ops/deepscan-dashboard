@@ -1,398 +1,239 @@
 'use client';
 
-import { HeroHead } from '@/components/ui/BrandLogo';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import {
-  useInstagramOrganic,
-  type IgMediaRow,
-  type IgTypeBreakdown,
-} from '@/lib/hooks/useInstagramOrganic';
+import { useInstagramOrganic, type IgMediaRow } from '@/lib/hooks/useInstagramOrganic';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { useSortableTable, type SortAccessor } from '@/components/ui/useSortableTable';
 import { TrendChart } from '@/components/ui/TrendChart';
-import { formatInt, formatPercent, formatDelta, deltaDirection } from '@/lib/utils';
+import { formatInt, formatPercent, formatDelta } from '@/lib/utils';
 
-// "2026-06-16" → "16 jun"
+const IG1 = '#F58529', IG2 = '#DD2A7B', FEEDC = '#405DE6';
+
 function fmtDayShort(iso: string): string {
   const [, m, d] = iso.split('-');
   const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   return `${Number(d)} ${meses[Number(m) - 1] ?? m}`;
 }
-
-const TYPE_COLOR: Record<string, string> = {
-  Reels: '#E1306C',
-  Carrusel: '#C13584',
-  Imagen: '#833AB4',
-  Video: '#5851DB',
-  Feed: '#405DE6',
-};
-function typeColor(label: string): string {
-  return TYPE_COLOR[label] || 'var(--mu)';
-}
-
-// Miniatura de publicación con respaldo cuando no hay imagen.
-function PostThumb({ url, type }: { url: string; type: string }) {
-  if (!url) {
-    return (
-      <div
-        style={{
-          width: 44, height: 44, borderRadius: 8, flex: '0 0 auto',
-          background: 'var(--bg2, #1a1a22)', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', fontSize: 16, color: 'var(--mu)',
-        }}
-        aria-hidden
-      >
-        {type === 'Reels' ? '🎬' : '🖼️'}
-      </div>
-    );
-  }
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt=""
-      width={44}
-      height={44}
-      loading="lazy"
-      style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', flex: '0 0 auto' }}
-    />
-  );
-}
-
-function TypePill({ label }: { label: string }) {
-  const c = typeColor(label);
-  return (
-    <span
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12,
-        padding: '2px 8px', borderRadius: 999, color: c,
-        background: `${c}1f`, fontWeight: 600,
-      }}
-    >
-      <span aria-hidden style={{ width: 6, height: 6, borderRadius: '50%', background: c }} />
-      {label}
-    </span>
-  );
-}
-
-// Recorta el caption para la tabla.
-function shortCaption(c: string, max = 64): string {
-  const clean = c.replace(/\s+/g, ' ').trim();
+const isReels = (m: IgMediaRow) => (m.productType || '').toUpperCase() === 'REELS';
+function shortCaption(c: string, max = 58): string {
+  const clean = (c || '').replace(/\s+/g, ' ').trim();
   return clean.length > max ? clean.slice(0, max - 1) + '…' : clean || '(sin texto)';
+}
+interface Grp { n: number; reach: number; inter: number; saves: number; er: number }
+function agg(arr: IgMediaRow[]): Grp {
+  const g = { n: arr.length, reach: 0, inter: 0, saves: 0, er: 0 };
+  for (const m of arr) { g.reach += m.reach; g.inter += m.interactions; g.saves += m.saved; g.er += m.engagementRate; }
+  g.er = arr.length ? g.er / arr.length : 0;
+  return g;
 }
 
 export function InstagramOrganic() {
   const client = useClient();
   const { range, previous } = usePeriod();
   const { data, loading, error } = useInstagramOrganic(client.id, range, previous);
-
   const rangeLabel = formatRangeLabel(range);
-  const previousLabel = formatRangeLabel(previous);
-
-  // Formato derivado por post (también usado para ordenar la columna Formato).
-  const igFormato = (p: IgMediaRow): string =>
-    p.productType?.toUpperCase() === 'REELS'
-      ? 'Reels'
-      : p.mediaType?.toUpperCase() === 'CAROUSEL_ALBUM'
-      ? 'Carrusel'
-      : p.mediaType?.toUpperCase() === 'VIDEO'
-      ? 'Video'
-      : 'Imagen';
-
-  const typeBreakdownBase = data?.typeBreakdown ?? [];
-  const topPostsBase = data?.topPosts ?? [];
-
-  const typeAccessors: SortAccessor<(typeof typeBreakdownBase)[number]>[] = [
-    (r) => r.label, // Formato
-    (r) => r.count, // Publicaciones
-    (r) => r.reach, // Alcance
-    (r) => r.interactions, // Interacciones
-    (r) => r.engagementRate, // Engagement
-    (r) => r.interactions, // Share interacc. — barra, ordena por interacciones
-  ];
-  const postAccessors: SortAccessor<(typeof topPostsBase)[number]>[] = [
-    (r) => r.caption, // Publicación
-    (r) => igFormato(r), // Formato
-    (r) => r.date, // Fecha
-    (r) => r.reach, // Alcance
-    (r) => r.likes, // Likes
-    (r) => r.comments, // Coment.
-    (r) => r.saved, // Guardados
-    (r) => r.engagementRate, // Engagement
-  ];
-  const { rows: typeRows, headerProps: typeHeader } = useSortableTable(
-    typeBreakdownBase,
-    typeAccessors,
-  );
-  const { rows: postRows, headerProps: postHeader } = useSortableTable(topPostsBase, postAccessors);
 
   if (loading && !data) {
-    return (
-      <div className="view on">
-        <div className="hero" style={{ textAlign: 'center', padding: 60 }}>
-          <div style={{ fontSize: 14, color: 'var(--mu)' }}>
-            Cargando Instagram de {client.name}…
-          </div>
-        </div>
-      </div>
-    );
+    return <div className="view on"><div className="card" style={{ textAlign: 'center', padding: 60, color: 'var(--t3)' }}>Cargando Instagram de {client.name}…</div></div>;
   }
-
   if (error) {
-    return (
-      <div className="view on">
-        <div
-          className="card"
-          style={{ padding: 40, textAlign: 'center', borderColor: 'rgba(239,68,68,0.3)' }}
-        >
-          <div style={{ fontSize: 16, color: '#ef4444', marginBottom: 8 }}>
-            Error cargando Instagram orgánico
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--mu)' }}>{error}</div>
-        </div>
-      </div>
-    );
+    return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', borderColor: 'rgba(239,68,68,0.3)' }}><div style={{ color: '#ef4444', marginBottom: 8 }}>Error cargando Instagram orgánico</div><div style={{ fontSize: 12, color: 'var(--t3)' }}>{error}</div></div></div>;
   }
-
   if (!data || (!data.hasAccountData && !data.hasMediaData)) {
-    const everSynced = data?.accountExistsEver;
-    return (
-      <EmptyState
-        icon="📸"
-        title={everSynced ? 'Sin datos de Instagram en este rango' : 'Esperando los datos de Instagram'}
-        message={
-          everSynced ? (
-            <>
-              No hay actividad orgánica registrada para {client.name} entre <b>{rangeLabel}</b>. Prueba
-              ampliar el rango de fechas con el filtro de arriba.
-            </>
-          ) : (
-            <>
-              Aún no se ha sincronizado la cuenta de Instagram de {client.name}. En cuanto la
-              sincronización escriba la cuenta y sus publicaciones en las tablas{' '}
-              <code>ig_account_daily</code> y <code>ig_media</code>, esta vista mostrará seguidores,
-              alcance, visitas al perfil y el engagement de cada post — todo con datos reales.
-            </>
-          )
-        }
-        hint="Requiere que el token de Meta tenga permisos instagram_basic + instagram_manage_insights."
-      />
-    );
+    return <EmptyState icon="📸" title={data?.accountExistsEver ? 'Sin datos de Instagram en este rango' : 'Esperando los datos de Instagram'} message={<>En cuanto la sincronización escriba <code>ig_account_daily</code> y <code>ig_media</code>, esta vista mostrará seguidores, alcance y el engagement de cada post.</>} hint="Requiere permisos instagram_basic + instagram_manage_insights." />;
   }
 
   const t = data.totals;
-  const dl = data.daily;
+  const media = data.media;
+  const savesTotal = media.reduce((s, m) => s + m.saved, 0);
 
-  // Instagram reporta los insights de cuenta con 1–2 días de retraso, y cada
-  // métrica con su propio lag. Si dibujamos esos días el último punto cae a 0 y
-  // parece un desplome real. Recortamos los ceros finales de cada serie por
-  // separado para que la línea termine en su último dato real.
-  const trimTrailing = <R,>(rows: R[], val: (r: R) => number): R[] => {
-    let n = rows.length;
-    while (n > 1 && val(rows[n - 1]) === 0) n--;
-    return rows.slice(0, n);
+  // Reels vs Feed (todo lo que no es Reels)
+  const reels = agg(media.filter(isReels));
+  const feed = agg(media.filter((m) => !isReels(m)));
+  const reelsWin = reels.er >= feed.er;
+
+  // Series diarias (recortar ceros finales del lag de Instagram)
+  const trim = <R,>(rows: R[], val: (r: R) => number): R[] => {
+    let nn = rows.length;
+    while (nn > 1 && val(rows[nn - 1]) === 0) nn--;
+    return rows.slice(0, nn);
   };
-  const reachRows = trimTrailing(dl, (d) => d.reach);
-  const followerRows = trimTrailing(dl, (d) => d.newFollowers);
+  const reachRows = trim(data.daily, (d) => d.reach);
+  const followerRows = trim(data.daily, (d) => d.newFollowers);
+
+  // Top posts (grid)
+  const top = [...media].sort((a, b) => b.interactions - a.interactions).slice(0, 6);
+
+  const reachDown = data.reachDelta < 0;
+  const reachAbs = Math.abs(Math.round(data.reachDelta));
 
   return (
-    <div className="view on">
-      <div className="hero">
-        <HeroHead brand="instagram">
-          Instagram orgánico{data.username ? ` · @${data.username}` : ''}
-        </HeroHead>
-        <div className="hero-sub" suppressHydrationWarning>
-          {rangeLabel} · {client.name} · {formatInt(t.followers)} seguidores ·{' '}
-          {formatInt(t.reach)} de alcance · {formatInt(t.postsInRange)} publicaciones
+    <div className="view on ig">
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+
+      {/* HERO */}
+      <div className="ig-hero">
+        <div>
+          <div className="ig-eyebrow"><span className="iglogo" />Instagram orgánico{data.username ? ` · @${data.username}` : ''} · {rangeLabel}</div>
+          <div className="ig-thesis">
+            {formatInt(t.followers)} seguidores y creciendo.{' '}
+            {reachDown
+              ? <>Pero el alcance cayó <span className="dn">−{reachAbs}%</span>.</>
+              : <>Y el alcance subió <span className="up">+{reachAbs}%</span>.</>}
+          </div>
+          <div className="ig-sub">
+            La comunidad está fuerte (<b>{(t.newFollowers >= 0 ? '+' : '−') + formatInt(Math.abs(t.newFollowers))} nuevos</b> en el período). El reto no es el público — es que el <b>contenido llegue a más gente</b>.
+            {reelsWin && reels.n > 0 && <> Y ahí los <b>Reels rinden mejor de lo que se usan</b>.</>}
+          </div>
+        </div>
+        <div className="ig-hstat">
+          <div className="k">Alcance del período</div>
+          <div className="v mono">{formatInt(t.reach)}</div>
+          <div className={'d ' + (reachDown ? 'dn' : 'up')}>{formatDelta(data.reachDelta)} vs período anterior</div>
         </div>
       </div>
 
-      {/* KPIs reales */}
-      <div className="kpis">
-        <div className="kpi k-meta">
-          <div className="kpi-lbl">Seguidores</div>
-          <div className="kpi-val">{formatInt(t.followers)}</div>
-          <div className="kpi-bot">
-            <span className={`kpi-delta ${t.newFollowers >= 0 ? 'tgu' : 'tgd'}`}>
-              {(t.newFollowers >= 0 ? '+' : '−') + formatInt(Math.abs(t.newFollowers))}
-            </span>
-            <span className="dcmp">nuevos en {rangeLabel}</span>
-          </div>
-        </div>
-        <div className="kpi k-meta">
-          <div className="kpi-lbl">Alcance</div>
-          <div className="kpi-val">{formatInt(t.reach)}</div>
-          <div className="kpi-bot">
-            <span className={`kpi-delta ${deltaDirection(data.reachDelta) === 'up' ? 'tgu' : 'tgd'}`}>
-              {formatDelta(data.reachDelta)}
-            </span>
-            <span className="dcmp">vs {previousLabel}</span>
-          </div>
-        </div>
-        <div className="kpi k-meta">
-          <div className="kpi-lbl">Visitas al perfil</div>
-          <div className="kpi-val">{formatInt(t.profileViews)}</div>
-          <div className="kpi-bot">
-            <span
-              className={`kpi-delta ${deltaDirection(data.profileViewsDelta) === 'up' ? 'tgu' : 'tgd'}`}
-            >
-              {formatDelta(data.profileViewsDelta)}
-            </span>
-            <span className="dcmp">vs {previousLabel}</span>
-          </div>
-        </div>
-        <div className="kpi k-green">
-          <div className="kpi-lbl">Engagement</div>
-          <div className="kpi-val">{formatInt(t.interactions)}</div>
-          <div className="kpi-bot">
-            <span className="dcmp">
-              {formatPercent(t.engagementRate, 1)} sobre alcance · {formatInt(Math.round(t.avgPerPost))}{' '}
-              / post
-            </span>
-          </div>
-        </div>
+      {/* KPIs */}
+      <div className="ig-kpis">
+        <div className="ig-kpi"><div className="l">Seguidores</div><div className="v mono">{formatInt(t.followers)}</div><div className="b"><span className={t.newFollowers >= 0 ? 'up' : 'dn'}>{(t.newFollowers >= 0 ? '+' : '−') + formatInt(Math.abs(t.newFollowers))}</span> nuevos en el período</div></div>
+        <div className="ig-kpi"><div className="l">Alcance</div><div className="v mono">{formatInt(t.reach)}</div><div className="b"><span className={reachDown ? 'dn' : 'up'}>{formatDelta(data.reachDelta)}</span> vs anterior</div></div>
+        <div className="ig-kpi"><div className="l">Engagement</div><div className="v mono">{formatPercent(t.engagementRate, 1)}</div><div className="b">sobre alcance · {formatInt(Math.round(t.avgPerPost))} / post</div></div>
+        <div className="ig-kpi"><div className="l">Guardados</div><div className="v mono">{formatInt(savesTotal)}</div><div className="b">saves = intención de compra</div></div>
       </div>
+      <div className="ig-pvnote">Visitas al perfil: <b>{formatInt(t.profileViews)}</b> <span>(snapshot de hoy · Instagram no entrega histórico diario)</span></div>
 
-      {/* Tendencias diarias — solo series con dato real por día.
-          Las visitas al perfil NO se grafican por día porque Instagram solo
-          entrega el total del período; viven como KPI arriba. */}
-      <div
-        style={{
-          marginTop: 20,
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-          gap: 16,
-        }}
-      >
-        <TrendChart
-          title="Alcance / día"
-          headline={formatInt(t.reach)}
-          sub="cuentas alcanzadas"
-          points={reachRows.map((d) => d.reach)}
-          labels={reachRows.map((d) => fmtDayShort(d.date))}
-          color="#E1306C"
-          format={(v) => formatInt(v)}
-        />
-        <TrendChart
-          title="Seguidores nuevos / día"
-          headline={(t.newFollowers >= 0 ? '+' : '−') + formatInt(Math.abs(t.newFollowers))}
-          sub="crecimiento neto"
-          points={followerRows.map((d) => d.newFollowers)}
-          labels={followerRows.map((d) => fmtDayShort(d.date))}
-          color="#F77737"
-          format={(v) => formatInt(v)}
-        />
-      </div>
-
-      {/* Mix de contenido — qué formato funciona mejor */}
-      {data.typeBreakdown.length > 0 && (
-        <div className="card" style={{ marginTop: 20 }}>
-          <h3 style={{ margin: '0 0 4px 0', fontSize: 15 }}>Mix de contenido</h3>
-          <div style={{ fontSize: 12, color: 'var(--mu)', marginBottom: 16 }}>
-            Qué formato genera más interacción en {rangeLabel}
+      {/* REELS VS FEED */}
+      {media.length > 0 && (
+        <>
+          <div className="ig-sh"><h2>¿Qué formato gana?</h2><span className="hint">Reels vs Feed en el período · engagement rate = calidad</span></div>
+          <div className="card ig-pad">
+            <div className="ig-verdict">
+              <div className={'ig-fcell' + (!reelsWin ? ' win' : '')}>
+                <div className="ft"><span className="fdot" style={{ background: FEEDC }} />Feed / Carrusel{!reelsWin && <span className="winbadge">MEJOR ER</span>}</div>
+                <div className="fbig mono">{formatPercent(feed.er, 1)} <span className="fu">engagement</span></div>
+                <div className="frow"><div><div className="n mono">{feed.n}</div><div className="u">posts</div></div><div><div className="n mono">{formatInt(feed.reach)}</div><div className="u">alcance</div></div><div><div className="n mono">{formatInt(feed.saves)}</div><div className="u">saves</div></div></div>
+              </div>
+              <div className={'ig-fcell' + (reelsWin ? ' win' : '')}>
+                <div className="ft"><span className="fdot" style={{ background: IG2 }} />Reels{reelsWin && <span className="winbadge">MEJOR ER</span>}</div>
+                <div className="fbig mono">{formatPercent(reels.er, 1)} <span className="fu">engagement</span></div>
+                <div className="frow"><div><div className="n mono">{reels.n}</div><div className="u">posts</div></div><div><div className="n mono">{formatInt(reels.reach)}</div><div className="u">alcance</div></div><div><div className="n mono">{formatInt(reels.saves)}</div><div className="u">saves</div></div></div>
+              </div>
+              <div className="ig-vsay">
+                {reelsWin && reels.n > 0 && feed.n > 0
+                  ? <span>Los <b>Reels enganchan más</b> ({formatPercent(reels.er, 1)} vs {formatPercent(feed.er, 1)}) pero son solo <b>{reels.n} de {media.length} posts</b>. La palanca de alcance más clara: <b>más Reels</b>.</span>
+                  : <span>El <b>Feed</b> lidera el engagement este período ({formatPercent(feed.er, 1)} vs {formatPercent(reels.er, 1)}). Mantener el formato que conecta y probar más Reels para alcance.</span>}
+              </div>
+            </div>
           </div>
-          <table className="t">
-            <thead>
-              <tr>
-                <th {...typeHeader(0)}>Formato</th>
-                <th {...typeHeader(1)}>Publicaciones</th>
-                <th {...typeHeader(2)}>Alcance</th>
-                <th {...typeHeader(3)}>Interacciones</th>
-                <th {...typeHeader(4)}>Engagement</th>
-                <th {...typeHeader(5)}>Share interacc.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {typeRows.map((tb: IgTypeBreakdown) => {
-                const share = t.interactions > 0 ? tb.interactions / t.interactions : 0;
-                return (
-                  <tr key={tb.label}>
-                    <td>
-                      <TypePill label={tb.label} />
-                    </td>
-                    <td>{formatInt(tb.count)}</td>
-                    <td>{formatInt(tb.reach)}</td>
-                    <td>{formatInt(tb.interactions)}</td>
-                    <td>{formatPercent(tb.engagementRate, 1)}</td>
-                    <td>
-                      <span className="hb">
-                        <span
-                          className="hb-fill"
-                          style={{
-                            width: `${Math.max(2, Math.round(share * 100))}%`,
-                            background: typeColor(tb.label),
-                          }}
-                        />
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        </>
       )}
 
-      {/* Top publicaciones — el corazón del panel de un social media manager */}
-      {data.topPosts.length > 0 && (
-        <div className="card" style={{ marginTop: 20 }}>
-          <h3 style={{ margin: '0 0 4px 0', fontSize: 15 }}>Mejores publicaciones</h3>
-          <div style={{ fontSize: 12, color: 'var(--mu)', marginBottom: 16 }}>
-            Ordenadas por interacciones totales — lo que más conectó con tu audiencia
+      {/* CHARTS */}
+      <div className="ig-sh"><h2>Tendencias diarias</h2><span className="hint">alcance y crecimiento de seguidores por día</span></div>
+      <div className="ig-charts">
+        <TrendChart title="Alcance / día" headline={formatInt(t.reach)} sub="cuentas alcanzadas" points={reachRows.map((d) => d.reach)} labels={reachRows.map((d) => fmtDayShort(d.date))} color={IG2} format={(v) => formatInt(v)} />
+        <TrendChart title="Seguidores nuevos / día" headline={(t.newFollowers >= 0 ? '+' : '−') + formatInt(Math.abs(t.newFollowers))} sub="crecimiento neto" points={followerRows.map((d) => d.newFollowers)} labels={followerRows.map((d) => fmtDayShort(d.date))} color={IG1} format={(v) => formatInt(v)} />
+      </div>
+
+      {/* TOP POSTS GRID */}
+      {top.length > 0 && (
+        <>
+          <div className="ig-sh"><h2>Mejores publicaciones</h2><span className="hint">lo que más conectó · clic para abrir en Instagram</span></div>
+          <div className="ig-grid">
+            {top.map((p) => {
+              const rl = isReels(p);
+              const card = (
+                <>
+                  <div className="ph">
+                    {p.thumbnailUrl ? <img src={p.thumbnailUrl} alt="" loading="lazy" /> : <span className="phe">{rl ? '🎬' : '🖼️'}</span>}
+                    <span className="badge" style={{ background: rl ? IG2 : FEEDC }}>{rl ? 'Reels' : 'Feed'}</span>
+                    {p.reach > 0 && <span className="er">{formatPercent(p.engagementRate, 1)} ER</span>}
+                  </div>
+                  <div className="body">
+                    <div className="cap">{shortCaption(p.caption)}</div>
+                    <div className="mrow">
+                      <div className="m">Alcance<b>{formatInt(p.reach)}</b></div>
+                      <div className="m">Likes<b>{formatInt(p.likes)}</b></div>
+                      <div className="m sav">Saves<b>{formatInt(p.saved)}</b></div>
+                    </div>
+                  </div>
+                </>
+              );
+              return p.permalink
+                ? <a className="ig-post" key={p.mediaId} href={p.permalink} target="_blank" rel="noopener noreferrer">{card}</a>
+                : <div className="ig-post" key={p.mediaId}>{card}</div>;
+            })}
           </div>
-          <table className="t">
-            <thead>
-              <tr>
-                <th {...postHeader(0)}>Publicación</th>
-                <th {...postHeader(1)}>Formato</th>
-                <th {...postHeader(2)}>Fecha</th>
-                <th {...postHeader(3)}>Alcance</th>
-                <th {...postHeader(4)}>Likes</th>
-                <th {...postHeader(5)}>Coment.</th>
-                <th {...postHeader(6)}>Guardados</th>
-                <th {...postHeader(7)}>Engagement</th>
-              </tr>
-            </thead>
-            <tbody>
-              {postRows.map((p: IgMediaRow) => {
-                const formato = igFormato(p);
-                return (
-                  <tr key={p.mediaId}>
-                    <td style={{ maxWidth: 320 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <PostThumb url={p.thumbnailUrl} type={formato} />
-                        {p.permalink ? (
-                          <a
-                            href={p.permalink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{ color: 'var(--tx)', textDecoration: 'none', fontSize: 13 }}
-                          >
-                            {shortCaption(p.caption)}
-                          </a>
-                        ) : (
-                          <span style={{ fontSize: 13 }}>{shortCaption(p.caption)}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <TypePill label={formato} />
-                    </td>
-                    <td>{p.date ? fmtDayShort(p.date) : '—'}</td>
-                    <td>{formatInt(p.reach)}</td>
-                    <td>{formatInt(p.likes)}</td>
-                    <td>{formatInt(p.comments)}</td>
-                    <td>{formatInt(p.saved)}</td>
-                    <td>{p.reach > 0 ? formatPercent(p.engagementRate, 1) : '—'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        </>
       )}
+
+      {/* ACCIONES */}
+      <div className="ig-sh"><h2>Qué haría esta semana</h2><span className="hint">lente de agencia · social media</span></div>
+      <div className="ig-acts">
+        {reelsWin && reels.n > 0 && (
+          <div className="ig-act win"><div className="tag">🎬 Más Reels</div><div className="body">Los Reels enganchan <b>{formatPercent(reels.er, 1)}</b> vs {formatPercent(feed.er, 1)} del Feed pero son solo <b>{reels.n} de {media.length}</b>. Subir la proporción de Reels es la palanca directa de alcance.</div></div>
+        )}
+        {reachDown && (
+          <div className="ig-act warn"><div className="tag">📉 Recuperar alcance</div><div className="body">El alcance cayó <b>{formatDelta(data.reachDelta)}</b>. Probar horarios, hooks nuevos y colaboraciones — la comunidad crece pero no lo ve.</div></div>
+        )}
+        <div className="ig-act"><div className="tag">🔖 Explotar los saves</div><div className="body">Los <b>{formatInt(savesTotal)} guardados</b> son intención de compra. Repetir los ángulos que más guardan (preventas) y enlazar a WhatsApp para cerrar.</div></div>
+      </div>
+
+      <div className="ig-fn">Fuente: <b>ig_media</b> (reach, likes, saves, ER y miniatura por post) + <b>ig_account_daily</b> (alcance y seguidores por día). Seguidores = snapshot actual; crecimiento vía new_followers. Visitas al perfil = snapshot (sin histórico). {rangeLabel}.</div>
     </div>
   );
 }
+
+const CSS = `
+.ig-eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);display:flex;align-items:center;gap:8px;margin-bottom:13px}
+.ig-eyebrow .iglogo{width:20px;height:20px;border-radius:6px;background:linear-gradient(45deg,#F58529,#DD2A7B,#8134AF)}
+.ig-hero{background:linear-gradient(120deg,var(--bg1),var(--acc-faint,rgba(139,92,246,.05)));border:1px solid var(--b1);border-radius:20px;padding:26px 28px;display:grid;grid-template-columns:1fr auto;gap:28px;align-items:center}
+.ig-thesis{font-size:clamp(21px,2.8vw,30px);font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.ig-thesis .dn{color:var(--dn)}.ig-thesis .up{color:var(--up)}
+.ig-sub{font-size:13.5px;color:var(--t2);margin-top:13px;line-height:1.6;max-width:58ch}.ig-sub b{color:var(--t1)}
+.ig-hstat{text-align:right;padding-left:24px;border-left:1px solid var(--b1)}
+.ig-hstat .k{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t3)}
+.ig-hstat .v{font-size:36px;font-weight:800;letter-spacing:-.03em;line-height:1;margin-top:6px;color:var(--t1)}
+.ig-hstat .d{font-size:12px;font-weight:700;margin-top:8px}.ig-hstat .d.dn{color:var(--dn)}.ig-hstat .d.up{color:var(--up)}
+.ig-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
+.ig-kpi{background:var(--bg1);border:1px solid var(--b1);border-radius:14px;padding:16px 18px}
+.ig-kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
+.ig-kpi .v{font-size:27px;font-weight:800;letter-spacing:-.02em;margin-top:6px;color:var(--t1)}
+.ig-kpi .b{font-size:11px;margin-top:7px;color:var(--t3)}.ig-kpi .b .up{color:var(--up);font-weight:700}.ig-kpi .b .dn{color:var(--dn);font-weight:700}
+.ig-pvnote{font-size:11px;color:var(--t3);margin-top:9px}.ig-pvnote b{color:var(--t2)}.ig-pvnote span{opacity:.7}
+.ig-sh{display:flex;align-items:baseline;gap:11px;margin:32px 0 14px}.ig-sh h2{font-size:16px;font-weight:800}.ig-sh .hint{font-size:11.5px;color:var(--t3)}
+.ig-pad{padding:20px 22px}
+.ig-verdict{display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:stretch}
+.ig-fcell{border:1px solid var(--b1);border-radius:13px;padding:16px 18px}
+.ig-fcell.win{border-color:rgba(221,42,123,.35);background:var(--acc-faint,rgba(221,42,123,.05))}
+.ig-fcell .ft{font-size:12px;font-weight:800;display:flex;align-items:center;gap:8px}
+.ig-fcell .fdot{width:9px;height:9px;border-radius:50%}
+.ig-fcell .fbig{font-size:24px;font-weight:800;margin-top:10px;color:var(--t1)}.ig-fcell .fbig .fu{font-size:12px;font-weight:600;color:var(--t3)}
+.ig-fcell .frow{display:flex;gap:18px;margin-top:12px;padding-top:11px;border-top:1px solid var(--b1)}
+.ig-fcell .frow .n{font-size:14px;font-weight:800;color:var(--t1)}.ig-fcell .frow .u{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.04em}
+.ig-vsay{display:flex;flex-direction:column;justify-content:center;max-width:210px;font-size:12.5px;color:var(--t2);line-height:1.55}.ig-vsay b{color:var(--t1)}
+.winbadge{font-size:9px;font-weight:800;color:#fff;background:#DD2A7B;padding:2px 8px;border-radius:20px;margin-left:6px}
+.ig-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.ig-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.ig-post{background:var(--bg1);border:1px solid var(--b1);border-radius:14px;overflow:hidden;display:block;text-decoration:none;color:inherit}
+.ig-post .ph{aspect-ratio:1;background:var(--bg2);display:grid;place-items:center;position:relative;overflow:hidden}
+.ig-post .ph img{width:100%;height:100%;object-fit:cover}
+.ig-post .ph .phe{font-size:30px;color:var(--t3)}
+.ig-post .badge{position:absolute;top:9px;left:9px;font-size:9px;font-weight:800;color:#fff;padding:3px 8px;border-radius:20px}
+.ig-post .er{position:absolute;top:9px;right:9px;font-size:10px;font-weight:800;background:rgba(255,255,255,.92);color:#171226;padding:3px 8px;border-radius:20px}
+.ig-post .body{padding:11px 13px}
+.ig-post .cap{font-size:12px;font-weight:600;line-height:1.35;height:32px;overflow:hidden;color:var(--t1)}
+.ig-post .mrow{display:flex;gap:14px;margin-top:9px}
+.ig-post .mrow .m{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.03em}
+.ig-post .mrow .m b{display:block;font-size:13px;color:var(--t1);margin-top:1px}
+.ig-post .mrow .m.sav b{color:#DD2A7B}
+.ig-acts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.ig-act{background:var(--bg1);border:1px solid var(--b1);border-radius:14px;padding:16px 18px;border-left:3px solid var(--acc)}
+.ig-act.win{border-left-color:#DD2A7B}.ig-act.warn{border-left-color:var(--warn)}
+.ig-act .tag{font-size:12px;font-weight:800;margin-bottom:7px}
+.ig-act .body{font-size:12.5px;color:var(--t2);line-height:1.5}.ig-act .body b{color:var(--t1)}
+.ig-fn{margin-top:32px;font-size:11px;color:var(--t3);border-top:1px solid var(--b1);padding-top:16px;line-height:1.6}.ig-fn b{color:var(--t2)}
+.ig .mono{font-family:'Space Grotesk',Inter,sans-serif}
+@media(max-width:760px){.ig-hero{grid-template-columns:1fr}.ig-hstat{text-align:left;border-left:none;padding-left:0}.ig-kpis{grid-template-columns:1fr 1fr}.ig-verdict,.ig-charts,.ig-acts{grid-template-columns:1fr}.ig-grid{grid-template-columns:1fr 1fr}}
+`;

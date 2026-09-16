@@ -113,7 +113,11 @@ def _llm_audit(convs: list[dict]) -> list[dict]:
     user = "Audita estas conversaciones:\n\n" + "\n\n".join(blocks)
     out = _http_json(
         f"{LLM_BASE}/chat/completions",
-        {"Authorization": f"Bearer {LLM_KEY}", "Content-Type": "application/json"},
+        {"Authorization": f"Bearer {LLM_KEY}", "Content-Type": "application/json",
+         "Accept": "application/json",
+         # UA de navegador: sin esto, Cloudflare bloquea a Python-urllib (403 · error 1010).
+         "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")},
         {"model": LLM_MODEL, "temperature": 0, "response_format": {"type": "json_object"},
          "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]},
     )

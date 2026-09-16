@@ -35,10 +35,18 @@ log = logging.getLogger(__name__)
 # ── Config LLM (formato OpenAI · Groq por defecto) ───────────────
 LLM_KEY = (os.environ.get("GROQ_API_KEY") or os.environ.get("LLM_API_KEY") or "").strip()
 LLM_BASE = os.environ.get("LLM_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
-LLM_MODEL = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
+LLM_MODEL = os.environ.get("LLM_MODEL", "").strip()  # opcional; si no está o no existe, se auto-elige
+# Preferencia de modelos (mejor → más liviano) para auto-selección según lo que
+# la key tenga disponible. Groq retira/renombra modelos, por eso no fijamos uno.
+PREFERRED_MODELS = [
+    "llama-3.3-70b-versatile", "openai/gpt-oss-120b", "openai/gpt-oss-20b",
+    "qwen/qwen3-32b", "moonshotai/kimi-k2-instruct", "llama-3.1-8b-instant",
+]
 TARGET = int(os.environ.get("BOT_AUDIT_TARGET", "120"))
 BATCH = int(os.environ.get("BOT_AUDIT_BATCH", "10"))
 MAX_SUB_PAGES = 30
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
 # Taxonomía (las mismas claves de la auditoría manual) → etiqueta legible.
 TRABAS = {
@@ -104,7 +112,37 @@ def _http_json(url: str, headers: dict, body: dict, tries: int = 5):
     return None
 
 
-def _llm_audit(convs: list[dict]) -> list[dict]:
+def _available_models() -> set:
+    """Lista los modelos que la key tiene disponibles (GET /models)."""
+    try:
+        req = urllib.request.Request(
+            f"{LLM_BASE}/models",
+            headers={"Authorization": f"Bearer {LLM_KEY}", "Accept": "application/json", "User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+        return {m.get("id") for m in (data.get("data") or []) if m.get("id")}
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"   no pude listar modelos ({type(e).__name__}: {e})")
+        return set()
+
+
+def _pick_model() -> str:
+    """Elige el mejor modelo disponible según la key (Groq retira/renombra modelos)."""
+    avail = _available_models()
+    if not avail:
+        return LLM_MODEL or PREFERRED_MODELS[-1]
+    if LLM_MODEL and LLM_MODEL in avail:
+        return LLM_MODEL
+    for m in PREFERRED_MODELS:
+        if m in avail:
+            return m
+    for m in sorted(avail):
+        if any(k in m for k in ("llama", "gpt", "qwen", "kimi", "gemma", "mixtral", "deepseek")):
+            return m
+    return sorted(avail)[0]
+
+
+def _llm_audit(convs: list[dict], model: str) -> list[dict]:
     """Envía un lote de conversaciones y devuelve la lista de findings."""
     blocks = []
     for c in convs:
@@ -113,12 +151,10 @@ def _llm_audit(convs: list[dict]) -> list[dict]:
     user = "Audita estas conversaciones:\n\n" + "\n\n".join(blocks)
     out = _http_json(
         f"{LLM_BASE}/chat/completions",
+        # UA de navegador: sin esto, Cloudflare bloquea a Python-urllib (403 · error 1010).
         {"Authorization": f"Bearer {LLM_KEY}", "Content-Type": "application/json",
-         "Accept": "application/json",
-         # UA de navegador: sin esto, Cloudflare bloquea a Python-urllib (403 · error 1010).
-         "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-                        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")},
-        {"model": LLM_MODEL, "temperature": 0, "response_format": {"type": "json_object"},
+         "Accept": "application/json", "User-Agent": UA},
+        {"model": model, "temperature": 0, "response_format": {"type": "json_object"},
          "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]},
     )
     if not out:
@@ -196,10 +232,13 @@ def run_bot_audit(client_id: str) -> dict | None:
         return None
     by_id = {c["id"]: c for c in sample}
 
+    model = _pick_model()
+    log.info(f"── Bot audit IA · modelo elegido: {model}")
+
     findings = []
     for i in range(0, len(sample), BATCH):
         batch = sample[i:i + BATCH]
-        res = _llm_audit(batch)
+        res = _llm_audit(batch, model)
         findings.extend(res)
         log.info(f"   lote {i//BATCH + 1}: {len(res)}/{len(batch)} auditadas")
         time.sleep(2.0)  # ritmo suave para el tier gratis
@@ -250,7 +289,7 @@ def run_bot_audit(client_id: str) -> dict | None:
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "period": period,
-        "model": LLM_MODEL,
+        "model": model,
         "analyzed": n,
         "clean": {"count": clean, "pct": pct(clean)},
         "entendio_si_pct": pct(entendio.get("si", 0)),

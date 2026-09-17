@@ -46,10 +46,12 @@ export interface ShopProduct {
 
 export interface ViewedProduct { name: string; views: number; sold: boolean }
 
+export type ProductLabel = 'hero' | 'potencial' | 'optimizar' | 'baja' | 'mantener';
 export interface ProductPerf {
   name: string; views: number; atc: number; atcRate: number;
   checkout: number; purchases: number; cvr: number; revenue: number;
-  verdict: 'escalar' | 'optimizar' | 'ok';
+  unitsPaid: number; revenuePaid: number; unitsPending: number; // Shopify (venta real)
+  label: ProductLabel;
 }
 
 export interface EcommerceData {
@@ -70,11 +72,10 @@ export interface EcommerceData {
   topViewed: ViewedProduct[];
   viewedTotalProducts: number;
   productViews: number;
-  // Performance por producto (GA4 · sitio principal): tasa de carrito y conversión
-  escalarList: ProductPerf[];    // buen % carrito → dales tráfico
-  optimizarList: ProductPerf[];  // muchas vistas, poco carrito → arréglalos
+  // Catálogo inteligente (GA4 todo el tráfico + Shopify venta): lista etiquetada
+  catalog: ProductPerf[];   // TODO el universo con tráfico, etiquetado
+  labelCounts: Record<ProductLabel, number>;
   siteAtcRate: number;      // baseline del sitio (carrito/vistas)
-  nEscalar: number; nOptimizar: number;
   // Tráfico / engagement (sitio principal)
   sessions: number; sessionsDelta: number;
   bounceRate: number;
@@ -217,22 +218,34 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           siteV += Number(r.items_viewed) || 0; siteA += Number(r.items_added_to_cart) || 0;
         }
         const siteAtcRate = siteV > 0 ? siteA / siteV : 0;
-        const MIN_VIEWS = 15; // ignora la cola larguísima sin señal
-        const allPerf: ProductPerf[] = Array.from(perf.entries())
+        // Venta real por producto (Shopify) normalizada por nombre, para cruzar con GA4.
+        const shopByNorm = new Map<string, { up: number; rp: number; un: number }>();
+        for (const [title, e] of pmap) {
+          const k = norm(title);
+          const s = shopByNorm.get(k) || { up: 0, rp: 0, un: 0 };
+          s.up += e.up; s.rp += e.rp; s.un += e.un; shopByNorm.set(k, s);
+        }
+        const MIN_VIEWS = 8; // corta la cola sin señal, pero deja ver la baja tracción
+        const catalog: ProductPerf[] = Array.from(perf.entries())
           .filter(([, e]) => e.v >= MIN_VIEWS)
           .map(([name, e]) => {
             const atcRate = e.v > 0 ? e.a / e.v : 0;
             const cvr = e.v > 0 ? e.p / e.v : 0;
-            let verdict: ProductPerf['verdict'] = 'ok';
-            if (atcRate >= siteAtcRate * 1.6 && e.a >= 2) verdict = 'escalar';
-            else if (e.v >= 100 && atcRate < siteAtcRate * 0.8) verdict = 'optimizar';
-            return { name, views: e.v, atc: e.a, atcRate, checkout: e.c, purchases: e.p, cvr, revenue: e.rev, verdict };
+            const sold = shopByNorm.get(norm(name)) || { up: 0, rp: 0, un: 0 };
+            let label: ProductLabel = 'mantener';
+            if (sold.up > 0) label = 'hero';                                              // vende y cobra
+            else if (atcRate >= siteAtcRate * 1.6 && e.a >= 2) label = 'potencial';       // buen carrito, escalar tráfico
+            else if (e.v >= 100 && atcRate < siteAtcRate * 0.8) label = 'optimizar';      // muchas vistas, poco carrito
+            else if (e.v < 25 && e.a === 0) label = 'baja';                               // baja tracción
+            return {
+              name, views: e.v, atc: e.a, atcRate, checkout: e.c, purchases: e.p, cvr, revenue: e.rev,
+              unitsPaid: sold.up, revenuePaid: sold.rp, unitsPending: sold.un, label,
+            };
           });
-        const nEscalar = allPerf.filter((p) => p.verdict === 'escalar').length;
-        const nOptimizar = allPerf.filter((p) => p.verdict === 'optimizar').length;
-        // Escalar: mejor % carrito primero (los que más convierten). Optimizar: más vistas primero (mayor pérdida).
-        const escalarList = allPerf.filter((p) => p.verdict === 'escalar').sort((a, b) => b.atcRate - a.atcRate).slice(0, 12);
-        const optimizarList = allPerf.filter((p) => p.verdict === 'optimizar').sort((a, b) => b.views - a.views).slice(0, 12);
+        const ORD: Record<ProductLabel, number> = { hero: 0, potencial: 1, optimizar: 2, mantener: 3, baja: 4 };
+        catalog.sort((a, b) => (ORD[a.label] - ORD[b.label]) || b.views - a.views);
+        const labelCounts = catalog.reduce((acc, p) => { acc[p.label] = (acc[p.label] || 0) + 1; return acc; },
+          { hero: 0, potencial: 0, optimizar: 0, baja: 0, mantener: 0 } as Record<ProductLabel, number>);
 
         // ── Tráfico / engagement (sitio principal) ──
         let sess = 0, bw = 0, ga4rev = 0;
@@ -293,7 +306,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,
           topViewed, viewedTotalProducts: itemAgg.size, productViews: f.product_views,
-          escalarList, optimizarList, siteAtcRate, nEscalar, nOptimizar,
+          catalog, labelCounts, siteAtcRate,
           sessions: sess, sessionsDelta: calcDelta(sess, sessPrev), bounceRate: sess > 0 ? bw / sess : 0,
           channels, ga4Revenue: ga4rev,
           from: range.from, to: range.to,

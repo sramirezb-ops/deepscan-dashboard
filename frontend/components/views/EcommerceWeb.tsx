@@ -1,10 +1,20 @@
 'use client';
 
+import { useState } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useEcommerceWeb } from '@/lib/hooks/useEcommerceWeb';
+import { useEcommerceWeb, type ProductLabel } from '@/lib/hooks/useEcommerceWeb';
 import { formatCurrencyFull, formatInt, formatPercent } from '@/lib/utils';
+
+const LABEL_META: Record<ProductLabel, { emoji: string; label: string; cls: string; desc: string }> = {
+  hero: { emoji: '🏆', label: 'Hero', cls: 'hero', desc: 'vende y cobra — máxima pauta + creativos propios' },
+  potencial: { emoji: '🚀', label: 'Potencial', cls: 'pot', desc: 'buen % carrito, poco tráfico — escalar tráfico' },
+  optimizar: { emoji: '🔧', label: 'Optimizar', cls: 'opt', desc: 'muchas vistas, poco carrito — arreglar PDP/precio' },
+  baja: { emoji: '💤', label: 'Baja tracción', cls: 'baja', desc: 'casi sin vistas ni carrito — despriorizar o revivir' },
+  mantener: { emoji: '✅', label: 'Mantener', cls: 'man', desc: 'estable' },
+};
+const CHIP_ORDER: ProductLabel[] = ['hero', 'potencial', 'optimizar', 'mantener', 'baja'];
 
 // ============================================================
 // EcommerceWeb — hoja 100% ecommerce (Sneaker Store). NO es de leads.
@@ -20,6 +30,8 @@ export function EcommerceWeb() {
   const cur = client.currency;
   const money = (v: number) => formatCurrencyFull(v, cur);
   const rps = (v: number) => `$${v.toFixed(2)}`;
+  const [filter, setFilter] = useState<ProductLabel | 'all'>('all');
+  const [expanded, setExpanded] = useState(false);
 
   if (loading && !data) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Cargando analítica ecommerce…</div></div>;
   if (error || !data) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Sin datos de ecommerce en este período.</div></div>;
@@ -66,36 +78,41 @@ export function EcommerceWeb() {
         </div>
         {win && <div className="ec-verdict"><span className="vk">Veredicto</span><b>{data.investLabel}</b> — {investReason}</div>}
 
-        {/* PERFORMANCE POR PRODUCTO — dos grupos accionables */}
-        <div className="ec-sh"><h3>Performance por producto</h3><span className="hint">sitio principal · media del sitio {formatPercent(data.siteAtcRate, 1)} al carrito</span></div>
-        <div className="ec-ptables">
-          <div className="card ec-pad">
-            <div className="ptt opt">🔴 Optimizar <span>{data.nOptimizar} productos · muchas vistas, poco carrito</span></div>
-            <div className="ec-pph"><div>Producto</div><div>Vistas</div><div>Carrito</div><div>% carrito</div></div>
-            {data.optimizarList.map((p) => (
-              <div className="ec-pprow optimizar" key={p.name}>
-                <div className="pn" title={p.name}>{p.name}</div>
-                <div className="nv">{formatInt(p.views)}</div>
-                <div className="nv">{p.atc || '—'}</div>
-                <div className="nv"><span className="rate lo">{formatPercent(p.atcRate, 1)}</span></div>
-              </div>
-            ))}
-            <p className="ec-note">Atraen vistas pero casi nadie los agrega. Revisar precio, tallas, fotos y ficha antes de meterles más pauta.</p>
-          </div>
-          <div className="card ec-pad">
-            <div className="ptt esc">🟢 Escalar <span>{data.nEscalar} productos · buen % carrito</span></div>
-            <div className="ec-pph"><div>Producto</div><div>Vistas</div><div>Carrito</div><div>% carrito</div></div>
-            {data.escalarList.map((p) => (
-              <div className="ec-pprow escalar" key={p.name}>
-                <div className="pn" title={p.name}>{p.name}</div>
-                <div className="nv">{formatInt(p.views)}</div>
-                <div className="nv">{p.atc || '—'}</div>
-                <div className="nv"><span className="rate hi">{formatPercent(p.atcRate, 1)}</span></div>
-              </div>
-            ))}
-            <p className="ec-note">Convierten muy por encima de la media. Merecen más tráfico (pauta + mejor posición en catálogo).</p>
-          </div>
+        {/* CATÁLOGO INTELIGENTE — labelizer (GA4 todo el tráfico + Shopify) */}
+        <div className="ec-sh"><h3>Catálogo inteligente</h3><span className="hint">todo el tráfico (GA4) + venta (Shopify) · {data.catalog.length} productos · media {formatPercent(data.siteAtcRate, 1)} al carrito</span></div>
+        <div className="ec-chips">
+          <button className={'chip' + (filter === 'all' ? ' on' : '')} onClick={() => { setFilter('all'); setExpanded(false); }}>Todos <b>{data.catalog.length}</b></button>
+          {CHIP_ORDER.map((l) => (
+            <button key={l} className={'chip ' + LABEL_META[l].cls + (filter === l ? ' on' : '')} onClick={() => { setFilter(l); setExpanded(false); }}>
+              {LABEL_META[l].emoji} {LABEL_META[l].label} <b>{data.labelCounts[l]}</b>
+            </button>
+          ))}
         </div>
+        {(() => {
+          const rows = filter === 'all' ? data.catalog : data.catalog.filter((p) => p.label === filter);
+          const shown = expanded ? rows : rows.slice(0, 15);
+          return (
+            <div className="card ec-pad">
+              {filter !== 'all' && <p className="ec-lhint">{LABEL_META[filter].emoji} <b>{LABEL_META[filter].label}</b> — {LABEL_META[filter].desc}</p>}
+              <div className="ec-cph"><div>Producto</div><div>Vistas</div><div>🛒 Carrito</div><div>% carrito</div><div>✅ Pagado</div><div>Etiqueta</div></div>
+              {shown.map((p) => (
+                <div className={'ec-crow ' + p.label} key={p.name}>
+                  <div className="pn" title={p.name}>{p.name}</div>
+                  <div className="nv">{formatInt(p.views)}</div>
+                  <div className="nv">{p.atc || '—'}</div>
+                  <div className="nv"><span className={'rate ' + (p.atcRate >= data.siteAtcRate * 1.6 ? 'hi' : p.atcRate < data.siteAtcRate * 0.8 && p.views >= 100 ? 'lo' : '')}>{formatPercent(p.atcRate, 1)}</span></div>
+                  <div className="nv">{p.unitsPaid > 0 ? <b className="pd-ok">{p.unitsPaid}u · {money(p.revenuePaid)}</b> : <span className="z">—</span>}</div>
+                  <div className="lb"><span className={'lbadge ' + LABEL_META[p.label].cls}>{LABEL_META[p.label].emoji} {LABEL_META[p.label].label}</span></div>
+                </div>
+              ))}
+              {rows.length > 15 && (
+                <button className="ec-more" onClick={() => setExpanded((x) => !x)}>
+                  {expanded ? '▲ Ver menos' : `▼ Ver los ${rows.length} productos`}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* EMBUDO */}
         <div className="ec-sh"><h3>Embudo del sitio</h3><span className="hint">GA4</span>
@@ -134,7 +151,7 @@ export function EcommerceWeb() {
         {/* ACCIONES */}
         <div className="ec-acts">
           <div className="ec-act bad"><div className="tag">🔴 Vista → Carrito</div><div className="body">{formatInt(data.productViews)} vistas → {formatInt(data.funnel[2]?.value || 0)} carritos ({formatPercent(data.siteAtcRate, 1)}). El mayor cuello del sitio.</div></div>
-          <div className="ec-act good"><div className="tag">📈 Escalar por producto</div><div className="body">{data.nEscalar} productos con % carrito arriba de la media merecen más tráfico y mejor posición en el catálogo.</div></div>
+          <div className="ec-act good"><div className="tag">📈 Escalar por producto</div><div className="body">{data.labelCounts.hero + data.labelCounts.potencial} productos entre Hero y Potencial merecen más tráfico, mejor posición en catálogo y creativos propios.</div></div>
           <div className="ec-act warn"><div className="tag">⏳ Cobrar lo pendiente</div><div className="body">{money(data.revPending)} vendidos sin pagar. Un flujo de recordatorio recupera venta ya ganada.</div></div>
           <div className="ec-act info"><div className="tag">🛠 Desbloquear el dato</div><div className="body">La tienda Shopify mide $0 en GA4. Arreglar el datalayer daría CVR y ROAS reales por web y producto.</div></div>
         </div>
@@ -178,16 +195,34 @@ const CSS = `
 .ec-verdict{margin-top:14px;background:var(--bg1);border:1px solid var(--b1);border-left:3px solid var(--up);border-radius:12px;padding:13px 16px;font-size:12.5px;color:var(--t2);line-height:1.5}
 .ec-verdict .vk{font-family:var(--mono,monospace);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--up);font-weight:700;margin-right:8px}
 .ec-verdict b{color:var(--t1)}
-/* performance por producto · dos tablas */
-.ec-ptables{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.ptt{font-size:12.5px;font-weight:800;margin-bottom:10px}.ptt span{font-size:10.5px;font-weight:500;color:var(--t3);margin-left:6px}
-.ec-pph,.ec-pprow{display:grid;grid-template-columns:1fr 54px 54px 62px;gap:8px;align-items:center}
-.ec-pph{font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);padding-bottom:7px;border-bottom:1px solid var(--b1)}
-.ec-pph div:not(:first-child){text-align:right}
-.ec-pprow{padding:7px 0;border-top:1px solid var(--b1);font-size:12px}
-.ec-pprow .pn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ec-pprow .nv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
-.ec-pprow .nv .rate.hi{color:var(--up)}.ec-pprow .nv .rate.lo{color:var(--dn)}
+/* catálogo inteligente */
+.ec-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.ec-chips .chip{font-size:11.5px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid var(--b1);background:var(--bg1);color:var(--t2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.ec-chips .chip b{font-weight:800;color:var(--t1)}
+.ec-chips .chip:hover{border-color:var(--b2)}
+.ec-chips .chip.on{background:var(--t1);color:var(--bg0,#fff);border-color:var(--t1)}
+.ec-chips .chip.on b{color:var(--bg0,#fff)}
+.ec-chips .chip.hero.on{background:var(--up);border-color:var(--up)}.ec-chips .chip.pot.on{background:var(--acc);border-color:var(--acc)}
+.ec-chips .chip.opt.on{background:var(--dn);border-color:var(--dn)}.ec-chips .chip.baja.on{background:var(--t3);border-color:var(--t3)}
+.ec-lhint{font-size:11.5px;color:var(--t3);margin:0 0 10px}.ec-lhint b{color:var(--t1)}
+.ec-cph,.ec-crow{display:grid;grid-template-columns:1fr 52px 52px 60px 128px 118px;gap:8px;align-items:center}
+.ec-cph{font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--b1)}
+.ec-cph div:not(:first-child){text-align:right}.ec-cph div:last-child{text-align:left;padding-left:8px}
+.ec-crow{padding:7px 0;border-top:1px solid var(--b1);font-size:12px}
+.ec-crow .pn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ec-crow .nv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.ec-crow .nv .rate.hi{color:var(--up)}.ec-crow .nv .rate.lo{color:var(--dn)}
+.ec-crow .nv .pd-ok{color:var(--up);font-size:11px}.ec-crow .nv .z{color:var(--t3);font-weight:400}
+.ec-crow .lb{text-align:left;padding-left:8px}
+.ec-crow .lbadge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.lbadge.hero{background:rgba(34,217,122,.16);color:var(--up)}
+.lbadge.pot{background:rgba(139,92,246,.14);color:var(--acc)}
+.lbadge.opt{background:var(--dn-soft,rgba(229,56,77,.12));color:var(--dn)}
+.lbadge.baja{background:var(--bg3);color:var(--t3)}
+.lbadge.man{background:var(--bg3);color:var(--t2)}
+.ec-crow.hero{background:linear-gradient(90deg,rgba(34,217,122,.05),transparent)}
+.ec-more{margin-top:12px;width:100%;padding:9px;border:1px dashed var(--b2);background:transparent;border-radius:9px;color:var(--t2);font-size:12px;font-weight:600;cursor:pointer}
+.ec-more:hover{background:var(--bg2)}
 /* venta kpis */
 .ec-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}
 .ec-kpi{background:var(--bg1);border:1px solid var(--b1);border-radius:14px;padding:14px 16px}
@@ -220,8 +255,11 @@ const CSS = `
 .ec-act.good{border-left-color:var(--up)}.ec-act.bad{border-left-color:var(--dn)}.ec-act.warn{border-left-color:var(--warn)}.ec-act.info{border-left-color:var(--acc)}
 .ec-act .tag{font-size:12px;font-weight:800;margin-bottom:5px}.ec-act .body{font-size:11.5px;color:var(--t2);line-height:1.5}
 @media(max-width:900px){
-  .ec-webs,.ec-kpis,.ec-ptables{grid-template-columns:1fr}.ec-acts{grid-template-columns:1fr 1fr}
+  .ec-webs,.ec-kpis{grid-template-columns:1fr}.ec-acts{grid-template-columns:1fr 1fr}
   .ec-fstep{grid-template-columns:100px 1fr 60px;gap:8px}.ec-fstep .fr{display:none}
   .ec-ph,.ec-prow{grid-template-columns:1fr 96px 96px}
+  .ec-cph,.ec-crow{grid-template-columns:1fr 44px 56px 108px}
+  .ec-cph div:nth-child(3),.ec-crow .nv:nth-child(3){display:none}
+  .ec-cph div:nth-child(5),.ec-crow .nv:nth-child(5){display:none}
 }
 `;

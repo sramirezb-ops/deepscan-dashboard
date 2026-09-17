@@ -4,17 +4,23 @@ import { useState } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useEcommerceWeb, type ProductLabel } from '@/lib/hooks/useEcommerceWeb';
+import { useEcommerceWeb, type ProductLabel, type ShopLabel } from '@/lib/hooks/useEcommerceWeb';
 import { formatCurrencyFull, formatInt, formatPercent } from '@/lib/utils';
 
+// Etiquetas del catálogo GA4 (comportamiento)
 const LABEL_META: Record<ProductLabel, { emoji: string; label: string; cls: string; desc: string }> = {
-  hero: { emoji: '🏆', label: 'Hero', cls: 'hero', desc: 'vende y cobra — máxima pauta + creativos propios' },
   potencial: { emoji: '🚀', label: 'Potencial', cls: 'pot', desc: 'buen % carrito, poco tráfico — escalar tráfico' },
   optimizar: { emoji: '🔧', label: 'Optimizar', cls: 'opt', desc: 'muchas vistas, poco carrito — arreglar PDP/precio' },
   baja: { emoji: '💤', label: 'Baja tracción', cls: 'baja', desc: 'casi sin vistas ni carrito — despriorizar o revivir' },
   mantener: { emoji: '✅', label: 'Mantener', cls: 'man', desc: 'estable' },
 };
-const CHIP_ORDER: ProductLabel[] = ['hero', 'potencial', 'optimizar', 'mantener', 'baja'];
+const CHIP_ORDER: ProductLabel[] = ['potencial', 'optimizar', 'mantener', 'baja'];
+// Etiquetas del catálogo Shopify (venta real)
+const SHOP_META: Record<ShopLabel, { emoji: string; label: string; cls: string }> = {
+  top: { emoji: '🏆', label: 'Top venta', cls: 'hero' },
+  pendiente: { emoji: '⏳', label: 'Por cobrar', cls: 'opt' },
+  pagado: { emoji: '✅', label: 'Pagado', cls: 'man' },
+};
 
 // ============================================================
 // EcommerceWeb — hoja 100% ecommerce (Sneaker Store). NO es de leads.
@@ -78,30 +84,29 @@ export function EcommerceWeb() {
         </div>
         {win && <div className="ec-verdict"><span className="vk">Veredicto</span><b>{data.investLabel}</b> — {investReason}</div>}
 
-        {/* CATÁLOGO INTELIGENTE — labelizer (GA4 todo el tráfico + Shopify) */}
-        <div className="ec-sh"><h3>Catálogo inteligente</h3><span className="hint">todo el tráfico (GA4) + venta (Shopify) · {data.catalog.length} productos · media {formatPercent(data.siteAtcRate, 1)} al carrito</span></div>
+        {/* CATÁLOGO 1 · ANALYTICS (GA4 · comportamiento) */}
+        <div className="ec-sh"><h3>Catálogo inteligente · Analytics</h3><span className="hint">GA4 · todo el tráfico · {data.catalogGa4.length} productos · media {formatPercent(data.siteAtcRate, 1)} al carrito</span></div>
         <div className="ec-chips">
-          <button className={'chip' + (filter === 'all' ? ' on' : '')} onClick={() => { setFilter('all'); setExpanded(false); }}>Todos <b>{data.catalog.length}</b></button>
+          <button className={'chip' + (filter === 'all' ? ' on' : '')} onClick={() => { setFilter('all'); setExpanded(false); }}>Todos <b>{data.catalogGa4.length}</b></button>
           {CHIP_ORDER.map((l) => (
             <button key={l} className={'chip ' + LABEL_META[l].cls + (filter === l ? ' on' : '')} onClick={() => { setFilter(l); setExpanded(false); }}>
-              {LABEL_META[l].emoji} {LABEL_META[l].label} <b>{data.labelCounts[l]}</b>
+              {LABEL_META[l].emoji} {LABEL_META[l].label} <b>{data.ga4LabelCounts[l]}</b>
             </button>
           ))}
         </div>
         {(() => {
-          const rows = filter === 'all' ? data.catalog : data.catalog.filter((p) => p.label === filter);
+          const rows = filter === 'all' ? data.catalogGa4 : data.catalogGa4.filter((p) => p.label === filter);
           const shown = expanded ? rows : rows.slice(0, 15);
           return (
             <div className="card ec-pad">
               {filter !== 'all' && <p className="ec-lhint">{LABEL_META[filter].emoji} <b>{LABEL_META[filter].label}</b> — {LABEL_META[filter].desc}</p>}
-              <div className="ec-cph"><div>Producto</div><div>Vistas</div><div>🛒 Carrito</div><div>% carrito</div><div>✅ Pagado</div><div>Etiqueta</div></div>
+              <div className="ec-cph ga4"><div>Producto</div><div>Vistas</div><div>🛒 Carrito</div><div>% carrito</div><div>Etiqueta</div></div>
               {shown.map((p) => (
-                <div className={'ec-crow ' + p.label} key={p.name}>
+                <div className={'ec-crow ga4 ' + p.label} key={p.name}>
                   <div className="pn" title={p.name}>{p.name}</div>
                   <div className="nv">{formatInt(p.views)}</div>
                   <div className="nv">{p.atc || '—'}</div>
                   <div className="nv"><span className={'rate ' + (p.atcRate >= data.siteAtcRate * 1.6 ? 'hi' : p.atcRate < data.siteAtcRate * 0.8 && p.views >= 100 ? 'lo' : '')}>{formatPercent(p.atcRate, 1)}</span></div>
-                  <div className="nv">{p.unitsPaid > 0 ? <b className="pd-ok">{p.unitsPaid}u · {money(p.revenuePaid)}</b> : <span className="z">—</span>}</div>
                   <div className="lb"><span className={'lbadge ' + LABEL_META[p.label].cls}>{LABEL_META[p.label].emoji} {LABEL_META[p.label].label}</span></div>
                 </div>
               ))}
@@ -129,8 +134,10 @@ export function EcommerceWeb() {
           ))}
         </div>
 
-        {/* VENTA REAL SHOPIFY — PAID vs PENDING */}
-        <div className="ec-sh"><h3>Venta real · Shopify</h3><span className="hint">pagado vs pendiente de pago</span></div>
+        {/* CATÁLOGO 2 · SHOPIFY (venta real · pagado vs pendiente) */}
+        <div className="ec-sh"><h3>Catálogo inteligente · Shopify</h3><span className="hint">venta real · pagado vs pendiente · {data.products.length} productos con venta</span>
+          <span className="ec-pcount">🏆 <b className="e">{data.shopLabelCounts.top}</b> top · ⏳ <b className="o">{data.shopLabelCounts.pendiente}</b> por cobrar</span>
+        </div>
         <div className="ec-kpis">
           <div className="ec-kpi paid"><div className="l">✅ Pagado</div><div className="v">{money(data.revPaid)}</div><div className="s">{formatInt(data.unitsPaid)}u · {formatPercent(data.paidPct, 0)} del bruto</div></div>
           <div className="ec-kpi pend"><div className="l">⏳ Pendiente</div><div className="v">{money(data.revPending)}</div><div className="s">{formatInt(data.unitsPending)}u · por cobrar</div></div>
@@ -138,12 +145,13 @@ export function EcommerceWeb() {
         </div>
         <div className="ec-splitbar"><i className="paid" style={{ width: data.paidPct * 100 + '%' }} /><i className="pend" style={{ width: (1 - data.paidPct) * 100 + '%' }} /></div>
         <div className="card ec-pad" style={{ marginTop: 14 }}>
-          <div className="ec-ph"><div>Producto</div><div>✅ Pagado</div><div>⏳ Pendiente</div></div>
+          <div className="ec-sph"><div>Producto</div><div>✅ Pagado</div><div>⏳ Pendiente</div><div>Etiqueta</div></div>
           {data.products.map((p) => (
-            <div className="ec-prow" key={p.title}>
+            <div className="ec-sprow" key={p.title}>
               <div className="pn" title={p.title}>{p.title}</div>
               <div className="pp">{p.unitsPaid > 0 ? <><b>{money(p.revPaid)}</b><span>{p.unitsPaid}u</span></> : <span className="z">—</span>}</div>
               <div className="pd">{p.unitsPending > 0 ? <><b>{money(p.revPending)}</b><span>{p.unitsPending}u</span></> : <span className="z">—</span>}</div>
+              <div className="lb"><span className={'lbadge ' + SHOP_META[p.shopLabel].cls}>{SHOP_META[p.shopLabel].emoji} {SHOP_META[p.shopLabel].label}</span></div>
             </div>
           ))}
         </div>
@@ -151,7 +159,7 @@ export function EcommerceWeb() {
         {/* ACCIONES */}
         <div className="ec-acts">
           <div className="ec-act bad"><div className="tag">🔴 Vista → Carrito</div><div className="body">{formatInt(data.productViews)} vistas → {formatInt(data.funnel[2]?.value || 0)} carritos ({formatPercent(data.siteAtcRate, 1)}). El mayor cuello del sitio.</div></div>
-          <div className="ec-act good"><div className="tag">📈 Escalar por producto</div><div className="body">{data.labelCounts.hero + data.labelCounts.potencial} productos entre Hero y Potencial merecen más tráfico, mejor posición en catálogo y creativos propios.</div></div>
+          <div className="ec-act good"><div className="tag">📈 Escalar por producto</div><div className="body">{data.ga4LabelCounts.potencial} productos con buen % de carrito y poco tráfico (Potencial en Analytics) merecen más pauta y mejor posición en catálogo.</div></div>
           <div className="ec-act warn"><div className="tag">⏳ Cobrar lo pendiente</div><div className="body">{money(data.revPending)} vendidos sin pagar. Un flujo de recordatorio recupera venta ya ganada.</div></div>
           <div className="ec-act info"><div className="tag">🛠 Desbloquear el dato</div><div className="body">La tienda Shopify mide $0 en GA4. Arreglar el datalayer daría CVR y ROAS reales por web y producto.</div></div>
         </div>
@@ -205,7 +213,7 @@ const CSS = `
 .ec-chips .chip.hero.on{background:var(--up);border-color:var(--up)}.ec-chips .chip.pot.on{background:var(--acc);border-color:var(--acc)}
 .ec-chips .chip.opt.on{background:var(--dn);border-color:var(--dn)}.ec-chips .chip.baja.on{background:var(--t3);border-color:var(--t3)}
 .ec-lhint{font-size:11.5px;color:var(--t3);margin:0 0 10px}.ec-lhint b{color:var(--t1)}
-.ec-cph,.ec-crow{display:grid;grid-template-columns:1fr 52px 52px 60px 128px 118px;gap:8px;align-items:center}
+.ec-cph,.ec-crow{display:grid;grid-template-columns:1fr 60px 60px 68px 128px;gap:8px;align-items:center}
 .ec-cph{font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--b1)}
 .ec-cph div:not(:first-child){text-align:right}.ec-cph div:last-child{text-align:left;padding-left:8px}
 .ec-crow{padding:7px 0;border-top:1px solid var(--b1);font-size:12px}
@@ -214,7 +222,7 @@ const CSS = `
 .ec-crow .nv .rate.hi{color:var(--up)}.ec-crow .nv .rate.lo{color:var(--dn)}
 .ec-crow .nv .pd-ok{color:var(--up);font-size:11px}.ec-crow .nv .z{color:var(--t3);font-weight:400}
 .ec-crow .lb{text-align:left;padding-left:8px}
-.ec-crow .lbadge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.lbadge{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:6px;white-space:nowrap}
 .lbadge.hero{background:rgba(34,217,122,.16);color:var(--up)}
 .lbadge.pot{background:rgba(139,92,246,.14);color:var(--acc)}
 .lbadge.opt{background:var(--dn-soft,rgba(229,56,77,.12));color:var(--dn)}
@@ -233,14 +241,15 @@ const CSS = `
 .ec-kpi.pend{border-color:var(--warn)}.ec-kpi.pend .v{color:var(--warn)}
 .ec-splitbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:12px;background:var(--track)}
 .ec-splitbar i.paid{background:var(--up)}.ec-splitbar i.pend{background:var(--warn)}
-.ec-ph,.ec-prow{display:grid;grid-template-columns:1fr 130px 130px;gap:10px;align-items:center}
-.ec-ph{font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--b1)}
-.ec-ph div:not(:first-child){text-align:right}
-.ec-prow{padding:9px 0;border-top:1px solid var(--b1);font-size:12.5px}
-.ec-prow .pn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ec-prow .pp,.ec-prow .pd{text-align:right}
-.ec-prow .pp b,.ec-prow .pd b{font-weight:800}.ec-prow .pp span,.ec-prow .pd span{display:block;font-size:9.5px;color:var(--t3)}
-.ec-prow .pp b{color:var(--up)}.ec-prow .pd b{color:var(--warn)}.ec-prow .z{color:var(--t3)}
+.ec-sph,.ec-sprow{display:grid;grid-template-columns:1fr 118px 118px 128px;gap:10px;align-items:center}
+.ec-sph{font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--b1)}
+.ec-sph div:not(:first-child):not(:last-child){text-align:right}.ec-sph div:last-child{text-align:left;padding-left:8px}
+.ec-sprow{padding:9px 0;border-top:1px solid var(--b1);font-size:12.5px}
+.ec-sprow .pn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ec-sprow .pp,.ec-sprow .pd{text-align:right}
+.ec-sprow .pp b,.ec-sprow .pd b{font-weight:800}.ec-sprow .pp span,.ec-sprow .pd span{display:block;font-size:9.5px;color:var(--t3)}
+.ec-sprow .pp b{color:var(--up)}.ec-sprow .pd b{color:var(--warn)}.ec-sprow .z{color:var(--t3)}
+.ec-sprow .lb{text-align:left;padding-left:8px}
 /* embudo */
 .ec-fstep{display:grid;grid-template-columns:150px 1fr 74px 54px;gap:12px;align-items:center;padding:6px 0;border-top:1px solid var(--b1)}
 .ec-fstep:first-child{border-top:none}
@@ -257,9 +266,9 @@ const CSS = `
 @media(max-width:900px){
   .ec-webs,.ec-kpis{grid-template-columns:1fr}.ec-acts{grid-template-columns:1fr 1fr}
   .ec-fstep{grid-template-columns:100px 1fr 60px;gap:8px}.ec-fstep .fr{display:none}
-  .ec-ph,.ec-prow{grid-template-columns:1fr 96px 96px}
-  .ec-cph,.ec-crow{grid-template-columns:1fr 44px 56px 108px}
+  .ec-sph,.ec-sprow{grid-template-columns:1fr 88px 108px}
+  .ec-sph div:nth-child(3),.ec-sprow .pd:nth-child(3){display:none}
+  .ec-cph,.ec-crow{grid-template-columns:1fr 44px 62px 104px}
   .ec-cph div:nth-child(3),.ec-crow .nv:nth-child(3){display:none}
-  .ec-cph div:nth-child(5),.ec-crow .nv:nth-child(5){display:none}
 }
 `;

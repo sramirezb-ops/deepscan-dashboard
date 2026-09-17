@@ -36,21 +36,21 @@ export interface WebPerf {
 
 export interface FunnelStep { key: string; label: string; value: number; pctOfSessions: number; stepRate: number | null; isBreak: boolean }
 
+export type ShopLabel = 'top' | 'pendiente' | 'pagado';
 export interface ShopProduct {
   title: string;
   unitsPaid: number; unitsPending: number;
   revPaid: number; revPending: number;
-  views: number | null;         // vistas GA4 si se pudo cruzar
-  cvrReal: number | null;       // unidades pagadas / vistas (CVR real)
+  shopLabel: ShopLabel;
 }
 
 export interface ViewedProduct { name: string; views: number; sold: boolean }
 
-export type ProductLabel = 'hero' | 'potencial' | 'optimizar' | 'baja' | 'mantener';
+// Etiquetas del catálogo GA4 (comportamiento, SIN venta — eso vive en el de Shopify).
+export type ProductLabel = 'potencial' | 'optimizar' | 'baja' | 'mantener';
 export interface ProductPerf {
   name: string; views: number; atc: number; atcRate: number;
   checkout: number; purchases: number; cvr: number; revenue: number;
-  unitsPaid: number; revenuePaid: number; unitsPending: number; // Shopify (venta real)
   label: ProductLabel;
 }
 
@@ -72,10 +72,12 @@ export interface EcommerceData {
   topViewed: ViewedProduct[];
   viewedTotalProducts: number;
   productViews: number;
-  // Catálogo inteligente (GA4 todo el tráfico + Shopify venta): lista etiquetada
-  catalog: ProductPerf[];   // TODO el universo con tráfico, etiquetado
-  labelCounts: Record<ProductLabel, number>;
+  // Catálogo inteligente · Analytics (GA4 · comportamiento, todos los canales)
+  catalogGa4: ProductPerf[];
+  ga4LabelCounts: Record<ProductLabel, number>;
   siteAtcRate: number;      // baseline del sitio (carrito/vistas)
+  // Catálogo inteligente · Shopify (venta real) — labels en `products`
+  shopLabelCounts: Record<ShopLabel, number>;
   // Tráfico / engagement (sitio principal)
   sessions: number; sessionsDelta: number;
   bounceRate: number;
@@ -157,33 +159,23 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           e.rp += Number(r.revenue_paid) || 0; e.rn += Number(r.revenue_pending) || 0;
           pmap.set(t, e);
         }
-        // vistas GA4 por producto (para cruce y CVR real)
-        const viewsByNorm = new Map<string, number>();
         const itemAgg = new Map<string, number>();
         for (const r of itemRows) {
-          const n = r.item_name || ''; const v = Number(r.items_viewed) || 0;
-          itemAgg.set(n, (itemAgg.get(n) || 0) + v);
-          const k = norm(n); viewsByNorm.set(k, (viewsByNorm.get(k) || 0) + v);
+          const n = r.item_name || ''; itemAgg.set(n, (itemAgg.get(n) || 0) + (Number(r.items_viewed) || 0));
         }
-        const findViews = (title: string): number | null => {
-          const k = norm(title);
-          if (viewsByNorm.has(k)) return viewsByNorm.get(k)!;
-          // token-overlap: comparte >=2 tokens significativos
-          const toks = k.split(' ').filter((t) => t.length >= 4);
-          let best = 0;
-          for (const [nk, v] of viewsByNorm) {
-            const shared = toks.filter((t) => nk.includes(t)).length;
-            if (shared >= 2 && v > best) best = v;
-          }
-          return best > 0 ? best : null;
-        };
-        const products: ShopProduct[] = Array.from(pmap.entries())
-          .map(([title, e]) => {
-            const views = findViews(title);
-            return {
-              title, unitsPaid: e.up, unitsPending: e.un, revPaid: e.rp, revPending: e.rn,
-              views, cvrReal: views && views > 0 ? e.up / views : null,
-            };
+
+        // ── CATÁLOGO SHOPIFY (venta real) — etiquetado SOLO con datos de Shopify ──
+        const base = Array.from(pmap.entries()).map(([title, e]) => ({
+          title, unitsPaid: e.up, unitsPending: e.un, revPaid: e.rp, revPending: e.rn,
+        }));
+        const topTitles = new Set(base.filter((p) => p.revPaid > 0).sort((a, b) => b.revPaid - a.revPaid).slice(0, 3).map((p) => p.title));
+        const products: ShopProduct[] = base
+          .map((p) => {
+            let shopLabel: ShopLabel = 'pagado';
+            if (topTitles.has(p.title)) shopLabel = 'top';               // top ventas pagadas
+            else if (p.revPending > p.revPaid) shopLabel = 'pendiente';   // mayormente por cobrar
+            else shopLabel = 'pagado';
+            return { ...p, shopLabel };
           })
           .sort((a, b) => (b.revPaid + b.revPending) - (a.revPaid + a.revPending));
         const revPaid = products.reduce((s, p) => s + p.revPaid, 0);
@@ -191,18 +183,18 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
         const unitsPaid = products.reduce((s, p) => s + p.unitsPaid, 0);
         const unitsPending = products.reduce((s, p) => s + p.unitsPending, 0);
         const revBruto = revPaid + revPending;
+        const shopLabelCounts = products.reduce((acc, p) => { acc[p.shopLabel] = (acc[p.shopLabel] || 0) + 1; return acc; },
+          { top: 0, pendiente: 0, pagado: 0 } as Record<ShopLabel, number>);
 
         // ── Demanda GA4 (top vistos) ──
-        const soldNorms = new Set(Array.from(pmap.keys()).map(norm));
         const topViewed: ViewedProduct[] = Array.from(itemAgg.entries())
-          .filter(([n]) => n && norm(n) !== 'test xx' && !norm(n).startsWith('test'))
-          .map(([name, views]) => ({ name, views, sold: soldNorms.has(norm(name)) }))
+          .filter(([n]) => n && !norm(n).startsWith('test'))
+          .map(([name, views]) => ({ name, views, sold: false }))
           .sort((a, b) => b.views - a.views)
           .slice(0, 15);
 
-        // ── Performance por producto (GA4 · sitio principal) ──
-        // El item-tracking bueno vive en la web principal (508597206). ATC-rate es
-        // la métrica accionable (la compra por producto es escasa).
+        // ── CATÁLOGO ANALYTICS (GA4 · comportamiento) — etiquetado SOLO con GA4 ──
+        // El item-tracking bueno vive en la web principal (508597206). No se cruza con Shopify.
         const isTest = (n: string) => /test|no comprar|prueba/i.test(n);
         const perf = new Map<string, { v: number; a: number; c: number; p: number; rev: number }>();
         let siteV = 0, siteA = 0;
@@ -218,34 +210,22 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           siteV += Number(r.items_viewed) || 0; siteA += Number(r.items_added_to_cart) || 0;
         }
         const siteAtcRate = siteV > 0 ? siteA / siteV : 0;
-        // Venta real por producto (Shopify) normalizada por nombre, para cruzar con GA4.
-        const shopByNorm = new Map<string, { up: number; rp: number; un: number }>();
-        for (const [title, e] of pmap) {
-          const k = norm(title);
-          const s = shopByNorm.get(k) || { up: 0, rp: 0, un: 0 };
-          s.up += e.up; s.rp += e.rp; s.un += e.un; shopByNorm.set(k, s);
-        }
-        const MIN_VIEWS = 8; // corta la cola sin señal, pero deja ver la baja tracción
-        const catalog: ProductPerf[] = Array.from(perf.entries())
+        const MIN_VIEWS = 8;
+        const catalogGa4: ProductPerf[] = Array.from(perf.entries())
           .filter(([, e]) => e.v >= MIN_VIEWS)
           .map(([name, e]) => {
             const atcRate = e.v > 0 ? e.a / e.v : 0;
             const cvr = e.v > 0 ? e.p / e.v : 0;
-            const sold = shopByNorm.get(norm(name)) || { up: 0, rp: 0, un: 0 };
             let label: ProductLabel = 'mantener';
-            if (sold.up > 0) label = 'hero';                                              // vende y cobra
-            else if (atcRate >= siteAtcRate * 1.6 && e.a >= 2) label = 'potencial';       // buen carrito, escalar tráfico
-            else if (e.v >= 100 && atcRate < siteAtcRate * 0.8) label = 'optimizar';      // muchas vistas, poco carrito
-            else if (e.v < 25 && e.a === 0) label = 'baja';                               // baja tracción
-            return {
-              name, views: e.v, atc: e.a, atcRate, checkout: e.c, purchases: e.p, cvr, revenue: e.rev,
-              unitsPaid: sold.up, revenuePaid: sold.rp, unitsPending: sold.un, label,
-            };
+            if (atcRate >= siteAtcRate * 1.6 && e.a >= 2) label = 'potencial';        // buen carrito → escalar tráfico
+            else if (e.v >= 100 && atcRate < siteAtcRate * 0.8) label = 'optimizar';  // muchas vistas, poco carrito
+            else if (e.v < 25 && e.a === 0) label = 'baja';                           // baja tracción
+            return { name, views: e.v, atc: e.a, atcRate, checkout: e.c, purchases: e.p, cvr, revenue: e.rev, label };
           });
-        const ORD: Record<ProductLabel, number> = { hero: 0, potencial: 1, optimizar: 2, mantener: 3, baja: 4 };
-        catalog.sort((a, b) => (ORD[a.label] - ORD[b.label]) || b.views - a.views);
-        const labelCounts = catalog.reduce((acc, p) => { acc[p.label] = (acc[p.label] || 0) + 1; return acc; },
-          { hero: 0, potencial: 0, optimizar: 0, baja: 0, mantener: 0 } as Record<ProductLabel, number>);
+        const ORD: Record<ProductLabel, number> = { potencial: 0, optimizar: 1, mantener: 2, baja: 3 };
+        catalogGa4.sort((a, b) => (ORD[a.label] - ORD[b.label]) || b.views - a.views);
+        const ga4LabelCounts = catalogGa4.reduce((acc, p) => { acc[p.label] = (acc[p.label] || 0) + 1; return acc; },
+          { potencial: 0, optimizar: 0, baja: 0, mantener: 0 } as Record<ProductLabel, number>);
 
         // ── Tráfico / engagement (sitio principal) ──
         let sess = 0, bw = 0, ga4rev = 0;
@@ -306,7 +286,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,
           topViewed, viewedTotalProducts: itemAgg.size, productViews: f.product_views,
-          catalog, labelCounts, siteAtcRate,
+          catalogGa4, ga4LabelCounts, siteAtcRate, shopLabelCounts,
           sessions: sess, sessionsDelta: calcDelta(sess, sessPrev), bounceRate: sess > 0 ? bw / sess : 0,
           channels, ga4Revenue: ga4rev,
           from: range.from, to: range.to,

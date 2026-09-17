@@ -36,7 +36,7 @@ export interface WebPerf {
 
 export interface FunnelStep { key: string; label: string; value: number; pctOfSessions: number; stepRate: number | null; isBreak: boolean }
 
-export type ShopLabel = 'top' | 'pendiente' | 'pagado';
+export type ShopLabel = 'hero' | 'cobrar' | 'solido';
 export interface ShopProduct {
   title: string;
   unitsPaid: number; unitsPending: number;
@@ -168,13 +168,18 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
         const base = Array.from(pmap.entries()).map(([title, e]) => ({
           title, unitsPaid: e.up, unitsPending: e.un, revPaid: e.rp, revPending: e.rn,
         }));
-        const topTitles = new Set(base.filter((p) => p.revPaid > 0).sort((a, b) => b.revPaid - a.revPaid).slice(0, 3).map((p) => p.title));
+        // Hero (a menor escala): top venta PAGADA con cobro sano (pagado ≥ pendiente).
+        // Un producto grande pero mayormente pendiente NO es hero → cae a "cobrar".
+        const heroTitles = new Set(
+          base.filter((p) => p.revPaid > 0 && p.revPaid >= p.revPending)
+            .sort((a, b) => b.revPaid - a.revPaid).slice(0, 3).map((p) => p.title),
+        );
         const products: ShopProduct[] = base
           .map((p) => {
-            let shopLabel: ShopLabel = 'pagado';
-            if (topTitles.has(p.title)) shopLabel = 'top';               // top ventas pagadas
-            else if (p.revPending > p.revPaid) shopLabel = 'pendiente';   // mayormente por cobrar
-            else shopLabel = 'pagado';
+            let shopLabel: ShopLabel = 'solido';
+            if (heroTitles.has(p.title)) shopLabel = 'hero';             // sostiene la caja → escalar
+            else if (p.revPending > p.revPaid) shopLabel = 'cobrar';     // plata atrapada en pendiente
+            else shopLabel = 'solido';                                   // paga limpio, volumen menor
             return { ...p, shopLabel };
           })
           .sort((a, b) => (b.revPaid + b.revPending) - (a.revPaid + a.revPending));
@@ -184,7 +189,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
         const unitsPending = products.reduce((s, p) => s + p.unitsPending, 0);
         const revBruto = revPaid + revPending;
         const shopLabelCounts = products.reduce((acc, p) => { acc[p.shopLabel] = (acc[p.shopLabel] || 0) + 1; return acc; },
-          { top: 0, pendiente: 0, pagado: 0 } as Record<ShopLabel, number>);
+          { hero: 0, cobrar: 0, solido: 0 } as Record<ShopLabel, number>);
 
         // ── Demanda GA4 (top vistos) ──
         const topViewed: ViewedProduct[] = Array.from(itemAgg.entries())

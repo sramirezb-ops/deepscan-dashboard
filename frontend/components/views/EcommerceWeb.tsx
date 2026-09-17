@@ -17,9 +17,9 @@ const LABEL_META: Record<ProductLabel, { emoji: string; label: string; cls: stri
 const CHIP_ORDER: ProductLabel[] = ['potencial', 'optimizar', 'mantener', 'baja'];
 // Etiquetas del catálogo Shopify (venta real)
 const SHOP_META: Record<ShopLabel, { emoji: string; label: string; cls: string }> = {
-  top: { emoji: '🏆', label: 'Top venta', cls: 'hero' },
-  pendiente: { emoji: '⏳', label: 'Por cobrar', cls: 'opt' },
-  pagado: { emoji: '✅', label: 'Pagado', cls: 'man' },
+  hero: { emoji: '🏆', label: 'Hero', cls: 'hero' },
+  cobrar: { emoji: '💸', label: 'Por cobrar', cls: 'opt' },
+  solido: { emoji: '✅', label: 'Sólido', cls: 'man' },
 };
 
 // ============================================================
@@ -136,7 +136,7 @@ export function EcommerceWeb() {
 
         {/* CATÁLOGO 2 · SHOPIFY (venta real · pagado vs pendiente) */}
         <div className="ec-sh"><h3>Catálogo inteligente · Shopify</h3><span className="hint">venta real · pagado vs pendiente · {data.products.length} productos con venta</span>
-          <span className="ec-pcount">🏆 <b className="e">{data.shopLabelCounts.top}</b> top · ⏳ <b className="o">{data.shopLabelCounts.pendiente}</b> por cobrar</span>
+          <span className="ec-pcount">🏆 <b className="e">{data.shopLabelCounts.hero}</b> hero · 💸 <b className="o">{data.shopLabelCounts.cobrar}</b> por cobrar</span>
         </div>
         <div className="ec-kpis">
           <div className="ec-kpi paid"><div className="l">✅ Pagado</div><div className="v">{money(data.revPaid)}</div><div className="s">{formatInt(data.unitsPaid)}u · {formatPercent(data.paidPct, 0)} del bruto</div></div>
@@ -145,6 +145,7 @@ export function EcommerceWeb() {
         </div>
         <div className="ec-splitbar"><i className="paid" style={{ width: data.paidPct * 100 + '%' }} /><i className="pend" style={{ width: (1 - data.paidPct) * 100 + '%' }} /></div>
         <div className="card ec-pad" style={{ marginTop: 14 }}>
+          <p className="ec-lhint">🏆 <b>Hero</b> sostiene la caja (escalar) · 💸 <b>Por cobrar</b> plata atrapada en pendiente · ✅ <b>Sólido</b> paga limpio</p>
           <div className="ec-sph"><div>Producto</div><div>✅ Pagado</div><div>⏳ Pendiente</div><div>Etiqueta</div></div>
           {data.products.map((p) => (
             <div className="ec-sprow" key={p.title}>

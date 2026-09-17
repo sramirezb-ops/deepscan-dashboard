@@ -43,7 +43,7 @@ export function EcommerceWeb() {
   const ga4SortBy = (key: typeof ga4Sort.key) => setGa4Sort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
   // Filtro + orden por métrica (tabla Shopify).
   const [shopFilter, setShopFilter] = useState<ShopLabel | 'all'>('all');
-  const [shopSort, setShopSort] = useState<{ key: 'units' | 'revPaid' | 'revPending' | 'pctCobrado'; dir: 'asc' | 'desc' }>({ key: 'revPaid', dir: 'desc' });
+  const [shopSort, setShopSort] = useState<{ key: 'vistas' | 'carrito' | 'compras' | 'pagado'; dir: 'asc' | 'desc' }>({ key: 'compras', dir: 'desc' });
   const shopSortBy = (key: typeof shopSort.key) => setShopSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
   const arrow = (active: boolean, dir: 'asc' | 'desc') => (active ? (dir === 'desc' ? ' ▾' : ' ▴') : '');
 
@@ -178,10 +178,10 @@ export function EcommerceWeb() {
         {(() => {
           const base = shopFilter === 'all' ? data.products : data.products.filter((p) => p.shopLabel === shopFilter);
           const sk = shopSort.key, sgn = shopSort.dir === 'desc' ? 1 : -1;
-          const metric = (p: ShopProduct) => sk === 'units' ? p.unitsPaid + p.unitsPending
-            : sk === 'revPaid' ? p.revPaid : sk === 'revPending' ? p.revPending
-            : (p.revPaid + p.revPending) > 0 ? p.revPaid / (p.revPaid + p.revPending) : 0;
-          const rows = [...base].sort((a, b) => sgn * (metric(b) - metric(a)) || (b.revPaid + b.revPending) - (a.revPaid + a.revPending));
+          const metric = (p: ShopProduct) => sk === 'vistas' ? p.viewShare : sk === 'carrito' ? p.atcRate
+            : sk === 'compras' ? p.unitShare : p.paidPct;
+          const rows = [...base].sort((a, b) => sgn * (metric(b) - metric(a)) || b.revShare - a.revShare);
+          const untracked = base.filter((p) => !p.ga4Tracked).length;
           const SH = ({ k, children }: { k: typeof shopSort.key; children: ReactNode }) => (
             <button className={'ec-th' + (shopSort.key === k ? ' on' : '')} onClick={() => shopSortBy(k)}>{children}{arrow(shopSort.key === k, shopSort.dir)}</button>
           );
@@ -189,23 +189,21 @@ export function EcommerceWeb() {
             <div className="card ec-pad" style={{ marginTop: 14 }}>
               <p className="ec-lhint">🏆 <b>Hero</b> sostiene la caja (escalar) · 💸 <b>Por cobrar</b> plata atrapada en pendiente · ✅ <b>Sólido</b> paga limpio</p>
               <div className="ec-sph">
-                <div>Producto</div><SH k="units">🛒 Und</SH><SH k="revPaid">✅ Pagado</SH>
-                <SH k="revPending">⏳ Pendiente</SH><SH k="pctCobrado">% cobrado</SH><div>Etiqueta</div>
+                <div>Producto</div>
+                <SH k="vistas">👁 % vistas</SH><SH k="carrito">🛒 % carrito</SH>
+                <SH k="compras">🛍️ % compras</SH><SH k="pagado">✅ % pagado</SH><div>Etiqueta</div>
               </div>
-              {rows.map((p) => {
-                const bruto = p.revPaid + p.revPending;
-                const pct = bruto > 0 ? p.revPaid / bruto : 0;
-                return (
-                  <div className="ec-sprow" key={p.title}>
-                    <div className="pn" title={p.title}>{p.title}</div>
-                    <div className="nu">{p.unitsPaid + p.unitsPending}</div>
-                    <div className="pp">{p.unitsPaid > 0 ? <><b>{money(p.revPaid)}</b><span>{p.unitsPaid}u</span></> : <span className="z">—</span>}</div>
-                    <div className="pd">{p.unitsPending > 0 ? <><b>{money(p.revPending)}</b><span>{p.unitsPending}u</span></> : <span className="z">—</span>}</div>
-                    <div className="nv"><span className={'rate ' + (pct >= 0.99 ? 'hi' : pct === 0 ? 'lo' : '')}>{formatPercent(pct, 0)}</span></div>
-                    <div className="lb"><span className={'lbadge ' + SHOP_META[p.shopLabel].cls}>{SHOP_META[p.shopLabel].emoji} {SHOP_META[p.shopLabel].label}</span></div>
-                  </div>
-                );
-              })}
+              {rows.map((p) => (
+                <div className="ec-sprow" key={p.title}>
+                  <div className="pn" title={p.title}>{p.title}</div>
+                  <div className="nv">{p.ga4Tracked ? <><b>{formatPercent(p.viewShare, 1)}</b><span>{formatInt(p.views)} vistas</span></> : <span className="z">—</span>}</div>
+                  <div className="nv">{p.ga4Tracked ? <span className={'rate ' + (p.atcRate >= data.siteAtcRate * 1.6 ? 'hi' : p.atcRate < data.siteAtcRate * 0.8 ? 'lo' : '')}>{formatPercent(p.atcRate, 1)}</span> : <span className="z">—</span>}</div>
+                  <div className="nv"><b>{formatPercent(p.unitShare, 0)}</b><span>{p.unitsPaid + p.unitsPending}u</span></div>
+                  <div className="nv"><span className={'rate ' + (p.paidPct >= 0.99 ? 'hi' : p.paidPct === 0 ? 'lo' : '')}>{formatPercent(p.paidPct, 0)}</span></div>
+                  <div className="lb"><span className={'lbadge ' + SHOP_META[p.shopLabel].cls}>{SHOP_META[p.shopLabel].emoji} {SHOP_META[p.shopLabel].label}</span></div>
+                </div>
+              ))}
+              <p className="ec-foot">👁 <b>% vistas</b> y <b>% carrito</b> se cruzan con GA4 por nombre exacto — {untracked > 0 ? `${untracked} producto(s) sin match fiable aparecen como “—” (venden por canal no medido en GA4).` : 'todos con match.'} <b>% compras</b> = su parte de las unidades vendidas · <b>% pagado</b> = ingreso ya cobrado (Shopify, siempre real).</p>
             </div>
           );
         })()}
@@ -273,8 +271,8 @@ const CSS = `
 .ec-th{background:none;border:none;padding:0;margin:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;white-space:nowrap}
 .ec-th:first-child{text-align:left}.ec-th:hover{color:var(--t1)}.ec-th.on{color:var(--acc)}
 .ec-foot{margin-top:11px;font-size:10.5px;color:var(--t3);line-height:1.5;border-top:1px dashed var(--b1);padding-top:9px}.ec-foot b{color:var(--t2)}
-.ec-crow{padding:7px 0;border-top:1px solid var(--b1);font-size:12px}
-.ec-crow .pn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ec-crow{padding:7px 0;border-top:1px solid var(--b1);font-size:12px;align-items:start}
+.ec-crow .pn{font-weight:600;line-height:1.35;overflow-wrap:anywhere}
 .ec-crow .nv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
 .ec-crow .nv .rate.hi{color:var(--up)}.ec-crow .nv .rate.lo{color:var(--dn)}
 .ec-crow .nv .pd-ok{color:var(--up);font-size:11px}.ec-crow .nv .z{color:var(--t3);font-weight:400}
@@ -298,16 +296,15 @@ const CSS = `
 .ec-kpi.pend{border-color:var(--warn)}.ec-kpi.pend .v{color:var(--warn)}
 .ec-splitbar{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:12px;background:var(--track)}
 .ec-splitbar i.paid{background:var(--up)}.ec-splitbar i.pend{background:var(--warn)}
-.ec-sph,.ec-sprow{display:grid;grid-template-columns:1fr 44px 108px 108px 66px 124px;gap:10px;align-items:center}
+.ec-sph,.ec-sprow{display:grid;grid-template-columns:1fr 72px 68px 66px 62px 118px;gap:10px;align-items:center}
 .ec-sph{font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--b1)}
 .ec-sph>*:not(:first-child):not(:last-child){text-align:right;justify-self:end}.ec-sph>*:last-child{text-align:left;justify-self:start;padding-left:8px}
-.ec-sprow{padding:9px 0;border-top:1px solid var(--b1);font-size:12.5px}
-.ec-sprow .pn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ec-sprow .pp,.ec-sprow .pd,.ec-sprow .nu,.ec-sprow .nv{text-align:right}
-.ec-sprow .nu{font-weight:700;font-variant-numeric:tabular-nums}
+.ec-sprow{padding:9px 0;border-top:1px solid var(--b1);font-size:12.5px;align-items:start}
+.ec-sprow .pn{font-weight:600;line-height:1.35;overflow-wrap:anywhere}
+.ec-sprow .nv{text-align:right;font-variant-numeric:tabular-nums}
+.ec-sprow .nv b{font-weight:800}.ec-sprow .nv span{display:block;font-size:9.5px;color:var(--t3)}
 .ec-sprow .nv .rate.hi{color:var(--up)}.ec-sprow .nv .rate.lo{color:var(--dn)}
-.ec-sprow .pp b,.ec-sprow .pd b{font-weight:800}.ec-sprow .pp span,.ec-sprow .pd span{display:block;font-size:9.5px;color:var(--t3)}
-.ec-sprow .pp b{color:var(--up)}.ec-sprow .pd b{color:var(--warn)}.ec-sprow .z{color:var(--t3)}
+.ec-sprow .z{color:var(--t3)}
 .ec-sprow .lb{text-align:left;padding-left:8px}
 /* embudo */
 .ec-fstep{display:grid;grid-template-columns:150px 1fr 74px 54px;gap:12px;align-items:center;padding:6px 0;border-top:1px solid var(--b1)}
@@ -325,8 +322,8 @@ const CSS = `
 @media(max-width:900px){
   .ec-webs,.ec-kpis{grid-template-columns:1fr}.ec-acts{grid-template-columns:1fr 1fr}
   .ec-fstep{grid-template-columns:100px 1fr 60px;gap:8px}.ec-fstep .fr{display:none}
-  .ec-sph,.ec-sprow{grid-template-columns:1fr 84px 84px 100px}
-  .ec-sph>*:nth-child(2),.ec-sprow>*:nth-child(2),.ec-sph>*:nth-child(5),.ec-sprow>*:nth-child(5){display:none}
+  .ec-sph,.ec-sprow{grid-template-columns:1fr 66px 62px 100px}
+  .ec-sph>*:nth-child(2),.ec-sprow>*:nth-child(2),.ec-sph>*:nth-child(3),.ec-sprow>*:nth-child(3){display:none}
   .ec-cph,.ec-crow{grid-template-columns:1fr 46px 60px 104px}
   .ec-cph>*:nth-child(3),.ec-crow>*:nth-child(3),.ec-cph>*:nth-child(5),.ec-crow>*:nth-child(5),.ec-cph>*:nth-child(6),.ec-crow>*:nth-child(6){display:none}
 }

@@ -42,6 +42,12 @@ export interface ShopProduct {
   unitsPaid: number; unitsPending: number;
   revPaid: number; revPending: number;
   shopLabel: ShopLabel;
+  // Métricas robustas de venta (Shopify) — share sobre el total del catálogo.
+  unitShare: number;   // % de las compras del catálogo (unidades)
+  revShare: number;    // % del bruto del catálogo
+  paidPct: number;     // % de su ingreso ya cobrado
+  // Demanda GA4 (cruce EXACTO por nombre; ga4Tracked=false si GA4 no lo rastrea)
+  views: number; atc: number; atcRate: number; viewShare: number; ga4Tracked: boolean;
 }
 
 export interface ViewedProduct { name: string; views: number; sold: boolean }
@@ -168,19 +174,63 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
         const base = Array.from(pmap.entries()).map(([title, e]) => ({
           title, unitsPaid: e.up, unitsPending: e.un, revPaid: e.rp, revPending: e.rn,
         }));
+
+        // Índice GA4 (sitio principal) por tokens para cruzar demanda con Shopify.
+        // Match EXACTO por subconjunto de tokens conservando el nº de modelo → sin
+        // falsos positivos (no confunde "Jordan 12 Bloodline" con "…Blueberry").
+        const MATCH_STOP = new Set(['tenis', 'the', 'de', 'del', 'mx', 'us', 'eu', 'talla']);
+        const mtokens = (s: string) => new Set(norm(s).split(' ').filter((t) => t && !MATCH_STOP.has(t)));
+        const isTestName = (n: string) => /test|no comprar|prueba/i.test(n);
+        const ga4Idx: { tok: Set<string>; v: number; a: number }[] = [];
+        let siteViewsGa4 = 0;
+        {
+          const m = new Map<string, { v: number; a: number }>();
+          for (const r of itemRows) {
+            if (String(r.property_id) !== MAIN_PROPERTY) continue;
+            const n = r.item_name || ''; if (!n || isTestName(n)) continue;
+            const e = m.get(n) || { v: 0, a: 0 };
+            e.v += Number(r.items_viewed) || 0; e.a += Number(r.items_added_to_cart) || 0;
+            m.set(n, e);
+          }
+          for (const [n, e] of m) { ga4Idx.push({ tok: mtokens(n), v: e.v, a: e.a }); siteViewsGa4 += e.v; }
+        }
+        const matchGa4 = (title: string) => {
+          const tt = mtokens(title); if (tt.size === 0) return null;
+          let best: { v: number; a: number } | null = null;
+          for (const g of ga4Idx) {
+            let subset = true; for (const t of tt) if (!g.tok.has(t)) { subset = false; break; }
+            if (subset && (!best || g.v > best.v)) best = { v: g.v, a: g.a };
+          }
+          return best;
+        };
+
         // Hero (a menor escala): top venta PAGADA con cobro sano (pagado ≥ pendiente).
         // Un producto grande pero mayormente pendiente NO es hero → cae a "cobrar".
         const heroTitles = new Set(
           base.filter((p) => p.revPaid > 0 && p.revPaid >= p.revPending)
             .sort((a, b) => b.revPaid - a.revPaid).slice(0, 3).map((p) => p.title),
         );
+        const totUnits = base.reduce((s, p) => s + p.unitsPaid + p.unitsPending, 0);
+        const totBruto = base.reduce((s, p) => s + p.revPaid + p.revPending, 0);
         const products: ShopProduct[] = base
           .map((p) => {
             let shopLabel: ShopLabel = 'solido';
             if (heroTitles.has(p.title)) shopLabel = 'hero';             // sostiene la caja → escalar
             else if (p.revPending > p.revPaid) shopLabel = 'cobrar';     // plata atrapada en pendiente
             else shopLabel = 'solido';                                   // paga limpio, volumen menor
-            return { ...p, shopLabel };
+            const gross = p.revPaid + p.revPending;
+            const units = p.unitsPaid + p.unitsPending;
+            const g = matchGa4(p.title);
+            return {
+              ...p, shopLabel,
+              unitShare: totUnits > 0 ? units / totUnits : 0,
+              revShare: totBruto > 0 ? gross / totBruto : 0,
+              paidPct: gross > 0 ? p.revPaid / gross : 0,
+              views: g ? g.v : 0, atc: g ? g.a : 0,
+              atcRate: g && g.v > 0 ? g.a / g.v : 0,
+              viewShare: g && siteViewsGa4 > 0 ? g.v / siteViewsGa4 : 0,
+              ga4Tracked: !!(g && g.v > 0),
+            };
           })
           .sort((a, b) => (b.revPaid + b.revPending) - (a.revPaid + a.revPending));
         const revPaid = products.reduce((s, p) => s + p.revPaid, 0);

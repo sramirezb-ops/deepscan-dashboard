@@ -1,2 +1,7 @@
-import { GA4 } from '@/components/views/GA4';
-export default function Page() { return <GA4 />; }
+import { EcommerceWeb } from '@/components/views/EcommerceWeb';
+
+// Hoja de Analytics para Sneaker Store = 100% ECOMMERCE (no leads):
+// comparativa de webs, performance por producto y venta real (Shopify).
+export default function Page() {
+  return <EcommerceWeb />;
+}

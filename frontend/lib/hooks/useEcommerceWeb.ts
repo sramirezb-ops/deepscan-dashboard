@@ -46,6 +46,12 @@ export interface ShopProduct {
 
 export interface ViewedProduct { name: string; views: number; sold: boolean }
 
+export interface ProductPerf {
+  name: string; views: number; atc: number; atcRate: number;
+  checkout: number; purchases: number; cvr: number; revenue: number;
+  verdict: 'escalar' | 'optimizar' | 'ok';
+}
+
 export interface EcommerceData {
   // Embudo (GA4)
   funnel: FunnelStep[];
@@ -64,6 +70,11 @@ export interface EcommerceData {
   topViewed: ViewedProduct[];
   viewedTotalProducts: number;
   productViews: number;
+  // Performance por producto (GA4 · sitio principal): tasa de carrito y conversión
+  escalarList: ProductPerf[];    // buen % carrito → dales tráfico
+  optimizarList: ProductPerf[];  // muchas vistas, poco carrito → arréglalos
+  siteAtcRate: number;      // baseline del sitio (carrito/vistas)
+  nEscalar: number; nOptimizar: number;
   // Tráfico / engagement (sitio principal)
   sessions: number; sessionsDelta: number;
   bounceRate: number;
@@ -106,7 +117,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
         const [funnelRows, shopRows, itemRows, metricNow, metricPrev] = await Promise.all([
           fetchAll('ga4_funnel', 'sessions, product_views, add_to_cart, checkout_start, purchases', clientId, range.from, range.to),
           fetchAll('shopify_product_daily', 'title, units_paid, units_pending, revenue_paid, revenue_pending', clientId, range.from, range.to),
-          fetchAll('ga4_items', 'item_name, items_viewed, property_id', clientId, range.from, range.to),
+          fetchAll('ga4_items', 'item_name, items_viewed, items_added_to_cart, items_checked_out, items_purchased, item_revenue, property_id', clientId, range.from, range.to),
           fetchAll('ga4_metrics', 'sessions, new_users, active_users, bounce_rate, avg_session_duration, revenue, source_medium', clientId, range.from, range.to),
           fetchAll('ga4_metrics', 'sessions', clientId, previous.from, previous.to),
         ]);
@@ -188,6 +199,41 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           .sort((a, b) => b.views - a.views)
           .slice(0, 15);
 
+        // ── Performance por producto (GA4 · sitio principal) ──
+        // El item-tracking bueno vive en la web principal (508597206). ATC-rate es
+        // la métrica accionable (la compra por producto es escasa).
+        const isTest = (n: string) => /test|no comprar|prueba/i.test(n);
+        const perf = new Map<string, { v: number; a: number; c: number; p: number; rev: number }>();
+        let siteV = 0, siteA = 0;
+        for (const r of itemRows) {
+          if (r.property_id !== MAIN_PROPERTY) continue;
+          const n = r.item_name || '';
+          if (!n || isTest(n)) continue;
+          const e = perf.get(n) || { v: 0, a: 0, c: 0, p: 0, rev: 0 };
+          e.v += Number(r.items_viewed) || 0; e.a += Number(r.items_added_to_cart) || 0;
+          e.c += Number(r.items_checked_out) || 0; e.p += Number(r.items_purchased) || 0;
+          e.rev += Number(r.item_revenue) || 0;
+          perf.set(n, e);
+          siteV += Number(r.items_viewed) || 0; siteA += Number(r.items_added_to_cart) || 0;
+        }
+        const siteAtcRate = siteV > 0 ? siteA / siteV : 0;
+        const MIN_VIEWS = 15; // ignora la cola larguísima sin señal
+        const allPerf: ProductPerf[] = Array.from(perf.entries())
+          .filter(([, e]) => e.v >= MIN_VIEWS)
+          .map(([name, e]) => {
+            const atcRate = e.v > 0 ? e.a / e.v : 0;
+            const cvr = e.v > 0 ? e.p / e.v : 0;
+            let verdict: ProductPerf['verdict'] = 'ok';
+            if (atcRate >= siteAtcRate * 1.6 && e.a >= 2) verdict = 'escalar';
+            else if (e.v >= 100 && atcRate < siteAtcRate * 0.8) verdict = 'optimizar';
+            return { name, views: e.v, atc: e.a, atcRate, checkout: e.c, purchases: e.p, cvr, revenue: e.rev, verdict };
+          });
+        const nEscalar = allPerf.filter((p) => p.verdict === 'escalar').length;
+        const nOptimizar = allPerf.filter((p) => p.verdict === 'optimizar').length;
+        // Escalar: mejor % carrito primero (los que más convierten). Optimizar: más vistas primero (mayor pérdida).
+        const escalarList = allPerf.filter((p) => p.verdict === 'escalar').sort((a, b) => b.atcRate - a.atcRate).slice(0, 12);
+        const optimizarList = allPerf.filter((p) => p.verdict === 'optimizar').sort((a, b) => b.views - a.views).slice(0, 12);
+
         // ── Tráfico / engagement (sitio principal) ──
         let sess = 0, bw = 0, ga4rev = 0;
         const chMap = new Map<string, number>();
@@ -247,6 +293,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,
           topViewed, viewedTotalProducts: itemAgg.size, productViews: f.product_views,
+          escalarList, optimizarList, siteAtcRate, nEscalar, nOptimizar,
           sessions: sess, sessionsDelta: calcDelta(sess, sessPrev), bounceRate: sess > 0 ? bw / sess : 0,
           channels, ga4Revenue: ga4rev,
           from: range.from, to: range.to,

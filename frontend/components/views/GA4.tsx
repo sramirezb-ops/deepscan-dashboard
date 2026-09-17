@@ -13,7 +13,6 @@ import { useGA4Routes } from '@/lib/hooks/useGA4Routes';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ComparisonAreaChart } from '@/components/ui/ComparisonAreaChart';
 import { GA4Funnel } from '@/components/views/GA4Funnel';
-import { EcommerceWeb } from '@/components/views/EcommerceWeb';
 import { formatInt, formatNumber, formatPercentRaw } from '@/lib/utils';
 
 // ============================================================
@@ -125,9 +124,6 @@ export function GA4() {
           Comportamiento web · {client.name} · {rangeLabel} · {formatNumber(t.sessions)} sesiones
         </div>
       </div>
-
-      {/* ═══ ECOMMERCE · embudo + venta real (paid/pending) + demanda ═══ */}
-      <EcommerceWeb />
 
       {/* ═══ ZONA 1 · DIAGNÓSTICO ═══ */}
       <div className="card ttc-z1" style={{ padding: '20px 22px', marginTop: 4 }}>

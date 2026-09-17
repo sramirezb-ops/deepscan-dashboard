@@ -1,6 +1,7 @@
 'use client';
 
 import { LeadsOverview } from './LeadsOverview';
+import { VisibilidadVenta } from './VisibilidadVenta';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -185,6 +186,9 @@ export function Overview() {
             <span style={{ fontVariantNumeric: 'tabular-nums' }}>{cur}</span>
           </div>
         </div>
+
+        {/* VISIBILIDAD DE VENTA (automatizada desde aura_sales · el reporte que antes se armaba a mano) */}
+        <VisibilidadVenta />
 
         {/* HERO */}
         <div className="ov-hero">

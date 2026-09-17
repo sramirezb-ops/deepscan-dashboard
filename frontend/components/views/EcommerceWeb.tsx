@@ -6,6 +6,7 @@ import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
 import { useEcommerceWeb, type ProductLabel, type ShopLabel, type ShopProduct } from '@/lib/hooks/useEcommerceWeb';
 import { formatCurrencyFull, formatInt, formatPercent } from '@/lib/utils';
+import { FunnelChart } from '@/components/ui/FunnelChart';
 
 // Etiquetas del catálogo GA4 (comportamiento)
 const LABEL_META: Record<ProductLabel, { emoji: string; label: string; cls: string; desc: string }> = {
@@ -15,6 +16,8 @@ const LABEL_META: Record<ProductLabel, { emoji: string; label: string; cls: stri
   mantener: { emoji: '✅', label: 'Mantener', cls: 'man', desc: 'estable' },
 };
 const CHIP_ORDER: ProductLabel[] = ['potencial', 'optimizar', 'mantener', 'baja'];
+// Degradado del embudo (violeta → verde); el paso que se rompe se pinta en rojo aparte.
+const FUNNEL_COLORS = ['#8b5cf6', '#6366f1', '#0ea5e9', '#f59e0b', '#16a34a'];
 // Etiquetas del catálogo Shopify (venta real)
 const SHOP_META: Record<ShopLabel, { emoji: string; label: string; cls: string }> = {
   hero: { emoji: '🏆', label: 'Hero', cls: 'hero' },
@@ -50,11 +53,10 @@ export function EcommerceWeb() {
   if (loading && !data) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Cargando analítica ecommerce…</div></div>;
   if (error || !data) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Sin datos de ecommerce en este período.</div></div>;
 
-  const maxStep = Math.max(...data.funnel.map((s) => s.value), 1);
   const win = data.webs[0];
   const investReason = !win ? '' : win.kind === 'shopify'
-    ? `Cierra más venta real por sesión (${rps(win.revPerSession)}) — la pauta ya convierte ahí. Pero su GA4 está en $0 y el 67% queda pendiente: escala, pero arregla tracking y cobranza.`
-    : `Mejor retorno por sesión (${rps(win.revPerSession)}) y tráfico más sano (rebote ${formatPercent(win.bounce, 0)}). Base más sólida para escalar con menos riesgo.`;
+    ? `Más venta real por sesión (${rps(win.revPerSession)}). La pauta ya convierte ahí — escala, pero cobra lo pendiente.`
+    : `Mejor retorno por sesión (${rps(win.revPerSession)}) y tráfico más sano. Base para escalar con menos riesgo.`;
   const maxRps = Math.max(...data.webs.map((w) => w.revPerSession), 0.01);
 
   return (
@@ -69,6 +71,14 @@ export function EcommerceWeb() {
             <h1>Analítica ecommerce</h1>
             <div className="sub">Comportamiento (GA4) + venta real (Shopify) · {client.name} · {formatRangeLabel(range)}</div>
           </div>
+        </div>
+
+        {/* KPIs HERO — resumen ejecutivo de un vistazo */}
+        <div className="ec-hkpis">
+          <div className="ec-hk"><div className="hkl">💰 Venta bruta</div><div className="hkv">{money(data.revBruto)}</div><div className="hks">{formatInt(data.unitsPaid + data.unitsPending)} unidades vendidas</div></div>
+          <div className="ec-hk"><div className="hkl">✅ Cobrado</div><div className="hkv up">{formatPercent(data.paidPct, 0)}</div><div className="hks">{money(data.revPaid)} · falta {money(data.revPending)}</div></div>
+          <div className="ec-hk"><div className="hkl">👥 Sesiones</div><div className="hkv">{formatInt(data.sessions)}</div><div className={'hks ' + (data.sessionsDelta >= 0 ? 'up' : 'dn')}>{data.sessionsDelta >= 0 ? '▲' : '▼'} {Math.abs(Math.round(data.sessionsDelta))}% vs. período anterior</div></div>
+          <div className="ec-hk"><div className="hkl">🛒 Vista → carrito</div><div className="hkv">{formatPercent(data.siteAtcRate, 1)}</div><div className="hks">{formatInt(data.productViews)} vistas de producto</div></div>
         </div>
 
         {/* COMPARATIVA DE WEBS · DÓNDE INVERTIR */}
@@ -137,36 +147,46 @@ export function EcommerceWeb() {
                   {expanded ? '▲ Ver menos' : `▼ Ver los ${rows.length} productos`}
                 </button>
               )}
-              <p className="ec-foot">🛍️ GA4 solo registró {formatInt(data.funnel[4]?.value || 0)} compras en el sitio (tracking de venta incompleto) — la señal fiable aquí es <b>% carrito</b>. La venta real por producto está en la tabla de Shopify.</p>
+              <p className="ec-foot">🛍️ GA4 solo midió {formatInt(data.funnel[4]?.value || 0)} ventas (tracking incompleto) → la señal fiable es <b>% carrito</b>. La venta real está en Shopify ↓</p>
             </div>
           );
         })()}
 
-        {/* EMBUDO */}
-        <div className="ec-sh"><h3>Embudo del sitio</h3><span className="hint">GA4</span>
+        {/* EMBUDO VISUAL (GA4) */}
+        <div className="ec-sh"><h3>Embudo del sitio</h3><span className="hint">GA4 · todo el tráfico</span>
           {data.breakLabel !== '—' && <span className="ec-break">⚠ se rompe en {data.breakLabel}</span>}
         </div>
-        <div className="card ec-pad">
-          {data.funnel.map((s) => (
-            <div className={'ec-fstep' + (s.isBreak ? ' brk' : '')} key={s.key}>
-              <div className="fl">{s.label}</div>
-              <div className="fbar"><i style={{ width: Math.max(1.5, (s.value / maxStep) * 100) + '%' }} /></div>
-              <div className="fv">{formatInt(s.value)}</div>
-              <div className="fr">{s.stepRate === null ? '' : <span className={s.isBreak ? 'bad' : ''}>{formatPercent(s.stepRate, 1)}</span>}</div>
-            </div>
-          ))}
+        <div className="card ec-pad ec-funnelcard">
+          <FunnelChart
+            stages={data.funnel.map((s, i) => ({ label: s.label, value: s.value, color: s.isBreak ? '#e5384d' : FUNNEL_COLORS[i] }))}
+            format={(v) => formatInt(v)}
+          />
         </div>
 
-        {/* CATÁLOGO 2 · SHOPIFY (venta real · pagado vs pendiente) */}
-        <div className="ec-sh"><h3>Catálogo inteligente · Shopify</h3><span className="hint">venta real · pagado vs pendiente · {data.products.length} productos con venta</span>
+        {/* GRÁFICO · CONCENTRACIÓN DE LA VENTA (pagado vs pendiente por producto) */}
+        <div className="ec-sh"><h3>¿Dónde está la plata?</h3><span className="hint">venta por producto · ticket promedio {money(data.aovPaid)}</span>
           <span className="ec-pcount">🏆 <b className="e">{data.shopLabelCounts.hero}</b> hero · 💸 <b className="o">{data.shopLabelCounts.cobrar}</b> por cobrar</span>
         </div>
-        <div className="ec-kpis">
-          <div className="ec-kpi paid"><div className="l">✅ Pagado</div><div className="v">{money(data.revPaid)}</div><div className="s">{formatInt(data.unitsPaid)}u · {formatPercent(data.paidPct, 0)} del bruto</div></div>
-          <div className="ec-kpi pend"><div className="l">⏳ Pendiente</div><div className="v">{money(data.revPending)}</div><div className="s">{formatInt(data.unitsPending)}u · por cobrar</div></div>
-          <div className="ec-kpi"><div className="l">Ticket promedio</div><div className="v">{money(data.aovPaid)}</div><div className="s">Bruto {money(data.revBruto)}</div></div>
+        <div className="card ec-pad ec-conc">
+          <div className="ec-conchead"><span className="lg"><i className="d paid" />Pagado {money(data.revPaid)}</span><span className="lg"><i className="d pend" />Pendiente {money(data.revPending)}</span></div>
+          {(() => {
+            const top = [...data.products].sort((a, b) => (b.revPaid + b.revPending) - (a.revPaid + a.revPending)).slice(0, 8);
+            const maxG = Math.max(...top.map((p) => p.revPaid + p.revPending), 1);
+            return top.map((p) => (
+              <div className="concrow" key={p.title}>
+                <div className="cname" title={p.title}>{p.title}</div>
+                <div className="cbar">
+                  {p.revPaid > 0 && <i className="paid" style={{ width: (p.revPaid / maxG) * 100 + '%' }} />}
+                  {p.revPending > 0 && <i className="pend" style={{ width: (p.revPending / maxG) * 100 + '%' }} />}
+                </div>
+                <div className="cval">{money(p.revPaid + p.revPending)}</div>
+              </div>
+            ));
+          })()}
         </div>
-        <div className="ec-splitbar"><i className="paid" style={{ width: data.paidPct * 100 + '%' }} /><i className="pend" style={{ width: (1 - data.paidPct) * 100 + '%' }} /></div>
+
+        {/* CATÁLOGO 2 · SHOPIFY (tabla detallada) */}
+        <div className="ec-sh"><h3>Catálogo inteligente · Shopify</h3><span className="hint">{data.products.length} productos con venta · ordena por cualquier métrica</span></div>
         <div className="ec-chips">
           <button className={'chip' + (shopFilter === 'all' ? ' on' : '')} onClick={() => setShopFilter('all')}>Todos <b>{data.products.length}</b></button>
           {(['hero', 'cobrar', 'solido'] as ShopLabel[]).map((l) => (
@@ -197,23 +217,23 @@ export function EcommerceWeb() {
                 <div className="ec-sprow" key={p.title}>
                   <div className="pn" title={p.title}>{p.title}</div>
                   <div className="nv">{p.ga4Tracked ? <><b>{formatPercent(p.viewShare, 1)}</b><span>{formatInt(p.views)} vistas</span></> : <span className="z">—</span>}</div>
-                  <div className="nv">{p.ga4Tracked ? <span className={'rate ' + (p.atcRate >= data.siteAtcRate * 1.6 ? 'hi' : p.atcRate < data.siteAtcRate * 0.8 ? 'lo' : '')}>{formatPercent(p.atcRate, 1)}</span> : <span className="z">—</span>}</div>
-                  <div className="nv"><b>{formatPercent(p.unitShare, 0)}</b><span>{p.unitsPaid + p.unitsPending}u</span></div>
-                  <div className="nv"><span className={'rate ' + (p.paidPct >= 0.99 ? 'hi' : p.paidPct === 0 ? 'lo' : '')}>{formatPercent(p.paidPct, 0)}</span></div>
+                  <div className="nv">{p.ga4Tracked ? <><span className={'rate ' + (p.atcRate >= data.siteAtcRate * 1.6 ? 'hi' : p.atcRate < data.siteAtcRate * 0.8 ? 'lo' : '')}>{formatPercent(p.atcRate, 1)}</span><span>{p.atc} carr.</span></> : <span className="z">—</span>}</div>
+                  <div className="nv"><b>{formatPercent(p.unitShare, 0)}</b><span>{p.unitsPaid + p.unitsPending} und.</span></div>
+                  <div className="nv"><span className={'rate ' + (p.paidPct >= 0.99 ? 'hi' : p.paidPct === 0 ? 'lo' : '')}>{formatPercent(p.paidPct, 0)}</span><span>{p.unitsPaid} pag.</span></div>
                   <div className="lb"><span className={'lbadge ' + SHOP_META[p.shopLabel].cls}>{SHOP_META[p.shopLabel].emoji} {SHOP_META[p.shopLabel].label}</span></div>
                 </div>
               ))}
-              <p className="ec-foot">👁 <b>% vistas</b> y <b>% carrito</b> se cruzan con GA4 por nombre exacto — {untracked > 0 ? `${untracked} producto(s) sin match fiable aparecen como “—” (venden por canal no medido en GA4).` : 'todos con match.'} <b>% compras</b> = su parte de las unidades vendidas · <b>% pagado</b> = ingreso ya cobrado (Shopify, siempre real).</p>
+              <p className="ec-foot">👁 <b>% vistas</b> y <b>% carrito</b> cruzados con GA4 (nombre exacto; “—” = sin match fiable{untracked > 0 ? `, ${untracked}` : ''}). <b>% compras</b> y <b>% pagado</b> son 100% Shopify.</p>
             </div>
           );
         })()}
 
-        {/* ACCIONES */}
+        {/* ACCIONES — 3 palancas, corto */}
+        <div className="ec-sh"><h3>Próximos pasos</h3><span className="hint">las 3 palancas de mayor retorno</span></div>
         <div className="ec-acts">
-          <div className="ec-act bad"><div className="tag">🔴 Vista → Carrito</div><div className="body">{formatInt(data.productViews)} vistas → {formatInt(data.funnel[2]?.value || 0)} carritos ({formatPercent(data.siteAtcRate, 1)}). El mayor cuello del sitio.</div></div>
-          <div className="ec-act good"><div className="tag">📈 Escalar por producto</div><div className="body">{data.ga4LabelCounts.potencial} productos con buen % de carrito y poco tráfico (Potencial en Analytics) merecen más pauta y mejor posición en catálogo.</div></div>
-          <div className="ec-act warn"><div className="tag">⏳ Cobrar lo pendiente</div><div className="body">{money(data.revPending)} vendidos sin pagar. Un flujo de recordatorio recupera venta ya ganada.</div></div>
-          <div className="ec-act info"><div className="tag">🛠 Desbloquear el dato</div><div className="body">La tienda Shopify mide $0 en GA4. Arreglar el datalayer daría CVR y ROAS reales por web y producto.</div></div>
+          <div className="ec-act warn"><div className="tag">1 · Cobrar {money(data.revPending)}</div><div className="body">Venta ya ganada, sin pagar. Flujo de recordatorio = caja inmediata.</div></div>
+          <div className="ec-act good"><div className="tag">2 · Escalar {data.ga4LabelCounts.potencial} “Potencial”</div><div className="body">Buen % de carrito, poco tráfico. Más pauta y creativos propios.</div></div>
+          <div className="ec-act bad"><div className="tag">3 · Arreglar cuello {formatPercent(data.siteAtcRate, 1)}</div><div className="body">{formatInt(data.productViews)} vistas → {formatInt(data.funnel[2]?.value || 0)} carritos. Revisar PDP/precio del tráfico caro.</div></div>
         </div>
       </div>
     </div>
@@ -231,6 +251,23 @@ const CSS = `
 .ec-sh .ec-pcount{margin-left:auto;font-size:11px;color:var(--t3)}.ec-pcount b.e{color:var(--up)}.ec-pcount b.o{color:var(--dn)}
 .ec-pad{padding:15px 18px}
 .ec-note{font-size:11.5px;color:var(--t3);margin:12px 0 0;line-height:1.5}.ec-note b.e{color:var(--up)}.ec-note b.o{color:var(--dn)}
+/* KPIs hero (resumen ejecutivo) */
+.ec-hkpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0 4px}
+.ec-hk{background:var(--bg1);border:1px solid var(--b1);border-radius:14px;padding:13px 15px}
+.ec-hk .hkl{font-size:11px;color:var(--t3);font-weight:600}
+.ec-hk .hkv{font-size:25px;font-weight:800;letter-spacing:-.025em;margin-top:4px;color:var(--t1)}.ec-hk .hkv.up{color:var(--up)}
+.ec-hk .hks{font-size:10.5px;color:var(--t3);margin-top:3px}.ec-hk .hks.up{color:var(--up)}.ec-hk .hks.dn{color:var(--dn)}
+/* embudo visual */
+.ec-funnelcard{padding:18px 22px}
+/* gráfico concentración de venta */
+.ec-conc .ec-conchead{display:flex;gap:16px;justify-content:flex-end;font-size:10.5px;color:var(--t3);margin-bottom:12px}
+.ec-conc .lg{display:inline-flex;align-items:center;gap:6px}
+.ec-conc .lg .d{width:10px;height:10px;border-radius:3px;display:inline-block}.ec-conc .lg .d.paid{background:var(--up)}.ec-conc .lg .d.pend{background:var(--warn)}
+.concrow{display:grid;grid-template-columns:180px 1fr 96px;gap:12px;align-items:center;padding:5px 0}
+.concrow .cname{font-size:12px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.concrow .cbar{display:flex;height:15px;background:var(--track);border-radius:5px;overflow:hidden}
+.concrow .cbar i{display:block;height:100%}.concrow .cbar i.paid{background:var(--up)}.concrow .cbar i.pend{background:var(--warn)}
+.concrow .cval{text-align:right;font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
 /* comparativa webs */
 .ec-webs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .ec-web{position:relative;background:var(--bg1);border:1px solid var(--b1);border-radius:16px;padding:17px 18px}
@@ -315,16 +352,26 @@ const CSS = `
 .ec-fstep .fv{text-align:right;font-size:13px;font-weight:800}
 .ec-fstep .fr{text-align:right;font-size:11px;color:var(--t3)}.ec-fstep .fr .bad{color:var(--dn);font-weight:700}
 /* acciones */
-.ec-acts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:22px}
+.ec-acts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:4px}
 .ec-act{background:var(--bg1);border:1px solid var(--b1);border-radius:13px;padding:14px 15px;border-left:3px solid var(--acc)}
 .ec-act.good{border-left-color:var(--up)}.ec-act.bad{border-left-color:var(--dn)}.ec-act.warn{border-left-color:var(--warn)}.ec-act.info{border-left-color:var(--acc)}
 .ec-act .tag{font-size:12px;font-weight:800;margin-bottom:5px}.ec-act .body{font-size:11.5px;color:var(--t2);line-height:1.5}
+/* responsive · desktop angosto / tablet (preview de Cloud) */
+@media(max-width:1024px){
+  .ec-acts{grid-template-columns:1fr}
+  .concrow{grid-template-columns:150px 1fr 88px;gap:10px}
+}
+/* tablas y comparativas colapsan antes de apretarse */
 @media(max-width:900px){
-  .ec-webs,.ec-kpis{grid-template-columns:1fr}.ec-acts{grid-template-columns:1fr 1fr}
-  .ec-fstep{grid-template-columns:100px 1fr 60px;gap:8px}.ec-fstep .fr{display:none}
+  .ec-webs{grid-template-columns:1fr}.ec-hkpis{grid-template-columns:repeat(2,1fr)}
   .ec-sph,.ec-sprow{grid-template-columns:1fr 66px 62px 100px}
   .ec-sph>*:nth-child(2),.ec-sprow>*:nth-child(2),.ec-sph>*:nth-child(3),.ec-sprow>*:nth-child(3){display:none}
   .ec-cph,.ec-crow{grid-template-columns:1fr 46px 60px 104px}
   .ec-cph>*:nth-child(3),.ec-crow>*:nth-child(3),.ec-cph>*:nth-child(5),.ec-crow>*:nth-child(5),.ec-cph>*:nth-child(6),.ec-crow>*:nth-child(6){display:none}
+}
+@media(max-width:560px){
+  .ec-hkpis{grid-template-columns:1fr}
+  .concrow{grid-template-columns:1fr 78px;grid-template-areas:'name val' 'bar bar';row-gap:5px}
+  .concrow .cname{grid-area:name}.concrow .cval{grid-area:val}.concrow .cbar{grid-area:bar}
 }
 `;

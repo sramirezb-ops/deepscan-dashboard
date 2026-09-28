@@ -42,3 +42,9 @@ etl/run_when_ready.sh
 etl/migrations/seed_ofero.sql
 etl/migrations/fix_mojibake.sql
 etl/.shopify.env
+
+# credenciales / secretos adicionales (nunca subir)
+etl/google_oauth_credentials.json
+.shopify.env
+.claude/
+**/google_credentials*.json

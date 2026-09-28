@@ -9,7 +9,9 @@ import { formatCurrency, formatInt } from '@/lib/utils';
 
 // Meta de ROAS que gobierna el semáforo. TODO: leerla de la config del cliente
 // (como el target de Ofero); por ahora constante para Sneaker Store.
-const GOAL = 6.5;
+const GOAL = 7;
+// Presupuesto objetivo por conjunto cuando la cuenta escale a ~$5,000/día.
+const SET_BUDGET_HINT = '$300–$500/día por conjunto';
 
 type Derived = {
   spend: number; purch: number; roas: number; atc: number; cpcart: number;
@@ -55,17 +57,23 @@ function semCls(r: number): string {
 // la web), 0 compras web NO es igual a "descartar" si hubo intención (carritos/
 // checkout) → ahí manda revisar el cierre real (MER), no cortar a ciegas.
 type Verdict = { l: string; c: string; tip: string };
+// Umbrales suaves durante la rampa: damos margen para aprender y solo
+// "Descartar" con evidencia fuerte (mucho gasto y nada de nada).
 function verdict(d: Derived, goal: number, targetCpa: number): Verdict {
-  const gate = targetCpa > 0 ? targetCpa * 0.8 : 250; // gasto mínimo para juzgar
-  if (d.spend < gate) return { l: 'Aprendiendo', c: 'v-learn', tip: 'Aún no gasta lo suficiente para decidir. Dale tiempo.' };
+  const gate = targetCpa > 0 ? targetCpa * 1.2 : 400; // gasto mínimo para juzgar
+  if (d.spend < gate) return { l: 'Aprendiendo', c: 'v-learn', tip: `Aún no gasta lo suficiente (< ${targetCpa ? Math.round(gate) : 400}) para decidir. Dale tiempo mientras rampa.` };
   if (d.purch > 0) {
     if (d.roas >= goal) return { l: 'Escalar', c: 'v-scale', tip: `ROAS ${d.roas.toFixed(1)}× ≥ meta ${goal}×. Subir presupuesto.` };
-    if (d.roas >= goal * 0.7) return { l: 'Iterar', c: 'v-iter', tip: `ROAS ${d.roas.toFixed(1)}× cerca de la meta. Optimizar creativo/oferta.` };
-    return { l: 'Descartar', c: 'v-discard', tip: `ROAS ${d.roas.toFixed(1)}× muy por debajo de la meta.` };
+    if (d.roas >= goal * 0.6) return { l: 'Iterar', c: 'v-iter', tip: `ROAS ${d.roas.toFixed(1)}× cerca de la meta ${goal}×. Optimizar creativo/oferta.` };
+    if (d.roas < goal * 0.35) return { l: 'Descartar', c: 'v-discard', tip: `ROAS ${d.roas.toFixed(1)}× muy por debajo de la meta ${goal}×.` };
+    return { l: 'Iterar', c: 'v-iter', tip: `ROAS ${d.roas.toFixed(1)}× bajo. Iterar antes de cortar.` };
   }
   if (d.atc > 0 || d.ic > 0) return { l: 'Revisar cierre', c: 'v-check', tip: 'Gastó y hubo carritos/checkout pero 0 compra web → la venta puede estar cerrando por WhatsApp/AURA. Juzgar por MER, no cortar aún.' };
-  return { l: 'Descartar', c: 'v-discard', tip: 'Gastó suficiente sin carritos ni compras. Cortar.' };
+  if (d.spend >= gate * 2.5) return { l: 'Descartar', c: 'v-discard', tip: 'Gastó bastante sin carritos ni compras. Cortar.' };
+  return { l: 'Aprendiendo', c: 'v-learn', tip: 'Sin compras aún pero todavía en rampa. Vigilar.' };
 }
+// Orden de prioridad para el leaderboard de conjuntos.
+const VRANK: Record<string, number> = { 'Escalar': 0, 'Iterar': 1, 'Revisar cierre': 2, 'Aprendiendo': 3, 'Descartar': 4 };
 function adKind(name: string): { c: string; i: string; t: string } {
   const n = (name || '').toLowerCase();
   if (/video|\breel/.test(n)) return { c: 'vid', i: '▶', t: 'Video' };
@@ -147,6 +155,12 @@ export function ComprasDiagnostico() {
   const maxMR = Math.max(...(data.monthlyRoas ?? []).map((m) => m.roas), 1);
   const MO: Record<string, string> = { '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic' };
 
+  // Leaderboard plano de conjuntos de anuncios — el "qué escalar / qué descartar".
+  const conjuntos = (data.hierarchy ?? [])
+    .flatMap((c) => (c.kids ?? []).map((s) => { const dd = derive(s.m); return { camp: c.name, set: s.name, d: dd, v: verdict(dd, GOAL, targetCpa) }; }))
+    .sort((a, b) => (VRANK[a.v.l] - VRANK[b.v.l]) || (b.d.spend - a.d.spend));
+  const vCount = (l: string) => conjuntos.filter((x) => x.v.l === l).length;
+
   return (
     <div className="view on">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -183,6 +197,34 @@ export function ComprasDiagnostico() {
           <span className="it"><span className="sw" style={{ background: '#12b76a' }} />WhatsApp <b>{formatCurrency(split.whatsapp, cur)}</b> <span className="mut">· {formatInt(data.waConversations)} conv.</span></span>
           <span className="it"><span className="sw" style={{ background: 'var(--t3)' }} />Marca <b>{formatCurrency(split.brand, cur)}</b> <span className="mut">· top-funnel</span></span>
         </div>
+
+        {/* CONJUNTOS — leaderboard de decisión */}
+        <div className="mc-sh"><h2>Conjuntos de anuncios · qué escalar y qué descartar</h2><span className="hint">meta ROAS {GOAL}× · objetivo {SET_BUDGET_HINT}</span></div>
+        <div className="cj-sum">
+          <span className="v-badge v-scale">{vCount('Escalar')} escalar</span>
+          <span className="v-badge v-iter">{vCount('Iterar')} iterar</span>
+          <span className="v-badge v-check">{vCount('Revisar cierre')} revisar cierre</span>
+          <span className="v-badge v-discard">{vCount('Descartar')} descartar</span>
+          <span className="v-badge v-learn">{vCount('Aprendiendo')} aprendiendo</span>
+        </div>
+        <div className="mc-wrap"><div className="mc-scroll">
+          <table className="cj-t">
+            <thead><tr><th>Conjunto de anuncios</th><th>Campaña</th><th>Veredicto</th><th>Gasto</th><th>Compras</th><th>ROAS</th><th>CPA</th></tr></thead>
+            <tbody>
+              {conjuntos.map((x, i) => (
+                <tr key={i}>
+                  <td className="nm" title={x.set}>{x.set}</td>
+                  <td className="cmp" title={x.camp}>{x.camp}</td>
+                  <td><span className={`v-badge ${x.v.c}`} title={x.v.tip}>{x.v.l}</span></td>
+                  <td>{formatCurrency(x.d.spend, cur)}</td>
+                  <td>{formatInt(x.d.purch)}</td>
+                  <td className={x.d.purch > 0 ? semCls(x.d.roas) : ''}>{x.d.roas > 0 ? x.d.roas.toFixed(1) + '×' : '—'}</td>
+                  <td>{x.d.purch > 0 ? formatCurrency(x.d.cpa, cur) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div></div>
 
         {/* EXPLORADOR */}
         <div className="mc-sh"><h2>Campañas de venta · explorador</h2><span className="hint">clic para desplegar · clic en una métrica para ordenar · clic en un anuncio para su preview</span></div>
@@ -373,6 +415,16 @@ table.mc-t{border-collapse:collapse;width:100%;min-width:1200px;font-size:12.5px
 .v-discard{background:color-mix(in srgb,var(--dn) 15%,transparent);color:var(--dn)}
 .v-check{background:color-mix(in srgb,#5b6cff 16%,transparent);color:#7c8cff}
 .v-learn{background:var(--bg3);color:var(--t3)}
+.cj-sum{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+table.cj-t{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px}
+.cj-t th{background:var(--bg2);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);padding:10px 13px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--b2)}
+.cj-t th:first-child,.cj-t th:nth-child(2),.cj-t th:nth-child(3){text-align:left}
+.cj-t td{padding:10px 13px;border-bottom:1px solid var(--b1);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--t2)}
+.cj-t tr:hover td{background:var(--bg2)}
+.cj-t td.nm{text-align:left;font-weight:700;color:var(--t1);max-width:300px;overflow:hidden;text-overflow:ellipsis}
+.cj-t td.cmp{text-align:left;color:var(--t3);font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.cj-t td:nth-child(3){text-align:left}
+.cj-t td.mc-good{color:var(--up)!important;font-weight:700}.cj-t td.mc-warn{color:var(--warn)!important;font-weight:700}.cj-t td.mc-bad{color:var(--dn)!important;font-weight:700}
 .mc-nmcell{display:flex;align-items:center;gap:9px;min-width:0}
 .mc-cx{width:11px;color:var(--t3);font-size:9px;transition:transform .15s;flex:none}.mc-cx.open{transform:rotate(90deg)}
 .mc-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}

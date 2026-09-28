@@ -49,6 +49,23 @@ function fmt(v: number, t: ColT, cur: string): string {
 function semCls(r: number): string {
   return r >= GOAL ? 'mc-good' : r >= GOAL * 0.7 ? 'mc-warn' : 'mc-bad';
 }
+
+// ── Veredicto de decisión por conjunto/campaña (la "Biblia": qué hacer) ──────
+// Honesto con la atribución: como la venta suele cerrar por WhatsApp/AURA (no en
+// la web), 0 compras web NO es igual a "descartar" si hubo intención (carritos/
+// checkout) → ahí manda revisar el cierre real (MER), no cortar a ciegas.
+type Verdict = { l: string; c: string; tip: string };
+function verdict(d: Derived, goal: number, targetCpa: number): Verdict {
+  const gate = targetCpa > 0 ? targetCpa * 0.8 : 250; // gasto mínimo para juzgar
+  if (d.spend < gate) return { l: 'Aprendiendo', c: 'v-learn', tip: 'Aún no gasta lo suficiente para decidir. Dale tiempo.' };
+  if (d.purch > 0) {
+    if (d.roas >= goal) return { l: 'Escalar', c: 'v-scale', tip: `ROAS ${d.roas.toFixed(1)}× ≥ meta ${goal}×. Subir presupuesto.` };
+    if (d.roas >= goal * 0.7) return { l: 'Iterar', c: 'v-iter', tip: `ROAS ${d.roas.toFixed(1)}× cerca de la meta. Optimizar creativo/oferta.` };
+    return { l: 'Descartar', c: 'v-discard', tip: `ROAS ${d.roas.toFixed(1)}× muy por debajo de la meta.` };
+  }
+  if (d.atc > 0 || d.ic > 0) return { l: 'Revisar cierre', c: 'v-check', tip: 'Gastó y hubo carritos/checkout pero 0 compra web → la venta puede estar cerrando por WhatsApp/AURA. Juzgar por MER, no cortar aún.' };
+  return { l: 'Descartar', c: 'v-discard', tip: 'Gastó suficiente sin carritos ni compras. Cortar.' };
+}
 function adKind(name: string): { c: string; i: string; t: string } {
   const n = (name || '').toLowerCase();
   if (/video|\breel/.test(n)) return { c: 'vid', i: '▶', t: 'Video' };
@@ -88,6 +105,7 @@ export function ComprasDiagnostico() {
   }
 
   const t = data.totals;
+  const targetCpa = t.aov > 0 ? t.aov / GOAL : 0; // costo/compra esperado a la meta
   const split = data.spendSplit;
   const totalMeta = split.sales + split.whatsapp + split.brand || 1;
   const naiveRoas = totalMeta > 0 ? t.purchaseValue / totalMeta : 0;
@@ -171,9 +189,11 @@ export function ComprasDiagnostico() {
         <div className="mc-mttop">
           <div className="mc-legend">
             <span>Meta ROAS <b>{GOAL}×</b></span>
-            <span><span className="sw" style={{ background: 'var(--up)' }} />cumple</span>
-            <span><span className="sw" style={{ background: 'var(--warn)' }} />cerca</span>
-            <span><span className="sw" style={{ background: 'var(--dn)' }} />debajo</span>
+            <span className="v-badge v-scale">Escalar</span>
+            <span className="v-badge v-iter">Iterar</span>
+            <span className="v-badge v-check">Revisar cierre</span>
+            <span className="v-badge v-discard">Descartar</span>
+            <span className="v-badge v-learn">Aprendiendo</span>
           </div>
           <div className="mc-tools"><button className="mc-btn" onClick={expandAll}>Expandir todo</button><button className="mc-btn" onClick={() => setExp({})}>Colapsar</button></div>
         </div>
@@ -181,6 +201,7 @@ export function ComprasDiagnostico() {
           <table className="mc-t">
             <thead><tr>
               <th style={{ cursor: 'default' }}>Campaña · conjunto · anuncio</th>
+              <th style={{ cursor: 'default', textAlign: 'left' }}>Veredicto</th>
               {COLS.map((c) => (
                 <th key={c.k} className={sortKey === c.k ? 'on' : ''} onClick={() => onSort(c.k)}>{c.l}<span className="ar">{sortKey === c.k ? (sortDir < 0 ? '▼' : '▲') : '⇅'}</span></th>
               ))}
@@ -208,6 +229,9 @@ export function ComprasDiagnostico() {
                         <span className="mc-nm" title={r.node.name}>{r.node.name}</span>
                         {r.lvl === 3 && <span className="mc-pvhint">🔍 preview</span>}
                       </div>
+                    </td>
+                    <td className="v-cell">
+                      {r.lvl < 3 ? (() => { const v = verdict(d, GOAL, targetCpa); return <span className={`v-badge ${v.c}`} title={v.tip}>{v.l}</span>; })() : null}
                     </td>
                     {COLS.map((c) => (
                       <td key={c.k} className={c.sem ? semCls((d as any)[c.k]) : ''}>{fmt((d as any)[c.k], c.t, cur)}</td>
@@ -342,6 +366,13 @@ table.mc-t{border-collapse:collapse;width:100%;min-width:1200px;font-size:12.5px
 .mc-t tr.mcr2{cursor:pointer}.mc-t tr.mcr2 td:first-child{background:color-mix(in srgb,var(--acc) 4%,var(--bg1))}
 .mc-t tr.mcr3{cursor:pointer}.mc-t tr.mcr3 td:first-child{background:color-mix(in srgb,var(--acc) 7%,var(--bg1))}
 .mc-t td.mc-good{color:var(--up)!important;font-weight:700}.mc-t td.mc-warn{color:var(--warn)!important;font-weight:700}.mc-t td.mc-bad{color:var(--dn)!important;font-weight:700}
+.mc-t td.v-cell{text-align:left}
+.v-badge{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.02em;padding:3px 9px;border-radius:999px;white-space:nowrap;cursor:help}
+.v-scale{background:color-mix(in srgb,var(--up) 16%,transparent);color:var(--up)}
+.v-iter{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.v-discard{background:color-mix(in srgb,var(--dn) 15%,transparent);color:var(--dn)}
+.v-check{background:color-mix(in srgb,#5b6cff 16%,transparent);color:#7c8cff}
+.v-learn{background:var(--bg3);color:var(--t3)}
 .mc-nmcell{display:flex;align-items:center;gap:9px;min-width:0}
 .mc-cx{width:11px;color:var(--t3);font-size:9px;transition:transform .15s;flex:none}.mc-cx.open{transform:rotate(90deg)}
 .mc-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:300px}

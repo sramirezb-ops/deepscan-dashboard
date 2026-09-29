@@ -68,6 +68,17 @@ export interface AbandonData {
   series: { date: string; value: number; count: number }[]; // mini-tendencia diaria
 }
 
+// ── Salud de venta y clientes (P4) ── pedidos reales de Shopify.
+export interface SalesHealth {
+  orders: number; ordersDelta: number;
+  revenue: number; aov: number;              // ticket promedio = revenue / pedidos
+  newCustomers: number; returningCustomers: number; returningPct: number;
+  refundsValue: number; ordersRefunded: number; refundRate: number; netRevenue: number;
+  ordersPaid: number; ordersPending: number; ordersAuthorized: number; ordersVoided: number;
+  revenuePending: number; units: number;
+  hasOrders: boolean;
+}
+
 export type ShopLabel = 'hero' | 'cobrar' | 'solido';
 export interface ShopProduct {
   title: string;
@@ -106,6 +117,7 @@ export interface EcommerceData {
   webs: WebPerf[];
   websChannels: WebChannels[]; // P1 · canales por web (tráfico + venta)
   abandon: AbandonData;        // P2 · carritos abandonados + recuperación
+  salesHealth: SalesHealth;    // P4 · salud de venta y clientes (Shopify)
   investLabel: string;      // web recomendada para escalar
   investReason: string;
   // Demanda (GA4 vistas)
@@ -157,7 +169,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
     const run = async () => {
       setLoading(true); setError(null);
       try {
-        const [funnelRows, shopRows, itemRows, metricNow, metricPrev, abnNow, abnPrev] = await Promise.all([
+        const [funnelRows, shopRows, itemRows, metricNow, metricPrev, abnNow, abnPrev, ordNow, ordPrev] = await Promise.all([
           fetchAll('ga4_funnel', 'sessions, product_views, add_to_cart, checkout_start, purchases', clientId, range.from, range.to),
           fetchAll('shopify_product_daily', 'title, units_paid, units_pending, revenue_paid, revenue_pending', clientId, range.from, range.to),
           fetchAll('ga4_items', 'item_name, items_viewed, items_added_to_cart, items_checked_out, items_purchased, item_revenue, property_id', clientId, range.from, range.to),
@@ -165,6 +177,8 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           fetchAll('ga4_metrics', 'sessions, source_medium', clientId, previous.from, previous.to),
           fetchAll('shopify_abandoned_checkouts', 'date, abandoned_count, abandoned_value, recovered_count, currency', clientId, range.from, range.to),
           fetchAll('shopify_abandoned_checkouts', 'abandoned_count, abandoned_value', clientId, previous.from, previous.to),
+          fetchAll('shopify_orders', 'orders, revenue, new_customers, returning_customers, units_sold, refunds, orders_paid, orders_pending, orders_authorized, orders_refunded, orders_voided, revenue_pending', clientId, range.from, range.to),
+          fetchAll('shopify_orders', 'orders', clientId, previous.from, previous.to),
         ]);
         if (cancelled) return;
 
@@ -434,6 +448,32 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           series: Array.from(abnSeriesMap.entries()).map(([date, e]) => ({ date, ...e })).sort((a, b) => a.date.localeCompare(b.date)),
         };
 
+        // ── SALUD DE VENTA Y CLIENTES (P4) ── pedidos reales de Shopify:
+        // ticket promedio, nuevos vs recurrentes (retención), reembolsos (neto)
+        // y estado de cobro a nivel pedido.
+        const oa = { orders: 0, revenue: 0, newC: 0, retC: 0, units: 0, refunds: 0, paid: 0, pending: 0, auth: 0, refunded: 0, voided: 0, revPend: 0 };
+        for (const r of ordNow) {
+          oa.orders += Number(r.orders) || 0; oa.revenue += Number(r.revenue) || 0;
+          oa.newC += Number(r.new_customers) || 0; oa.retC += Number(r.returning_customers) || 0;
+          oa.units += Number(r.units_sold) || 0; oa.refunds += Number(r.refunds) || 0;
+          oa.paid += Number(r.orders_paid) || 0; oa.pending += Number(r.orders_pending) || 0;
+          oa.auth += Number(r.orders_authorized) || 0; oa.refunded += Number(r.orders_refunded) || 0;
+          oa.voided += Number(r.orders_voided) || 0; oa.revPend += Number(r.revenue_pending) || 0;
+        }
+        let ordersPrev = 0; for (const r of ordPrev) ordersPrev += Number(r.orders) || 0;
+        const totCust = oa.newC + oa.retC;
+        const salesHealth: SalesHealth = {
+          orders: oa.orders, ordersDelta: calcDelta(oa.orders, ordersPrev),
+          revenue: oa.revenue, aov: oa.orders > 0 ? oa.revenue / oa.orders : 0,
+          newCustomers: oa.newC, returningCustomers: oa.retC,
+          returningPct: totCust > 0 ? oa.retC / totCust : 0,
+          refundsValue: oa.refunds, ordersRefunded: oa.refunded,
+          refundRate: oa.orders > 0 ? oa.refunded / oa.orders : 0,
+          netRevenue: oa.revenue - oa.refunds,
+          ordersPaid: oa.paid, ordersPending: oa.pending, ordersAuthorized: oa.auth, ordersVoided: oa.voided,
+          revenuePending: oa.revPend, units: oa.units, hasOrders: oa.orders > 0,
+        };
+
         // Veredicto: la web con mayor $/sesión (venta real) es la de mejor retorno por tráfico.
         const win = webs[0];
         const investLabel = win ? win.label : '—';
@@ -441,7 +481,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
 
         setData({
           funnel, breakLabel,
-          webs, websChannels, abandon, investLabel, investReason,
+          webs, websChannels, abandon, salesHealth, investLabel, investReason,
           revBruto, revPaid, revPending, paidPct: revBruto > 0 ? revPaid / revBruto : 0,
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,

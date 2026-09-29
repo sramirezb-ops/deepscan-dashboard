@@ -331,6 +331,62 @@ export function EcommerceWeb() {
           );
         })()}
 
+        {/* SALUD DE VENTA Y CLIENTES (P4) */}
+        <div className="ec-sh"><h3>Salud de venta y clientes</h3><span className="hint">pedidos reales · Shopify · ticket, recurrencia y reembolsos</span></div>
+        <div className="card ec-pad">
+          <div className="abn-kpis">
+            <div className="abn-k">
+              <div className="l">🧾 Pedidos</div>
+              <div className="v">{formatInt(data.salesHealth.orders)}</div>
+              <div className={'s ' + (data.salesHealth.ordersDelta >= 0 ? 'up' : 'dn')}>{data.salesHealth.ordersDelta >= 0 ? '▲' : '▼'} {Math.abs(Math.round(data.salesHealth.ordersDelta))}% vs. anterior</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">🎟️ Ticket promedio</div>
+              <div className="v">{money(data.salesHealth.aov)}</div>
+              <div className="s">{formatInt(data.salesHealth.units)} unidades vendidas</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">👥 Recurrentes</div>
+              <div className={'v ' + (data.salesHealth.returningPct > 0 ? 'up' : 'dn')}>{formatPercent(data.salesHealth.returningPct, 0)}</div>
+              <div className="s">{formatInt(data.salesHealth.newCustomers)} nuevos · {formatInt(data.salesHealth.returningCustomers)} recurrentes</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">↩️ Reembolsos</div>
+              <div className={'v ' + (data.salesHealth.refundsValue > 0 ? 'dn' : 'up')}>{money(data.salesHealth.refundsValue)}</div>
+              <div className="s">venta neta {money(data.salesHealth.netRevenue)}</div>
+            </div>
+          </div>
+          {(() => {
+            const s = data.salesHealth;
+            const segs = [
+              { k: 'Pagados', n: s.ordersPaid, cls: 'paid' },
+              { k: 'Autorizados', n: s.ordersAuthorized, cls: 'auth' },
+              { k: 'Pendientes', n: s.ordersPending, cls: 'pend' },
+              { k: 'Reembolsados', n: s.ordersRefunded, cls: 'ref' },
+              { k: 'Anulados', n: s.ordersVoided, cls: 'void' },
+            ].filter((x) => x.n > 0);
+            const tot = segs.reduce((a, x) => a + x.n, 0) || 1;
+            if (segs.length === 0) return null;
+            return (
+              <div className="sh-status">
+                <div className="sh-statlabel">Estado de los {formatInt(s.orders)} pedidos</div>
+                <div className="sh-statbar">
+                  {segs.map((x) => <i key={x.k} className={x.cls} style={{ width: (x.n / tot) * 100 + '%' }} title={`${x.k}: ${x.n}`} />)}
+                </div>
+                <div className="sh-statleg">
+                  {segs.map((x) => <span key={x.k}><i className={'d ' + x.cls} />{x.k} <b>{formatInt(x.n)}</b></span>)}
+                </div>
+              </div>
+            );
+          })()}
+          <div className={'ec-verdict' + (data.salesHealth.returningPct > 0 ? '' : ' warn')}>
+            <span className="vk">Lectura</span>
+            {data.salesHealth.returningPct > 0
+              ? <><b>{formatPercent(data.salesHealth.returningPct, 0)}</b> de recompra. Fidelizar a quien ya compró baja el CAC efectivo — post-venta y recompra son la palanca más barata.</>
+              : <><b>100% clientes nuevos, 0 recompras</b> — todo es adquisición, nada de retención. Con ticket de {money(data.salesHealth.aov)}, un flujo de post-venta/fidelización sube el LTV sin gastar más en pauta.{data.salesHealth.ordersPending > 0 ? <> Además, <b>{formatInt(data.salesHealth.ordersPending)}</b> pedidos siguen pendientes de pago.</> : null}</>}
+          </div>
+        </div>
+
         {/* ACCIONES — 3 palancas, corto */}
         <div className="ec-sh"><h3>Próximos pasos</h3><span className="hint">las 3 palancas de mayor retorno</span></div>
         <div className="ec-acts">
@@ -494,6 +550,20 @@ const CSS = `
 .abn-bar i{display:block;width:100%;background:var(--warn);border-radius:3px 3px 0 0;opacity:.7;min-height:0}
 .abn-bar:hover i{opacity:1}
 .ec-verdict.warn{border-left-color:var(--warn)}.ec-verdict.warn .vk{color:var(--warn)}
+/* salud de venta y clientes (P4) */
+.sh-status{margin-top:16px}
+.sh-statlabel{font-size:10.5px;color:var(--t3);font-weight:600;margin-bottom:7px}
+.sh-statbar{display:flex;height:14px;border-radius:6px;overflow:hidden;background:var(--track)}
+.sh-statbar i{display:block;height:100%}
+.sh-statbar i.paid,.sh-statleg .d.paid{background:var(--up)}
+.sh-statbar i.auth,.sh-statleg .d.auth{background:#0ea5e9}
+.sh-statbar i.pend,.sh-statleg .d.pend{background:var(--warn)}
+.sh-statbar i.ref,.sh-statleg .d.ref{background:var(--dn)}
+.sh-statbar i.void,.sh-statleg .d.void{background:var(--t3)}
+.sh-statleg{display:flex;flex-wrap:wrap;gap:14px;margin-top:9px;font-size:10.5px;color:var(--t3)}
+.sh-statleg span{display:inline-flex;align-items:center;gap:5px}
+.sh-statleg .d{width:9px;height:9px;border-radius:3px;display:inline-block}
+.sh-statleg b{color:var(--t1);font-weight:800}
 /* responsive · desktop angosto / tablet (preview de Cloud) */
 @media(max-width:1024px){
   .ec-acts{grid-template-columns:1fr}

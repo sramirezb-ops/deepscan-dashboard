@@ -48,6 +48,11 @@ export function EcommerceWeb() {
   const [shopFilter, setShopFilter] = useState<ShopLabel | 'all'>('all');
   const [shopSort, setShopSort] = useState<{ key: 'compras' | 'pagadas' | 'pendientes' | 'ingreso' | 'pagpct'; dir: 'asc' | 'desc' }>({ key: 'ingreso', dir: 'desc' });
   const shopSortBy = (key: typeof shopSort.key) => setShopSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
+  // Filtro por web + orden por métrica (tabla Landings · P3).
+  const [landWeb, setLandWeb] = useState<'all' | string>('all');
+  const [landExpanded, setLandExpanded] = useState(false);
+  const [landSort, setLandSort] = useState<{ key: 'sessions' | 'bounce' | 'atcRate' | 'purchases' | 'revenue'; dir: 'asc' | 'desc' }>({ key: 'sessions', dir: 'desc' });
+  const landSortBy = (key: typeof landSort.key) => setLandSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
   const arrow = (active: boolean, dir: 'asc' | 'desc') => (active ? (dir === 'desc' ? ' ▾' : ' ▴') : '');
 
   if (loading && !data) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Cargando analítica ecommerce…</div></div>;
@@ -265,6 +270,55 @@ export function EcommerceWeb() {
               : <><b>No hay flujo de recuperación activo</b> — 0 recuperados de {formatInt(data.abandon.count)} carritos. Un recordatorio por WhatsApp/email recupera parte de esta caja. Ojo honesto: el valor listado ({money(data.abandon.value)}) no es recuperable 1:1 — son tickets altos y multi-ítem.</>}
           </div>
         </div>
+
+        {/* LANDING PAGES QUE CONVIERTEN (P3) */}
+        <div className="ec-sh"><h3>Landing pages que convierten</h3><span className="hint">a dónde mandar la pauta · GA4 · señal fiable = % carrito + rebote</span></div>
+        {(() => {
+          const webLabel = (pid: string) => data.webs.find((w) => w.property === pid)?.label || pid;
+          const props = Array.from(new Set(data.landings.map((l) => l.property)));
+          const base = data.landings.filter((l) => landWeb === 'all' || l.property === landWeb);
+          const sgn = landSort.dir === 'desc' ? 1 : -1;
+          const rows = [...base].sort((a, b) => sgn * (((b as any)[landSort.key] || 0) - ((a as any)[landSort.key] || 0)));
+          const shown = landExpanded ? rows : rows.slice(0, 12);
+          const SH = ({ k, children }: { k: typeof landSort.key; children: ReactNode }) => (
+            <button className={'ec-th' + (landSort.key === k ? ' on' : '')} onClick={() => landSortBy(k)}>{children}{arrow(landSort.key === k, landSort.dir)}</button>
+          );
+          const shortPath = (p: string) => (p.length > 44 ? p.slice(0, 42) + '…' : p);
+          return (
+            <>
+              <div className="ec-chips">
+                <button className={'chip' + (landWeb === 'all' ? ' on' : '')} onClick={() => { setLandWeb('all'); setLandExpanded(false); }}>Todas <b>{data.landings.length}</b></button>
+                {props.map((pid) => (
+                  <button key={pid} className={'chip' + (landWeb === pid ? ' on' : '')} onClick={() => { setLandWeb(pid); setLandExpanded(false); }}>{webLabel(pid)} <b>{data.landings.filter((l) => l.property === pid).length}</b></button>
+                ))}
+              </div>
+              <div className="card ec-pad">
+                <div className="ec-lph">
+                  <div>Landing</div><div>Web</div>
+                  <SH k="sessions">Sesiones</SH><SH k="bounce">Rebote</SH>
+                  <SH k="atcRate">% carrito</SH><SH k="purchases">Compras</SH><SH k="revenue">Revenue</SH>
+                </div>
+                {shown.map((l) => (
+                  <div className="ec-lrow" key={l.property + l.page}>
+                    <div className="lp" title={l.page}>{shortPath(l.page)}</div>
+                    <div className="lw"><span className={'wchip ' + l.kind}>{l.kind === 'shopify' ? 'Shopify' : 'principal'}</span></div>
+                    <div className="nv">{formatInt(l.sessions)}</div>
+                    <div className="nv"><span className={l.bounce <= 0.35 ? 'good' : l.bounce >= 0.55 ? 'bad' : ''}>{formatPercent(l.bounce, 0)}</span></div>
+                    <div className="nv"><span className={'rate ' + (l.atcRate >= data.siteAtcRateLanding * 1.5 ? 'hi' : l.atcRate < data.siteAtcRateLanding * 0.6 && l.sessions >= 50 ? 'lo' : '')}>{formatPercent(l.atcRate, 1)}</span></div>
+                    <div className="nv">{l.purchases ? <b>{formatInt(l.purchases)}</b> : <span className="z">—</span>}</div>
+                    <div className="nv">{l.revenue ? money(l.revenue) : <span className="z">—</span>}</div>
+                  </div>
+                ))}
+                {rows.length > 12 && (
+                  <button className="ec-more" onClick={() => setLandExpanded((x) => !x)}>
+                    {landExpanded ? '▲ Ver menos' : `▼ Ver las ${rows.length} landings`}
+                  </button>
+                )}
+                <p className="ec-foot">🧭 GA4 sub-registra la compra por landing → la señal accionable es <b>% carrito</b> (intención) y <b>rebote</b>. La venta real por producto vive en Shopify. Las landings de <b>alto carrito + bajo rebote</b> son las mejores para mandar pauta.</p>
+              </div>
+            </>
+          );
+        })()}
 
         {/* GRÁFICO · CONCENTRACIÓN DE LA VENTA (pagado vs pendiente por producto) */}
         <div className="ec-sh"><h3>¿Dónde está la plata?</h3><span className="hint">venta por producto · ticket promedio {money(data.aovPaid)}</span>
@@ -564,6 +618,21 @@ const CSS = `
 .sh-statleg span{display:inline-flex;align-items:center;gap:5px}
 .sh-statleg .d{width:9px;height:9px;border-radius:3px;display:inline-block}
 .sh-statleg b{color:var(--t1);font-weight:800}
+/* landing pages (P3) */
+.ec-lph,.ec-lrow{display:grid;grid-template-columns:1fr 92px 74px 66px 76px 66px 96px;gap:8px;align-items:center}
+.ec-lph{font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--b1)}
+.ec-lph>*:not(:first-child):not(:nth-child(2)){text-align:right;justify-self:end}
+.ec-lph>*:nth-child(2){text-align:center;justify-self:center}
+.ec-lrow{padding:8px 0;border-top:1px solid var(--b1);font-size:12px}
+.ec-lrow .lp{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)}
+.ec-lrow .lw{text-align:center}
+.ec-lrow .nv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.ec-lrow .nv .good{color:var(--up)}.ec-lrow .nv .bad{color:var(--dn)}
+.ec-lrow .nv .rate.hi{color:var(--up)}.ec-lrow .nv .rate.lo{color:var(--dn)}
+.ec-lrow .nv .z{color:var(--t3);font-weight:400}
+.wchip{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 6px;border-radius:5px;background:var(--bg3);color:var(--t3)}
+.wchip.shopify{background:rgba(139,92,246,.12);color:var(--acc)}
+.wchip.main{background:rgba(14,165,233,.12);color:#0ea5e9}
 /* responsive · desktop angosto / tablet (preview de Cloud) */
 @media(max-width:1024px){
   .ec-acts{grid-template-columns:1fr}
@@ -579,6 +648,8 @@ const CSS = `
   .ec-sph>*:nth-child(3),.ec-sprow>*:nth-child(3),.ec-sph>*:nth-child(4),.ec-sprow>*:nth-child(4),.ec-sph>*:nth-child(6),.ec-sprow>*:nth-child(6){display:none}
   .ec-cph,.ec-crow{grid-template-columns:1fr 46px 60px 104px}
   .ec-cph>*:nth-child(3),.ec-crow>*:nth-child(3),.ec-cph>*:nth-child(5),.ec-crow>*:nth-child(5),.ec-cph>*:nth-child(6),.ec-crow>*:nth-child(6){display:none}
+  .ec-lph,.ec-lrow{grid-template-columns:1fr 74px 64px 74px 92px}
+  .ec-lph>*:nth-child(2),.ec-lrow>*:nth-child(2),.ec-lph>*:nth-child(4),.ec-lrow>*:nth-child(4){display:none}
 }
 @media(max-width:560px){
   .ec-hkpis{grid-template-columns:1fr}

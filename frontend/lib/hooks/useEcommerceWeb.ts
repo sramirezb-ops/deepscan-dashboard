@@ -79,6 +79,15 @@ export interface SalesHealth {
   hasOrders: boolean;
 }
 
+// ── Landing pages que convierten (P3) ── a dónde mandar la pauta cara.
+export interface LandingPerf {
+  page: string; property: string; kind: 'main' | 'shopify';
+  sessions: number; bounce: number;
+  atc: number; atcRate: number;          // intención (carrito/sesiones) — señal fiable
+  checkout: number; purchases: number; revenue: number;
+  cvr: number;                            // compras/sesiones (GA4 sub-registra: referencial)
+}
+
 export type ShopLabel = 'hero' | 'cobrar' | 'solido';
 export interface ShopProduct {
   title: string;
@@ -118,6 +127,8 @@ export interface EcommerceData {
   websChannels: WebChannels[]; // P1 · canales por web (tráfico + venta)
   abandon: AbandonData;        // P2 · carritos abandonados + recuperación
   salesHealth: SalesHealth;    // P4 · salud de venta y clientes (Shopify)
+  landings: LandingPerf[];     // P3 · landing pages que convierten (por web)
+  siteAtcRateLanding: number;  // baseline de % carrito de las landings (para resaltar)
   investLabel: string;      // web recomendada para escalar
   investReason: string;
   // Demanda (GA4 vistas)
@@ -169,7 +180,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
     const run = async () => {
       setLoading(true); setError(null);
       try {
-        const [funnelRows, shopRows, itemRows, metricNow, metricPrev, abnNow, abnPrev, ordNow, ordPrev] = await Promise.all([
+        const [funnelRows, shopRows, itemRows, metricNow, metricPrev, abnNow, abnPrev, ordNow, ordPrev, landRows] = await Promise.all([
           fetchAll('ga4_funnel', 'sessions, product_views, add_to_cart, checkout_start, purchases', clientId, range.from, range.to),
           fetchAll('shopify_product_daily', 'title, units_paid, units_pending, revenue_paid, revenue_pending', clientId, range.from, range.to),
           fetchAll('ga4_items', 'item_name, items_viewed, items_added_to_cart, items_checked_out, items_purchased, item_revenue, property_id', clientId, range.from, range.to),
@@ -179,6 +190,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           fetchAll('shopify_abandoned_checkouts', 'abandoned_count, abandoned_value', clientId, previous.from, previous.to),
           fetchAll('shopify_orders', 'orders, revenue, new_customers, returning_customers, units_sold, refunds, orders_paid, orders_pending, orders_authorized, orders_refunded, orders_voided, revenue_pending', clientId, range.from, range.to),
           fetchAll('shopify_orders', 'orders', clientId, previous.from, previous.to),
+          fetchAll('ga4_landing', 'landing_page, sessions, bounce_rate, add_to_cart, checkout, purchases, revenue, property_id', clientId, range.from, range.to),
         ]);
         if (cancelled) return;
 
@@ -474,6 +486,39 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           revenuePending: oa.revPend, units: oa.units, hasOrders: oa.orders > 0,
         };
 
+        // ── LANDING PAGES QUE CONVIERTEN (P3) ── por web: intención (carrito) y
+        // rebote para decidir a dónde mandar la pauta. La compra GA4 sub-registra,
+        // por eso la señal fiable es % carrito + rebote (la venta real está en Shopify).
+        const landMap = new Map<string, { pid: string; page: string; s: number; bw: number; atc: number; co: number; pu: number; rev: number }>();
+        for (const r of landRows) {
+          const pid = String(r.property_id || '');
+          if (!PROP_META[pid]) continue;
+          const page = String(r.landing_page || '(no set)');
+          const key = pid + '|' + page;
+          const e = landMap.get(key) || { pid, page, s: 0, bw: 0, atc: 0, co: 0, pu: 0, rev: 0 };
+          const s = Number(r.sessions) || 0;
+          e.s += s; e.bw += (Number(r.bounce_rate) || 0) * s;
+          e.atc += Number(r.add_to_cart) || 0; e.co += Number(r.checkout) || 0;
+          e.pu += Number(r.purchases) || 0; e.rev += Number(r.revenue) || 0;
+          landMap.set(key, e);
+        }
+        let landV = 0, landA = 0;
+        const landings: LandingPerf[] = Array.from(landMap.values())
+          .filter((e) => e.s >= 10)
+          .map((e) => {
+            landV += e.s; landA += e.atc;
+            return {
+              page: e.page, property: e.pid, kind: PROP_META[e.pid].kind,
+              sessions: e.s, bounce: e.s > 0 ? e.bw / e.s : 0,
+              atc: e.atc, atcRate: e.s > 0 ? e.atc / e.s : 0,
+              checkout: e.co, purchases: e.pu, revenue: e.rev,
+              cvr: e.s > 0 ? e.pu / e.s : 0,
+            };
+          })
+          .sort((a, b) => b.sessions - a.sessions)
+          .slice(0, 60);
+        const siteAtcRateLanding = landV > 0 ? landA / landV : 0;
+
         // Veredicto: la web con mayor $/sesión (venta real) es la de mejor retorno por tráfico.
         const win = webs[0];
         const investLabel = win ? win.label : '—';
@@ -481,7 +526,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
 
         setData({
           funnel, breakLabel,
-          webs, websChannels, abandon, salesHealth, investLabel, investReason,
+          webs, websChannels, abandon, salesHealth, landings, siteAtcRateLanding, investLabel, investReason,
           revBruto, revPaid, revPending, paidPct: revBruto > 0 ? revPaid / revBruto : 0,
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,

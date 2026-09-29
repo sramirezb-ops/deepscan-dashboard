@@ -79,6 +79,15 @@ export interface SalesHealth {
   hasOrders: boolean;
 }
 
+// ── Tendencia del período (serie diaria) ── tráfico vs venta real.
+export interface TrendPoint { date: string; sessions: number; revenue: number; orders: number }
+export interface TrendData {
+  points: TrendPoint[];
+  avgSessions: number;
+  totalRevenue: number;
+  bestRevDay: TrendPoint | null;
+}
+
 // ── Landing pages que convierten (P3) ── a dónde mandar la pauta cara.
 export interface LandingPerf {
   page: string; property: string; kind: 'main' | 'shopify';
@@ -129,6 +138,7 @@ export interface EcommerceData {
   salesHealth: SalesHealth;    // P4 · salud de venta y clientes (Shopify)
   landings: LandingPerf[];     // P3 · landing pages que convierten (por web)
   siteAtcRateLanding: number;  // baseline de % carrito de las landings (para resaltar)
+  trend: TrendData;            // tendencia diaria (sesiones vs venta real)
   investLabel: string;      // web recomendada para escalar
   investReason: string;
   // Demanda (GA4 vistas)
@@ -184,11 +194,11 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           fetchAll('ga4_funnel', 'sessions, product_views, add_to_cart, checkout_start, purchases', clientId, range.from, range.to),
           fetchAll('shopify_product_daily', 'title, units_paid, units_pending, revenue_paid, revenue_pending', clientId, range.from, range.to),
           fetchAll('ga4_items', 'item_name, items_viewed, items_added_to_cart, items_checked_out, items_purchased, item_revenue, property_id', clientId, range.from, range.to),
-          fetchAll('ga4_metrics', 'sessions, new_users, active_users, bounce_rate, avg_session_duration, revenue, source_medium', clientId, range.from, range.to),
+          fetchAll('ga4_metrics', 'date, sessions, new_users, active_users, bounce_rate, avg_session_duration, revenue, source_medium', clientId, range.from, range.to),
           fetchAll('ga4_metrics', 'sessions, source_medium', clientId, previous.from, previous.to),
           fetchAll('shopify_abandoned_checkouts', 'date, abandoned_count, abandoned_value, recovered_count, currency', clientId, range.from, range.to),
           fetchAll('shopify_abandoned_checkouts', 'abandoned_count, abandoned_value', clientId, previous.from, previous.to),
-          fetchAll('shopify_orders', 'orders, revenue, new_customers, returning_customers, units_sold, refunds, orders_paid, orders_pending, orders_authorized, orders_refunded, orders_voided, revenue_pending', clientId, range.from, range.to),
+          fetchAll('shopify_orders', 'date, orders, revenue, new_customers, returning_customers, units_sold, refunds, orders_paid, orders_pending, orders_authorized, orders_refunded, orders_voided, revenue_pending', clientId, range.from, range.to),
           fetchAll('shopify_orders', 'orders', clientId, previous.from, previous.to),
           fetchAll('ga4_landing', 'landing_page, sessions, bounce_rate, add_to_cart, checkout, purchases, revenue, property_id', clientId, range.from, range.to),
         ]);
@@ -519,6 +529,30 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           .slice(0, 60);
         const siteAtcRateLanding = landV > 0 ? landA / landV : 0;
 
+        // ── TENDENCIA DEL PERÍODO (serie diaria) ── tráfico (GA4, ambas webs) vs
+        // venta real (Shopify). Dos escalas: sesiones y venta bruta por día.
+        const sessByDate = new Map<string, number>();
+        for (const r of metricNow) {
+          const d = String(r.date || ''); if (!d) continue;
+          sessByDate.set(d, (sessByDate.get(d) || 0) + (Number(r.sessions) || 0));
+        }
+        const revByDate = new Map<string, { rev: number; ord: number }>();
+        for (const r of ordNow) {
+          const d = String(r.date || ''); if (!d) continue;
+          const e = revByDate.get(d) || { rev: 0, ord: 0 };
+          e.rev += Number(r.revenue) || 0; e.ord += Number(r.orders) || 0;
+          revByDate.set(d, e);
+        }
+        const allDates = Array.from(new Set([...sessByDate.keys(), ...revByDate.keys()])).sort((a, b) => a.localeCompare(b));
+        const trendPoints: TrendPoint[] = allDates.map((d) => ({
+          date: d, sessions: sessByDate.get(d) || 0,
+          revenue: revByDate.get(d)?.rev || 0, orders: revByDate.get(d)?.ord || 0,
+        }));
+        const trendTotalRev = trendPoints.reduce((a, p) => a + p.revenue, 0);
+        const trendAvgSess = trendPoints.length ? trendPoints.reduce((a, p) => a + p.sessions, 0) / trendPoints.length : 0;
+        const trendBest = trendPoints.reduce<TrendPoint | null>((best, p) => (!best || p.revenue > best.revenue ? p : best), null);
+        const trend: TrendData = { points: trendPoints, avgSessions: trendAvgSess, totalRevenue: trendTotalRev, bestRevDay: trendBest };
+
         // Veredicto: la web con mayor $/sesión (venta real) es la de mejor retorno por tráfico.
         const win = webs[0];
         const investLabel = win ? win.label : '—';
@@ -526,7 +560,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
 
         setData({
           funnel, breakLabel,
-          webs, websChannels, abandon, salesHealth, landings, siteAtcRateLanding, investLabel, investReason,
+          webs, websChannels, abandon, salesHealth, landings, siteAtcRateLanding, trend, investLabel, investReason,
           revBruto, revPaid, revPending, paidPct: revBruto > 0 ? revPaid / revBruto : 0,
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,

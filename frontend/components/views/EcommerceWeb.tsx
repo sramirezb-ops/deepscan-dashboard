@@ -165,6 +165,44 @@ export function EcommerceWeb() {
           })}
         </div>
 
+        {/* TENDENCIA DEL PERÍODO (serie diaria) · tráfico vs venta real */}
+        <div className="ec-sh"><h3>Tendencia del período</h3><span className="hint">día a día · <i className="chleg"><i className="dot org" />sesiones (GA4)</i> <i className="chleg"><i className="dot paid" />venta real (Shopify)</i></span></div>
+        <div className="card ec-pad">
+          <div className="trend-kpis">
+            <div><span className="l">Sesiones/día (prom.)</span><span className="v">{formatInt(Math.round(data.trend.avgSessions))}</span></div>
+            <div><span className="l">Venta del período</span><span className="v up">{money(data.trend.totalRevenue)}</span></div>
+            <div><span className="l">Mejor día de venta</span><span className="v">{data.trend.bestRevDay && data.trend.bestRevDay.revenue > 0 ? `${data.trend.bestRevDay.date.slice(8, 10)}/${data.trend.bestRevDay.date.slice(5, 7)} · ${money(data.trend.bestRevDay.revenue)}` : '—'}</span></div>
+          </div>
+          {(() => {
+            const pts = data.trend.points;
+            if (pts.length < 2) return <p className="ec-foot">Aún no hay suficientes días para dibujar la tendencia.</p>;
+            const X0 = 46, X1 = 884, YT = 18, YB = 206;
+            const maxS = Math.max(...pts.map((p) => p.sessions), 1);
+            const maxR = Math.max(...pts.map((p) => p.revenue), 1);
+            const x = (i: number) => X0 + (X1 - X0) * (i / (pts.length - 1));
+            const yS = (v: number) => YB - (YB - YT) * (v / maxS);
+            const yR = (v: number) => YB - (YB - YT) * (v / maxR);
+            const area = `M ${x(0)} ${YB} ` + pts.map((p, i) => `L ${x(i).toFixed(1)} ${yS(p.sessions).toFixed(1)}`).join(' ') + ` L ${x(pts.length - 1)} ${YB} Z`;
+            const sLine = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${yS(p.sessions).toFixed(1)}`).join(' ');
+            const rLine = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${yR(p.revenue).toFixed(1)}`).join(' ');
+            const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+            const ticks = [0, Math.floor((pts.length - 1) / 2), pts.length - 1];
+            return (
+              <div className="trend-chartwrap">
+                <svg viewBox="0 0 900 230" className="trend-svg" preserveAspectRatio="none">
+                  {[0.25, 0.5, 0.75, 1].map((g) => <line key={g} x1={X0} x2={X1} y1={YB - (YB - YT) * g} y2={YB - (YB - YT) * g} className="tg-grid" />)}
+                  <path d={area} className="tg-area" />
+                  <path d={sLine} className="tg-sline" />
+                  <path d={rLine} className="tg-rline" />
+                  {pts.map((p, i) => p.revenue > 0 ? <circle key={i} cx={x(i)} cy={yR(p.revenue)} r={2.6} className="tg-rdot" /> : null)}
+                  {ticks.map((i) => <text key={i} x={x(i)} y={224} className="tg-xlab" textAnchor={i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}>{dm(pts[i].date)}</text>)}
+                </svg>
+              </div>
+            );
+          })()}
+          <p className="ec-foot">📈 Sesiones = tráfico de ambas webs (GA4). Venta real = pedidos de Shopify (la venta no vive en el checkout web). Cada escala es independiente para comparar <b>forma</b>, no niveles.</p>
+        </div>
+
         {/* CATÁLOGO 1 · sneakerstore.com.mx (demanda GA4) */}
         <div className="ec-sh"><h3>Catálogo · sneakerstore.com.mx</h3><span className="hint">demanda del sitio principal (GA4) · {data.catalogGa4.length} productos · media {formatPercent(data.siteAtcRate, 1)} al carrito</span></div>
         <div className="ec-chips">
@@ -633,6 +671,19 @@ const CSS = `
 .wchip{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 6px;border-radius:5px;background:var(--bg3);color:var(--t3)}
 .wchip.shopify{background:rgba(139,92,246,.12);color:var(--acc)}
 .wchip.main{background:rgba(14,165,233,.12);color:#0ea5e9}
+/* tendencia (serie diaria) */
+.trend-kpis{display:flex;gap:26px;flex-wrap:wrap;margin-bottom:8px}
+.trend-kpis .l{display:block;font-size:10.5px;color:var(--t3);font-weight:600}
+.trend-kpis .v{display:block;font-size:18px;font-weight:800;letter-spacing:-.02em;margin-top:2px;color:var(--t1)}
+.trend-kpis .v.up{color:var(--up)}
+.trend-chartwrap{width:100%;margin-top:6px}
+.trend-svg{width:100%;height:auto;display:block;overflow:visible}
+.tg-grid{stroke:var(--b1);stroke-width:1;stroke-dasharray:3 4}
+.tg-area{fill:color-mix(in srgb,var(--acc) 14%,transparent);stroke:none}
+.tg-sline{fill:none;stroke:var(--acc);stroke-width:2;stroke-linejoin:round}
+.tg-rline{fill:none;stroke:var(--up);stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
+.tg-rdot{fill:var(--up)}
+.tg-xlab{fill:var(--t3);font-size:11px;font-weight:600}
 /* responsive · desktop angosto / tablet (preview de Cloud) */
 @media(max-width:1024px){
   .ec-acts{grid-template-columns:1fr}

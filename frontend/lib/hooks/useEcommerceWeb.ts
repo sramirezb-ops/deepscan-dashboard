@@ -54,6 +54,20 @@ export interface WebChannels {
   topOrganic?: WebChannel;         // mejor canal orgánico (para el titular)
 }
 
+// ── Carritos abandonados + recuperación (P2) ── caja que inicia checkout y no paga.
+export interface AbandonData {
+  count: number;          // checkouts abandonados (no recuperados) en el período
+  value: number;          // valor listado de esos carritos (NO recuperable 1:1)
+  recovered: number;      // checkouts recuperados
+  recoveryRate: number;   // recovered / (count + recovered)
+  avgValue: number;       // ticket abandonado promedio (value / count)
+  countDelta: number;     // % vs período anterior
+  valueDelta: number;     // % vs período anterior
+  purchases: number;      // compras del período (contexto: abandono vs compra)
+  hasFlow: boolean;       // ¿existe algún recupero? (recovered > 0)
+  series: { date: string; value: number; count: number }[]; // mini-tendencia diaria
+}
+
 export type ShopLabel = 'hero' | 'cobrar' | 'solido';
 export interface ShopProduct {
   title: string;
@@ -91,6 +105,7 @@ export interface EcommerceData {
   // Comparativa de webs + veredicto de inversión
   webs: WebPerf[];
   websChannels: WebChannels[]; // P1 · canales por web (tráfico + venta)
+  abandon: AbandonData;        // P2 · carritos abandonados + recuperación
   investLabel: string;      // web recomendada para escalar
   investReason: string;
   // Demanda (GA4 vistas)
@@ -142,12 +157,14 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
     const run = async () => {
       setLoading(true); setError(null);
       try {
-        const [funnelRows, shopRows, itemRows, metricNow, metricPrev] = await Promise.all([
+        const [funnelRows, shopRows, itemRows, metricNow, metricPrev, abnNow, abnPrev] = await Promise.all([
           fetchAll('ga4_funnel', 'sessions, product_views, add_to_cart, checkout_start, purchases', clientId, range.from, range.to),
           fetchAll('shopify_product_daily', 'title, units_paid, units_pending, revenue_paid, revenue_pending', clientId, range.from, range.to),
           fetchAll('ga4_items', 'item_name, items_viewed, items_added_to_cart, items_checked_out, items_purchased, item_revenue, property_id', clientId, range.from, range.to),
           fetchAll('ga4_metrics', 'sessions, new_users, active_users, bounce_rate, avg_session_duration, revenue, source_medium', clientId, range.from, range.to),
           fetchAll('ga4_metrics', 'sessions, source_medium', clientId, previous.from, previous.to),
+          fetchAll('shopify_abandoned_checkouts', 'date, abandoned_count, abandoned_value, recovered_count, currency', clientId, range.from, range.to),
+          fetchAll('shopify_abandoned_checkouts', 'abandoned_count, abandoned_value', clientId, previous.from, previous.to),
         ]);
         if (cancelled) return;
 
@@ -392,6 +409,31 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           return { property: pid, label: meta.label, kind: meta.kind, sessions: totS, revenue: totR, ga4Tracks: tracks, channels, topPaid, topOrganic };
         }).filter((w) => w.sessions > 0).sort((a, b) => b.revenue - a.revenue || b.sessions - a.sessions);
 
+        // ── CARRITOS ABANDONADOS + RECUPERACIÓN (P2) ── venta que inicia checkout
+        // y no paga. El valor listado NO es caja recuperable 1:1 (ticket alto,
+        // multi-ítem) — se muestra como oportunidad, con la tasa de recupero real.
+        let abnCount = 0, abnValue = 0, abnRec = 0;
+        const abnSeriesMap = new Map<string, { value: number; count: number }>();
+        for (const r of abnNow) {
+          const c = Number(r.abandoned_count) || 0, v = Number(r.abandoned_value) || 0, rec = Number(r.recovered_count) || 0;
+          abnCount += c; abnValue += v; abnRec += rec;
+          const d = String(r.date || '');
+          const e = abnSeriesMap.get(d) || { value: 0, count: 0 };
+          e.value += v; e.count += c; abnSeriesMap.set(d, e);
+        }
+        let abnCountPrev = 0, abnValuePrev = 0;
+        for (const r of abnPrev) { abnCountPrev += Number(r.abandoned_count) || 0; abnValuePrev += Number(r.abandoned_value) || 0; }
+        const abandon: AbandonData = {
+          count: abnCount, value: abnValue, recovered: abnRec,
+          recoveryRate: (abnCount + abnRec) > 0 ? abnRec / (abnCount + abnRec) : 0,
+          avgValue: abnCount > 0 ? abnValue / abnCount : 0,
+          countDelta: calcDelta(abnCount, abnCountPrev),
+          valueDelta: calcDelta(abnValue, abnValuePrev),
+          purchases: f.purchases,
+          hasFlow: abnRec > 0,
+          series: Array.from(abnSeriesMap.entries()).map(([date, e]) => ({ date, ...e })).sort((a, b) => a.date.localeCompare(b.date)),
+        };
+
         // Veredicto: la web con mayor $/sesión (venta real) es la de mejor retorno por tráfico.
         const win = webs[0];
         const investLabel = win ? win.label : '—';
@@ -399,7 +441,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
 
         setData({
           funnel, breakLabel,
-          webs, websChannels, investLabel, investReason,
+          webs, websChannels, abandon, investLabel, investReason,
           revBruto, revPaid, revPending, paidPct: revBruto > 0 ? revPaid / revBruto : 0,
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,

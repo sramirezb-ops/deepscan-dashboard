@@ -221,6 +221,51 @@ export function EcommerceWeb() {
           />
         </div>
 
+        {/* CARRITOS ABANDONADOS + RECUPERACIÓN (P2) */}
+        <div className="ec-sh"><h3>Carritos abandonados</h3><span className="hint">checkout iniciado sin pago · oportunidad de recupero (Shopify)</span></div>
+        <div className="card ec-pad">
+          <div className="abn-kpis">
+            <div className="abn-k">
+              <div className="l">🛒 Abandonados</div>
+              <div className="v">{formatInt(data.abandon.count)}</div>
+              <div className={'s ' + (data.abandon.countDelta <= 0 ? 'up' : 'dn')}>{data.abandon.countDelta <= 0 ? '▼' : '▲'} {Math.abs(Math.round(data.abandon.countDelta))}% vs. anterior</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">💸 Valor listado</div>
+              <div className="v warn">{money(data.abandon.value)}</div>
+              <div className="s">ticket prom. {money(data.abandon.avgValue)}</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">♻️ Recuperación</div>
+              <div className={'v ' + (data.abandon.recoveryRate > 0 ? 'up' : 'dn')}>{formatPercent(data.abandon.recoveryRate, 0)}</div>
+              <div className="s">{formatInt(data.abandon.recovered)} recuperados</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">🔻 Abandono vs compra</div>
+              <div className="v">{data.abandon.purchases > 0 ? (data.abandon.count / data.abandon.purchases).toFixed(1) + '×' : '—'}</div>
+              <div className="s">{formatInt(data.abandon.count)} abandonan · {formatInt(data.abandon.purchases)} compran</div>
+            </div>
+          </div>
+          {data.abandon.series.length > 1 && (() => {
+            const mx = Math.max(...data.abandon.series.map((s) => s.value), 1);
+            return (
+              <div className="abn-spark" title="valor abandonado por día">
+                {data.abandon.series.map((s) => (
+                  <div key={s.date} className="abn-bar" title={`${s.date}: ${money(s.value)} · ${formatInt(s.count)} carritos`}>
+                    <i style={{ height: Math.max((s.value / mx) * 100, s.value > 0 ? 6 : 0) + '%' }} />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div className={'ec-verdict' + (data.abandon.hasFlow ? '' : ' warn')}>
+            <span className="vk">Palanca</span>
+            {data.abandon.hasFlow
+              ? <>Ya recuperas <b>{formatPercent(data.abandon.recoveryRate, 0)}</b>. Sube la cadencia del flujo para capturar más de estos {money(data.abandon.value)} listados.</>
+              : <><b>No hay flujo de recuperación activo</b> — 0 recuperados de {formatInt(data.abandon.count)} carritos. Un recordatorio por WhatsApp/email recupera parte de esta caja. Ojo honesto: el valor listado ({money(data.abandon.value)}) no es recuperable 1:1 — son tickets altos y multi-ítem.</>}
+          </div>
+        </div>
+
         {/* GRÁFICO · CONCENTRACIÓN DE LA VENTA (pagado vs pendiente por producto) */}
         <div className="ec-sh"><h3>¿Dónde está la plata?</h3><span className="hint">venta por producto · ticket promedio {money(data.aovPaid)}</span>
           <span className="ec-pcount">🏆 <b className="e">{data.shopLabelCounts.hero}</b> hero · 💸 <b className="o">{data.shopLabelCounts.cobrar}</b> por cobrar</span>
@@ -437,6 +482,18 @@ const CSS = `
 .chc-delta{text-align:right;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums}
 .chc-delta.up{color:var(--up)}.chc-delta.dn{color:var(--dn)}
 .chc-foot{margin-top:12px;font-size:10.5px;color:var(--t3);line-height:1.5;border-top:1px dashed var(--b1);padding-top:9px}.chc-foot b{color:var(--t2)}
+/* carritos abandonados (P2) */
+.abn-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+.abn-k{background:var(--bg2);border:1px solid var(--b1);border-radius:12px;padding:12px 14px}
+.abn-k .l{font-size:11px;color:var(--t3);font-weight:600}
+.abn-k .v{font-size:22px;font-weight:800;letter-spacing:-.02em;margin-top:4px;color:var(--t1)}
+.abn-k .v.warn{color:var(--warn)}.abn-k .v.up{color:var(--up)}.abn-k .v.dn{color:var(--dn)}
+.abn-k .s{font-size:10px;color:var(--t3);margin-top:3px}.abn-k .s.up{color:var(--up)}.abn-k .s.dn{color:var(--dn)}
+.abn-spark{display:flex;align-items:flex-end;gap:3px;height:52px;margin:16px 2px 4px;padding-top:4px}
+.abn-bar{flex:1;height:100%;display:flex;align-items:flex-end}
+.abn-bar i{display:block;width:100%;background:var(--warn);border-radius:3px 3px 0 0;opacity:.7;min-height:0}
+.abn-bar:hover i{opacity:1}
+.ec-verdict.warn{border-left-color:var(--warn)}.ec-verdict.warn .vk{color:var(--warn)}
 /* responsive · desktop angosto / tablet (preview de Cloud) */
 @media(max-width:1024px){
   .ec-acts{grid-template-columns:1fr}
@@ -447,6 +504,7 @@ const CSS = `
   .ec-webs{grid-template-columns:1fr}.ec-hkpis{grid-template-columns:repeat(2,1fr)}
   .ec-chwebs{grid-template-columns:1fr}
   .chc-row{grid-template-columns:100px 1fr 84px 40px;gap:8px}
+  .abn-kpis{grid-template-columns:repeat(2,1fr)}
   .ec-sph,.ec-sprow{grid-template-columns:1fr 60px 100px 104px}
   .ec-sph>*:nth-child(3),.ec-sprow>*:nth-child(3),.ec-sph>*:nth-child(4),.ec-sprow>*:nth-child(4),.ec-sph>*:nth-child(6),.ec-sprow>*:nth-child(6){display:none}
   .ec-cph,.ec-crow{grid-template-columns:1fr 46px 60px 104px}

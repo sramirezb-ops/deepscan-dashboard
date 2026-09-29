@@ -36,6 +36,24 @@ export interface WebPerf {
 
 export interface FunnelStep { key: string; label: string; value: number; pctOfSessions: number; stepRate: number | null; isBreak: boolean }
 
+// ── Canales por web (P1) ── de dónde viene el tráfico y la venta en cada web.
+export interface WebChannel {
+  channel: string;
+  sessions: number; revenue: number; revPerSession: number;
+  sessPct: number;   // % de sesiones de la web
+  revPct: number;    // % de la venta GA4 de la web (0 si la web no reporta venta)
+  sessDelta: number; // % vs período anterior (mismo canal, misma web)
+  isPaid: boolean;   // canal de pauta (paid social, cpc, display, video, cross-network)
+}
+export interface WebChannels {
+  property: string; label: string; kind: 'main' | 'shopify';
+  sessions: number; revenue: number;
+  ga4Tracks: boolean;              // ¿esta web reporta venta en GA4?
+  channels: WebChannel[];          // ordenados por venta (main) o sesiones (shopify)
+  topPaid?: WebChannel;            // mejor canal de pauta (para el titular)
+  topOrganic?: WebChannel;         // mejor canal orgánico (para el titular)
+}
+
 export type ShopLabel = 'hero' | 'cobrar' | 'solido';
 export interface ShopProduct {
   title: string;
@@ -72,6 +90,7 @@ export interface EcommerceData {
   products: ShopProduct[];      // por revenue total desc
   // Comparativa de webs + veredicto de inversión
   webs: WebPerf[];
+  websChannels: WebChannels[]; // P1 · canales por web (tráfico + venta)
   investLabel: string;      // web recomendada para escalar
   investReason: string;
   // Demanda (GA4 vistas)
@@ -128,7 +147,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
           fetchAll('shopify_product_daily', 'title, units_paid, units_pending, revenue_paid, revenue_pending', clientId, range.from, range.to),
           fetchAll('ga4_items', 'item_name, items_viewed, items_added_to_cart, items_checked_out, items_purchased, item_revenue, property_id', clientId, range.from, range.to),
           fetchAll('ga4_metrics', 'sessions, new_users, active_users, bounce_rate, avg_session_duration, revenue, source_medium', clientId, range.from, range.to),
-          fetchAll('ga4_metrics', 'sessions', clientId, previous.from, previous.to),
+          fetchAll('ga4_metrics', 'sessions, source_medium', clientId, previous.from, previous.to),
         ]);
         if (cancelled) return;
 
@@ -329,6 +348,50 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
             ga4Tracks: !isShop || w.rev > 0, paidShare: w.s > 0 ? paid / w.s : 0, topChannel,
           };
         }).filter((w) => w.sessions > 0).sort((a, b) => b.revPerSession - a.revPerSession);
+        // ── CANALES POR WEB (P1) ── sesiones + venta GA4 por (web, canal), con
+        // delta vs período anterior. La venta solo la reporta el sitio principal;
+        // en la web Shopify GA4 mide tráfico pero no valoriza (la venta vive en Shopify).
+        const chAgg = new Map<string, Map<string, { s: number; rev: number }>>();
+        for (const r of metricNow) {
+          const pid = String(r.source_medium || '').split('/')[0].trim();
+          if (!PROP_META[pid]) continue;
+          const ch = String(r.source_medium || '').split('/').slice(1).join('/').trim() || '(sin canal)';
+          const m = chAgg.get(pid) || new Map<string, { s: number; rev: number }>();
+          const e = m.get(ch) || { s: 0, rev: 0 };
+          e.s += Number(r.sessions) || 0; e.rev += Number(r.revenue) || 0;
+          m.set(ch, e); chAgg.set(pid, m);
+        }
+        const chPrev = new Map<string, Map<string, number>>();
+        for (const r of metricPrev) {
+          const pid = String(r.source_medium || '').split('/')[0].trim();
+          if (!PROP_META[pid]) continue;
+          const ch = String(r.source_medium || '').split('/').slice(1).join('/').trim() || '(sin canal)';
+          const m = chPrev.get(pid) || new Map<string, number>();
+          m.set(ch, (m.get(ch) || 0) + (Number(r.sessions) || 0));
+          chPrev.set(pid, m);
+        }
+        const websChannels: WebChannels[] = Object.keys(PROP_META).map((pid) => {
+          const meta = PROP_META[pid];
+          const m = chAgg.get(pid) || new Map<string, { s: number; rev: number }>();
+          const totS = [...m.values()].reduce((a, e) => a + e.s, 0);
+          const totR = [...m.values()].reduce((a, e) => a + e.rev, 0);
+          const prevM = chPrev.get(pid) || new Map<string, number>();
+          const channels: WebChannel[] = [...m.entries()].map(([channel, e]) => ({
+            channel, sessions: e.s, revenue: e.rev,
+            revPerSession: e.s > 0 ? e.rev / e.s : 0,
+            sessPct: totS > 0 ? e.s / totS : 0,
+            revPct: totR > 0 ? e.rev / totR : 0,
+            sessDelta: calcDelta(e.s, prevM.get(channel) || 0),
+            isPaid: PAID_CH.test(channel),
+          }));
+          // Orden: por venta si la web valoriza (main), si no por sesiones (shopify).
+          const tracks = totR > 0;
+          channels.sort((a, b) => (tracks ? b.revenue - a.revenue : b.sessions - a.sessions) || b.sessions - a.sessions);
+          const topPaid = [...channels].filter((c) => c.isPaid).sort((a, b) => (tracks ? b.revenue - a.revenue : b.sessions - a.sessions))[0];
+          const topOrganic = [...channels].filter((c) => !c.isPaid).sort((a, b) => (tracks ? b.revenue - a.revenue : b.sessions - a.sessions))[0];
+          return { property: pid, label: meta.label, kind: meta.kind, sessions: totS, revenue: totR, ga4Tracks: tracks, channels, topPaid, topOrganic };
+        }).filter((w) => w.sessions > 0).sort((a, b) => b.revenue - a.revenue || b.sessions - a.sessions);
+
         // Veredicto: la web con mayor $/sesión (venta real) es la de mejor retorno por tráfico.
         const win = webs[0];
         const investLabel = win ? win.label : '—';
@@ -336,7 +399,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
 
         setData({
           funnel, breakLabel,
-          webs, investLabel, investReason,
+          webs, websChannels, investLabel, investReason,
           revBruto, revPaid, revPending, paidPct: revBruto > 0 ? revPaid / revBruto : 0,
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,

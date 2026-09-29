@@ -102,6 +102,64 @@ export function EcommerceWeb() {
         </div>
         {win && <div className="ec-verdict"><span className="vk">Veredicto</span><b>{data.investLabel}</b> — {investReason}</div>}
 
+        {/* CANALES POR WEB (P1) · de dónde viene el tráfico y la venta */}
+        <div className="ec-sh"><h3>¿De dónde viene la venta?</h3><span className="hint">canales por web · GA4 · tráfico vs venta real · <i className="chleg"><i className="dot paid" />pauta</i> <i className="chleg"><i className="dot org" />orgánico/directo</i></span></div>
+        <div className="ec-chwebs">
+          {data.websChannels.map((w) => {
+            const top = w.channels.slice(0, 7);
+            const rest = w.channels.slice(7);
+            const restS = rest.reduce((a, c) => a + c.sessions, 0);
+            const restR = rest.reduce((a, c) => a + c.revenue, 0);
+            const metricMax = w.ga4Tracks
+              ? Math.max(...w.channels.map((c) => c.revenue), 1)
+              : Math.max(...w.channels.map((c) => c.sessions), 1);
+            const paidSess = w.channels.filter((c) => c.isPaid).reduce((a, c) => a + c.sessions, 0);
+            return (
+              <div className="ec-chcard" key={w.property}>
+                <div className="chc-head">
+                  <div className="chc-title">{w.label}<span className={'wkind ' + w.kind}>{w.kind === 'shopify' ? 'Shopify' : 'principal'}</span></div>
+                  <div className="chc-tot">
+                    <span>{formatInt(w.sessions)} sesiones</span>
+                    {w.ga4Tracks ? <b>{money(w.revenue)} venta GA4</b> : <em>⚠ GA4 no valoriza · venta en Shopify</em>}
+                  </div>
+                </div>
+                <div className="chc-list">
+                  {top.map((c) => {
+                    const val = w.ga4Tracks ? c.revenue : c.sessions;
+                    return (
+                      <div className="chc-row" key={c.channel}>
+                        <div className="chc-name" title={c.channel}><i className={'dot ' + (c.isPaid ? 'paid' : 'org')} />{c.channel}</div>
+                        <div className="chc-bar"><i className={c.isPaid ? 'paid' : 'org'} style={{ width: (val / metricMax) * 100 + '%' }} /></div>
+                        <div className="chc-metric">
+                          {w.ga4Tracks
+                            ? <><b>{money(c.revenue)}</b><small>{rps(c.revPerSession)}/ses · {formatInt(c.sessions)} ses</small></>
+                            : <><b>{formatInt(c.sessions)}</b><small>{formatPercent(c.sessPct, 0)} del tráfico</small></>}
+                        </div>
+                        <div className={'chc-delta ' + (c.sessDelta >= 0 ? 'up' : 'dn')} title="sesiones vs período anterior">{c.sessDelta >= 0 ? '▲' : '▼'}{Math.abs(Math.round(c.sessDelta))}%</div>
+                      </div>
+                    );
+                  })}
+                  {rest.length > 0 && (
+                    <div className="chc-row rest">
+                      <div className="chc-name"><i className="dot org" />Otros {rest.length} canales</div>
+                      <div className="chc-bar"><i className="org" style={{ width: ((w.ga4Tracks ? restR : restS) / metricMax) * 100 + '%' }} /></div>
+                      <div className="chc-metric"><b>{w.ga4Tracks ? money(restR) : formatInt(restS)}</b><small>&nbsp;</small></div>
+                      <div className="chc-delta" />
+                    </div>
+                  )}
+                </div>
+                <div className="chc-foot">
+                  {w.ga4Tracks
+                    ? (w.topPaid || w.topOrganic
+                      ? <>Pauta líder: <b>{w.topPaid ? `${w.topPaid.channel} ${money(w.topPaid.revenue)}` : '—'}</b> · Orgánico líder: <b>{w.topOrganic ? `${w.topOrganic.channel} ${money(w.topOrganic.revenue)}` : '—'}</b></>
+                      : '—')
+                    : <>Pauta que GA4 no puede valorizar aquí: <b>{formatInt(paidSess)}</b> sesiones. Su venta se mide en Shopify, no en GA4.</>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* CATÁLOGO 1 · sneakerstore.com.mx (demanda GA4) */}
         <div className="ec-sh"><h3>Catálogo · sneakerstore.com.mx</h3><span className="hint">demanda del sitio principal (GA4) · {data.catalogGa4.length} productos · media {formatPercent(data.siteAtcRate, 1)} al carrito</span></div>
         <div className="ec-chips">
@@ -357,6 +415,28 @@ const CSS = `
 .ec-act{background:var(--bg1);border:1px solid var(--b1);border-radius:13px;padding:14px 15px;border-left:3px solid var(--acc)}
 .ec-act.good{border-left-color:var(--up)}.ec-act.bad{border-left-color:var(--dn)}.ec-act.warn{border-left-color:var(--warn)}.ec-act.info{border-left-color:var(--acc)}
 .ec-act .tag{font-size:12px;font-weight:800;margin-bottom:5px}.ec-act .body{font-size:11.5px;color:var(--t2);line-height:1.5}
+/* canales por web (P1) */
+.ec-sh .chleg{font-style:normal;display:inline-flex;align-items:center;gap:4px;margin-left:8px;color:var(--t3)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot.paid{background:var(--acc)}.dot.org{background:#0ea5e9}
+.ec-chwebs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ec-chcard{background:var(--bg1);border:1px solid var(--b1);border-radius:16px;padding:16px 18px;display:flex;flex-direction:column}
+.chc-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.chc-title{font-size:14px;font-weight:800;display:flex;align-items:center;gap:8px}
+.chc-tot{font-size:10.5px;color:var(--t3);text-align:right;display:flex;flex-direction:column;gap:1px}
+.chc-tot b{font-size:12px;color:var(--up);font-weight:800}.chc-tot em{font-style:normal;color:var(--warn);font-weight:600}
+.chc-list{display:flex;flex-direction:column;gap:2px}
+.chc-row{display:grid;grid-template-columns:130px 1fr 96px 42px;gap:10px;align-items:center;padding:5px 0}
+.chc-row.rest{opacity:.65}
+.chc-name{font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chc-bar{height:14px;background:var(--track);border-radius:5px;overflow:hidden}
+.chc-bar i{display:block;height:100%;border-radius:5px}.chc-bar i.paid{background:var(--acc)}.chc-bar i.org{background:#0ea5e9}
+.chc-metric{text-align:right;line-height:1.2}
+.chc-metric b{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.chc-metric small{display:block;font-size:9px;color:var(--t3)}
+.chc-delta{text-align:right;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.chc-delta.up{color:var(--up)}.chc-delta.dn{color:var(--dn)}
+.chc-foot{margin-top:12px;font-size:10.5px;color:var(--t3);line-height:1.5;border-top:1px dashed var(--b1);padding-top:9px}.chc-foot b{color:var(--t2)}
 /* responsive · desktop angosto / tablet (preview de Cloud) */
 @media(max-width:1024px){
   .ec-acts{grid-template-columns:1fr}
@@ -365,6 +445,8 @@ const CSS = `
 /* tablas y comparativas colapsan antes de apretarse */
 @media(max-width:900px){
   .ec-webs{grid-template-columns:1fr}.ec-hkpis{grid-template-columns:repeat(2,1fr)}
+  .ec-chwebs{grid-template-columns:1fr}
+  .chc-row{grid-template-columns:100px 1fr 84px 40px;gap:8px}
   .ec-sph,.ec-sprow{grid-template-columns:1fr 60px 100px 104px}
   .ec-sph>*:nth-child(3),.ec-sprow>*:nth-child(3),.ec-sph>*:nth-child(4),.ec-sprow>*:nth-child(4),.ec-sph>*:nth-child(6),.ec-sprow>*:nth-child(6){display:none}
   .ec-cph,.ec-crow{grid-template-columns:1fr 46px 60px 104px}

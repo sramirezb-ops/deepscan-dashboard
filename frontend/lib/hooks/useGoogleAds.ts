@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { floorGadsFrom, applyGadsFloor } from '@/lib/dataFloors';
 import { calcDelta } from '@/lib/utils';
 import type { DateRange } from '@/lib/period';
 
@@ -79,7 +80,7 @@ async function fetchRows(clientId: string, from: string, to: string): Promise<Ra
     .from('gads_campaigns')
     .select(SELECT)
     .eq('client_id', clientId)
-    .gte('date', from)
+    .gte('date', floorGadsFrom(from, clientId))
     .lte('date', to);
 
   if (error) throw error;
@@ -95,11 +96,13 @@ async function fetchSegmentExists(
   clientId: string,
   segment: GoogleAdsSegment
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('gads_campaigns')
-    .select('campaign_name, campaign_type')
-    .eq('client_id', clientId)
-    .limit(5000);
+  const { data, error } = await applyGadsFloor(
+    supabase
+      .from('gads_campaigns')
+      .select('campaign_name, campaign_type')
+      .eq('client_id', clientId),
+    clientId,
+  ).limit(5000);
 
   if (error) throw error;
   const rows = (data || []) as RawRow[];

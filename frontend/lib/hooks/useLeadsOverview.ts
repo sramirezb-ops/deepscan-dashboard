@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { floorGadsFrom, applyGadsFloor } from '@/lib/dataFloors';
 import { calcDelta } from '@/lib/utils';
 import { classifyModel } from '@/lib/hooks/useGadsLeads';
 import type { DateRange } from '@/lib/period';
@@ -119,13 +120,15 @@ const TTK_SELECT = 'date, spend, conversions, impressions, clicks';
 async function fetchGads(clientId: string, from: string, to: string): Promise<GadsRaw[]> {
   const all: GadsRaw[] = [];
   let offset = 0;
+  // Piso por cliente: nunca leer antes del cambio de cuenta de Google Ads.
+  const effFrom = floorGadsFrom(from, clientId);
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { data, error } = await supabase
       .from('gads_campaigns')
       .select(GADS_SELECT)
       .eq('client_id', clientId)
-      .gte('date', from)
+      .gte('date', effFrom)
       .lte('date', to)
       .range(offset, offset + PAGE - 1);
     if (error) throw error;
@@ -160,10 +163,13 @@ async function fetchTtk(clientId: string, from: string, to: string): Promise<Ttk
 }
 
 async function gadsExistsEver(clientId: string): Promise<boolean> {
-  const { count, error } = await supabase
-    .from('gads_campaigns')
-    .select('campaign_name', { count: 'exact', head: true })
-    .eq('client_id', clientId);
+  const { count, error } = await applyGadsFloor(
+    supabase
+      .from('gads_campaigns')
+      .select('campaign_name', { count: 'exact', head: true })
+      .eq('client_id', clientId),
+    clientId,
+  );
   if (error) return false;
   return (count || 0) > 0;
 }

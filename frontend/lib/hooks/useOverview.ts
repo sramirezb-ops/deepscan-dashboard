@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { floorGadsFrom } from '@/lib/dataFloors';
 import { calcDelta } from '@/lib/utils';
 import type { DateRange } from '@/lib/period';
 
@@ -168,7 +169,7 @@ async function fetchGoogleAdsRows(clientId: string, from: string, to: string) {
     .from('gads_campaigns')
     .select('date, cost, conv_value, conversions, impressions, clicks')
     .eq('client_id', clientId)
-    .gte('date', from)
+    .gte('date', floorGadsFrom(from, clientId))
     .lte('date', to);
 
   if (error) throw error;

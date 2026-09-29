@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { floorGadsFrom, applyGadsFloor } from '@/lib/dataFloors';
 import { calcDelta } from '@/lib/utils';
 import type { DateRange } from '@/lib/period';
 
@@ -154,13 +155,15 @@ function normType(t: string | null): GadsCampaignType {
 async function fetchRows(clientId: string, from: string, to: string): Promise<RawRow[]> {
   const all: RawRow[] = [];
   let offset = 0;
+  // Piso por cliente: nunca leer antes del cambio de cuenta de Google Ads.
+  const effFrom = floorGadsFrom(from, clientId);
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { data, error } = await supabase
       .from('gads_campaigns')
       .select(SELECT)
       .eq('client_id', clientId)
-      .gte('date', from)
+      .gte('date', effFrom)
       .lte('date', to)
       .range(offset, offset + PAGE - 1);
     if (error) throw error;
@@ -173,11 +176,10 @@ async function fetchRows(clientId: string, from: string, to: string): Promise<Ra
 }
 
 async function fetchExistsEver(clientId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('gads_campaigns')
-    .select('campaign_name')
-    .eq('client_id', clientId)
-    .limit(1);
+  const { data, error } = await applyGadsFloor(
+    supabase.from('gads_campaigns').select('campaign_name').eq('client_id', clientId),
+    clientId,
+  ).limit(1);
   if (error) throw error;
   return (data || []).length > 0;
 }

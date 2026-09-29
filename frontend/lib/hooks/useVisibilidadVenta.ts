@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { floorGadsFrom } from '@/lib/dataFloors';
 import type { DateRange } from '@/lib/period';
 
 // ============================================================
@@ -112,7 +113,7 @@ async function fetchMetaRows(clientId: string, from: string, to: string): Promis
 async function fetchGoogleRows(clientId: string, from: string, to: string): Promise<any[]> {
   const { data, error } = await supabase
     .from('gads_campaigns').select('date, cost')
-    .eq('client_id', clientId).gte('date', from).lte('date', to);
+    .eq('client_id', clientId).gte('date', floorGadsFrom(from, clientId)).lte('date', to);
   if (error) return [];
   return (data || []) as any[];
 }

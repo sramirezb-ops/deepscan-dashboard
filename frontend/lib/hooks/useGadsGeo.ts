@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { floorGadsFrom } from '@/lib/dataFloors';
 import type { DateRange } from '@/lib/period';
 import { classifyModel, type ModelKey } from '@/lib/hooks/useGadsLeads';
 
@@ -58,13 +59,15 @@ const PAGE = 1000;
 async function fetchGeoRows(clientId: string, from: string, to: string): Promise<RawGeoRow[]> {
   const all: RawGeoRow[] = [];
   let offset = 0;
+  // Piso por cliente: nunca leer antes del cambio de cuenta de Google Ads.
+  const effFrom = floorGadsFrom(from, clientId);
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { data, error } = await supabase
       .from('gads_geo')
       .select(SELECT)
       .eq('client_id', clientId)
-      .gte('date_start', from)
+      .gte('date_start', effFrom)
       .lte('date_start', to)
       .range(offset, offset + PAGE - 1);
     if (error) throw error;

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { floorGadsFrom, applyGadsFloor } from '@/lib/dataFloors';
 import { calcDelta } from '@/lib/utils';
 import type { DateRange } from '@/lib/period';
 import { classifyModel } from '@/lib/hooks/useGadsLeads';
@@ -155,13 +156,15 @@ async function fetchPaged<T>(
 ): Promise<T[]> {
   const all: T[] = [];
   let offset = 0;
+  // Piso por cliente: nunca leer antes del cambio de cuenta de Google Ads.
+  const effFrom = floorGadsFrom(from, clientId);
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { data, error } = await supabase
       .from(table)
       .select(select)
       .eq('client_id', clientId)
-      .gte(dateCol, from)
+      .gte(dateCol, effFrom)
       .lte(dateCol, to)
       .range(offset, offset + PAGE - 1);
     if (error) throw error;
@@ -176,12 +179,14 @@ async function fetchPaged<T>(
 // ¿Existe alguna vez una campaña Propietarios? (para distinguir "nunca hubo"
 // de "no hubo actividad en el período"). Se filtra por nombre del modelo.
 async function fetchPropExistsEver(clientId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('gads_campaigns')
-    .select('campaign_name')
-    .eq('client_id', clientId)
-    .ilike('campaign_name', '%propietario%')
-    .limit(1);
+  const { data, error } = await applyGadsFloor(
+    supabase
+      .from('gads_campaigns')
+      .select('campaign_name')
+      .eq('client_id', clientId)
+      .ilike('campaign_name', '%propietario%'),
+    clientId,
+  ).limit(1);
   if (error) throw error;
   return (data || []).length > 0;
 }

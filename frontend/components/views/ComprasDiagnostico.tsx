@@ -156,8 +156,18 @@ export function ComprasDiagnostico() {
   const MO: Record<string, string> = { '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic' };
 
   // Leaderboard plano de conjuntos de anuncios — el "qué escalar / qué descartar".
+  // Momentum: ROAS de este período vs el anterior (mismo conjunto), para saber si
+  // un ganador viene subiendo o un rezagado ya está mejorando.
+  const prevSets = data.prevSets ?? {};
   const conjuntos = (data.hierarchy ?? [])
-    .flatMap((c) => (c.kids ?? []).map((s) => { const dd = derive(s.m); return { camp: c.name, set: s.name, d: dd, v: verdict(dd, GOAL, targetCpa) }; }))
+    .flatMap((c) => (c.kids ?? []).map((s) => {
+      const dd = derive(s.m);
+      const pm = prevSets[`${c.name}\u0000${s.name}`];
+      const prevD = pm ? derive(pm) : null;
+      const hadPrev = !!pm && pm.spend > 0;
+      const mom = hadPrev && prevD ? dd.roas - prevD.roas : null; // Δ ROAS absoluto
+      return { camp: c.name, set: s.name, d: dd, v: verdict(dd, GOAL, targetCpa), mom, hadPrev };
+    }))
     .sort((a, b) => (VRANK[a.v.l] - VRANK[b.v.l]) || (b.d.spend - a.d.spend));
   const vCount = (l: string) => conjuntos.filter((x) => x.v.l === l).length;
 
@@ -209,7 +219,7 @@ export function ComprasDiagnostico() {
         </div>
         <div className="mc-wrap"><div className="mc-scroll">
           <table className="cj-t">
-            <thead><tr><th>Conjunto de anuncios</th><th>Campaña</th><th>Veredicto</th><th>Gasto</th><th>Compras</th><th>ROAS</th><th>CPA</th></tr></thead>
+            <thead><tr><th>Conjunto de anuncios</th><th>Campaña</th><th>Veredicto</th><th>Gasto</th><th>Compras</th><th>ROAS</th><th>Momentum</th><th>CPA</th></tr></thead>
             <tbody>
               {conjuntos.map((x, i) => (
                 <tr key={i}>
@@ -219,6 +229,15 @@ export function ComprasDiagnostico() {
                   <td>{formatCurrency(x.d.spend, cur)}</td>
                   <td>{formatInt(x.d.purch)}</td>
                   <td className={x.d.purch > 0 ? semCls(x.d.roas) : ''}>{x.d.roas > 0 ? x.d.roas.toFixed(1) + '×' : '—'}</td>
+                  <td>{
+                    !x.hadPrev
+                      ? <span className="mom mom-new" title="Sin datos del período anterior — conjunto nuevo o recién activado.">nuevo</span>
+                      : x.mom == null || Math.abs(x.mom) < 0.05
+                        ? <span className="mom mom-flat" title="ROAS estable vs el período anterior.">→ igual</span>
+                        : x.mom > 0
+                          ? <span className="mom mom-up" title={`ROAS subió ${x.mom.toFixed(1)}× vs el período anterior.`}>▲ +{x.mom.toFixed(1)}×</span>
+                          : <span className="mom mom-dn" title={`ROAS bajó ${Math.abs(x.mom).toFixed(1)}× vs el período anterior.`}>▼ −{Math.abs(x.mom).toFixed(1)}×</span>
+                  }</td>
                   <td>{x.d.purch > 0 ? formatCurrency(x.d.cpa, cur) : '—'}</td>
                 </tr>
               ))}
@@ -415,8 +434,13 @@ table.mc-t{border-collapse:collapse;width:100%;min-width:1200px;font-size:12.5px
 .v-discard{background:color-mix(in srgb,var(--dn) 15%,transparent);color:var(--dn)}
 .v-check{background:color-mix(in srgb,#5b6cff 16%,transparent);color:#7c8cff}
 .v-learn{background:var(--bg3);color:var(--t3)}
+.mom{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.02em;cursor:help;font-variant-numeric:tabular-nums}
+.mom-up{color:var(--up)}
+.mom-dn{color:var(--dn)}
+.mom-flat{color:var(--t3);font-weight:700}
+.mom-new{color:var(--t3);font-weight:700;background:var(--bg3);padding:2px 7px;border-radius:999px}
 .cj-sum{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
-table.cj-t{border-collapse:collapse;width:100%;min-width:760px;font-size:12.5px}
+table.cj-t{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
 .cj-t th{background:var(--bg2);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);padding:10px 13px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--b2)}
 .cj-t th:first-child,.cj-t th:nth-child(2),.cj-t th:nth-child(3){text-align:left}
 .cj-t td{padding:10px 13px;border-bottom:1px solid var(--b1);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--t2)}

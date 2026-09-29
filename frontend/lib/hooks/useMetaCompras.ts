@@ -116,6 +116,9 @@ export interface MetaComprasData {
   revenueDelta: number;
   roasDelta: number; // absoluto
   purchasesDelta: number;
+  // Métrica del período ANTERIOR por conjunto de anuncios, para calcular momentum.
+  // Clave: `${nombreCampaña}\u0000${nombreConjunto}`.
+  prevSets: Record<string, ComprasMetric>;
   from: string;
   to: string;
 }
@@ -606,6 +609,13 @@ export function useMetaCompras(
         const pt = totalsFrom(prevPurchase);
         const roasPrev = pt.roas;
 
+        // Métrica previa por conjunto (para el momentum del leaderboard).
+        const prevPurchaseNames = new Set(prevPurchase.map((c) => c.name));
+        const prevHier = buildHierarchy(prevRows, prevPurchaseNames, creatives);
+        const prevSets: Record<string, ComprasMetric> = {};
+        for (const c of prevHier)
+          for (const s of c.kids ?? []) prevSets[`${c.name}\u0000${s.name}`] = s.m;
+
         // ¿Existe Meta en cualquier fecha?
         let metaExistsEver = nowRows.length > 0;
         if (!metaExistsEver) {
@@ -635,6 +645,7 @@ export function useMetaCompras(
           revenueDelta: calcDelta(totals.purchaseValue, pt.purchaseValue),
           roasDelta: totals.roas - roasPrev,
           purchasesDelta: calcDelta(totals.purchases, pt.purchases),
+          prevSets,
           from: range.from,
           to: range.to,
         });

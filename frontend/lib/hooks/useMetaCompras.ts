@@ -119,6 +119,11 @@ export interface MetaComprasData {
   // Métrica del período ANTERIOR por conjunto de anuncios, para calcular momentum.
   // Clave: `${nombreCampaña}\u0000${nombreConjunto}`.
   prevSets: Record<string, ComprasMetric>;
+  // Métrica del período ANTERIOR por anuncio (clave: ad_id), para el momentum
+  // a nivel creativo dentro del desglose de cada conjunto.
+  prevAds: Record<string, ComprasMetric>;
+  // Métrica del período ANTERIOR por campaña (clave: nombre de campaña).
+  prevCamps: Record<string, ComprasMetric>;
   from: string;
   to: string;
 }
@@ -613,8 +618,15 @@ export function useMetaCompras(
         const prevPurchaseNames = new Set(prevPurchase.map((c) => c.name));
         const prevHier = buildHierarchy(prevRows, prevPurchaseNames, creatives);
         const prevSets: Record<string, ComprasMetric> = {};
-        for (const c of prevHier)
-          for (const s of c.kids ?? []) prevSets[`${c.name}\u0000${s.name}`] = s.m;
+        const prevAds: Record<string, ComprasMetric> = {};
+        const prevCamps: Record<string, ComprasMetric> = {};
+        for (const c of prevHier) {
+          prevCamps[c.name] = c.m;
+          for (const s of c.kids ?? []) {
+            prevSets[`${c.name}\u0000${s.name}`] = s.m;
+            for (const ad of s.kids ?? []) if (ad.adId) prevAds[ad.adId] = ad.m;
+          }
+        }
 
         // ¿Existe Meta en cualquier fecha?
         let metaExistsEver = nowRows.length > 0;
@@ -646,6 +658,8 @@ export function useMetaCompras(
           roasDelta: totals.roas - roasPrev,
           purchasesDelta: calcDelta(totals.purchases, pt.purchases),
           prevSets,
+          prevAds,
+          prevCamps,
           from: range.from,
           to: range.to,
         });

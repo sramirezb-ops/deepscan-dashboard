@@ -201,7 +201,11 @@ export function DataTable<T>({
         .dt-search input{border:0;background:transparent;outline:none;font-size:12.5px;color:var(--t1);width:100%}
         .dt-search input::placeholder{color:var(--t3)}
         .dt-clear{border:0;background:var(--b2);color:var(--t2);border-radius:50%;width:18px;height:18px;line-height:1;cursor:pointer;font-size:13px}
-        .dt-scroll{overflow-x:auto}
+        .dt-scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:2px;scrollbar-width:thin;scrollbar-color:var(--b2) transparent}
+        .dt-scroll::-webkit-scrollbar{height:9px}
+        .dt-scroll::-webkit-scrollbar-track{background:transparent}
+        .dt-scroll::-webkit-scrollbar-thumb{background:var(--b2);border-radius:9px}
+        .dt-scroll::-webkit-scrollbar-thumb:hover{background:var(--t3)}
         .dt-table{width:100%;border-collapse:collapse;font-size:12.5px}
         .dt-table th{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--t3);font-weight:700;padding:10px 10px 8px;border-bottom:2px solid var(--b2);text-align:left;white-space:nowrap;vertical-align:bottom}
         .dt-table th.r{text-align:right}.dt-table th.c{text-align:center}

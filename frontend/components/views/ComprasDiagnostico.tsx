@@ -901,7 +901,11 @@ const CSS = `
 .mc-legend .sw{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
 .mc-tools{display:flex;gap:8px}.mc-btn{font-size:11.5px;font-weight:600;color:var(--t2);background:var(--bg3);border:1px solid var(--b1);border-radius:8px;padding:6px 11px;cursor:pointer}
 .mc-wrap{border:1px solid var(--b2);border-radius:14px;overflow:hidden;background:var(--bg1)}
-.mc-scroll{overflow-x:auto}
+.mc-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:var(--b2) transparent}
+.mc-scroll::-webkit-scrollbar{height:9px}
+.mc-scroll::-webkit-scrollbar-track{background:transparent}
+.mc-scroll::-webkit-scrollbar-thumb{background:var(--b2);border-radius:9px}
+.mc-scroll::-webkit-scrollbar-thumb:hover{background:var(--t3)}
 table.mc-t{border-collapse:collapse;width:100%;min-width:1200px;font-size:12.5px}
 .mc-t th{background:var(--bg2);font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);padding:11px 12px;text-align:right;white-space:nowrap;cursor:pointer;user-select:none;border-bottom:1px solid var(--b2)}
 .mc-t th:first-child{text-align:left;position:sticky;left:0;z-index:3;background:var(--bg2);min-width:280px;cursor:default}

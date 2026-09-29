@@ -3,6 +3,7 @@
 import { useClient } from '@/lib/useClient';
 import { GoogleAdsSegmentView } from './GoogleAdsSegmentView';
 import { GadsProductBible } from './GadsProductBible';
+import { GadsProductsFull } from './GadsProductsFull';
 import { GadsAssetGroups } from './GadsAssetGroups';
 import { GadsAssets } from './GadsAssets';
 import { PMAXLeads } from './PMAXLeads';
@@ -18,6 +19,7 @@ function PMAXEcommerce() {
       extraSection={
         <>
           <GadsProductBible />
+          <GadsProductsFull />
           <GadsAssetGroups />
           <GadsAssets />
         </>

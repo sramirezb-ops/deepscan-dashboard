@@ -48,6 +48,11 @@ export function EcommerceWeb() {
   const [shopFilter, setShopFilter] = useState<ShopLabel | 'all'>('all');
   const [shopSort, setShopSort] = useState<{ key: 'compras' | 'pagadas' | 'pendientes' | 'ingreso' | 'pagpct'; dir: 'asc' | 'desc' }>({ key: 'ingreso', dir: 'desc' });
   const shopSortBy = (key: typeof shopSort.key) => setShopSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
+  // Filtro por web + orden por métrica (tabla Landings · P3).
+  const [landWeb, setLandWeb] = useState<'all' | string>('all');
+  const [landExpanded, setLandExpanded] = useState(false);
+  const [landSort, setLandSort] = useState<{ key: 'sessions' | 'bounce' | 'atcRate' | 'purchases' | 'revenue'; dir: 'asc' | 'desc' }>({ key: 'sessions', dir: 'desc' });
+  const landSortBy = (key: typeof landSort.key) => setLandSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
   const arrow = (active: boolean, dir: 'asc' | 'desc') => (active ? (dir === 'desc' ? ' ▾' : ' ▴') : '');
 
   if (loading && !data) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Cargando analítica ecommerce…</div></div>;
@@ -101,6 +106,102 @@ export function EcommerceWeb() {
           ))}
         </div>
         {win && <div className="ec-verdict"><span className="vk">Veredicto</span><b>{data.investLabel}</b> — {investReason}</div>}
+
+        {/* CANALES POR WEB (P1) · de dónde viene el tráfico y la venta */}
+        <div className="ec-sh"><h3>¿De dónde viene la venta?</h3><span className="hint">canales por web · GA4 · tráfico vs venta real · <i className="chleg"><i className="dot paid" />pauta</i> <i className="chleg"><i className="dot org" />orgánico/directo</i></span></div>
+        <div className="ec-chwebs">
+          {data.websChannels.map((w) => {
+            const top = w.channels.slice(0, 7);
+            const rest = w.channels.slice(7);
+            const restS = rest.reduce((a, c) => a + c.sessions, 0);
+            const restR = rest.reduce((a, c) => a + c.revenue, 0);
+            const metricMax = w.ga4Tracks
+              ? Math.max(...w.channels.map((c) => c.revenue), 1)
+              : Math.max(...w.channels.map((c) => c.sessions), 1);
+            const paidSess = w.channels.filter((c) => c.isPaid).reduce((a, c) => a + c.sessions, 0);
+            return (
+              <div className="ec-chcard" key={w.property}>
+                <div className="chc-head">
+                  <div className="chc-title">{w.label}<span className={'wkind ' + w.kind}>{w.kind === 'shopify' ? 'Shopify' : 'principal'}</span></div>
+                  <div className="chc-tot">
+                    <span>{formatInt(w.sessions)} sesiones</span>
+                    {w.ga4Tracks ? <b>{money(w.revenue)} venta GA4</b> : <em>⚠ GA4 no valoriza · venta en Shopify</em>}
+                  </div>
+                </div>
+                <div className="chc-list">
+                  {top.map((c) => {
+                    const val = w.ga4Tracks ? c.revenue : c.sessions;
+                    return (
+                      <div className="chc-row" key={c.channel}>
+                        <div className="chc-name" title={c.channel}><i className={'dot ' + (c.isPaid ? 'paid' : 'org')} />{c.channel}</div>
+                        <div className="chc-bar"><i className={c.isPaid ? 'paid' : 'org'} style={{ width: (val / metricMax) * 100 + '%' }} /></div>
+                        <div className="chc-metric">
+                          {w.ga4Tracks
+                            ? <><b>{money(c.revenue)}</b><small>{rps(c.revPerSession)}/ses · {formatInt(c.sessions)} ses</small></>
+                            : <><b>{formatInt(c.sessions)}</b><small>{formatPercent(c.sessPct, 0)} del tráfico</small></>}
+                        </div>
+                        <div className={'chc-delta ' + (c.sessDelta >= 0 ? 'up' : 'dn')} title="sesiones vs período anterior">{c.sessDelta >= 0 ? '▲' : '▼'}{Math.abs(Math.round(c.sessDelta))}%</div>
+                      </div>
+                    );
+                  })}
+                  {rest.length > 0 && (
+                    <div className="chc-row rest">
+                      <div className="chc-name"><i className="dot org" />Otros {rest.length} canales</div>
+                      <div className="chc-bar"><i className="org" style={{ width: ((w.ga4Tracks ? restR : restS) / metricMax) * 100 + '%' }} /></div>
+                      <div className="chc-metric"><b>{w.ga4Tracks ? money(restR) : formatInt(restS)}</b><small>&nbsp;</small></div>
+                      <div className="chc-delta" />
+                    </div>
+                  )}
+                </div>
+                <div className="chc-foot">
+                  {w.ga4Tracks
+                    ? (w.topPaid || w.topOrganic
+                      ? <>Pauta líder: <b>{w.topPaid ? `${w.topPaid.channel} ${money(w.topPaid.revenue)}` : '—'}</b> · Orgánico líder: <b>{w.topOrganic ? `${w.topOrganic.channel} ${money(w.topOrganic.revenue)}` : '—'}</b></>
+                      : '—')
+                    : <>Pauta que GA4 no puede valorizar aquí: <b>{formatInt(paidSess)}</b> sesiones. Su venta se mide en Shopify, no en GA4.</>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* TENDENCIA DEL PERÍODO (serie diaria) · tráfico vs venta real */}
+        <div className="ec-sh"><h3>Tendencia del período</h3><span className="hint">día a día · <i className="chleg"><i className="dot org" />sesiones (GA4)</i> <i className="chleg"><i className="dot paid" />venta real (Shopify)</i></span></div>
+        <div className="card ec-pad">
+          <div className="trend-kpis">
+            <div><span className="l">Sesiones/día (prom.)</span><span className="v">{formatInt(Math.round(data.trend.avgSessions))}</span></div>
+            <div><span className="l">Venta del período</span><span className="v up">{money(data.trend.totalRevenue)}</span></div>
+            <div><span className="l">Mejor día de venta</span><span className="v">{data.trend.bestRevDay && data.trend.bestRevDay.revenue > 0 ? `${data.trend.bestRevDay.date.slice(8, 10)}/${data.trend.bestRevDay.date.slice(5, 7)} · ${money(data.trend.bestRevDay.revenue)}` : '—'}</span></div>
+          </div>
+          {(() => {
+            const pts = data.trend.points;
+            if (pts.length < 2) return <p className="ec-foot">Aún no hay suficientes días para dibujar la tendencia.</p>;
+            const X0 = 46, X1 = 884, YT = 18, YB = 206;
+            const maxS = Math.max(...pts.map((p) => p.sessions), 1);
+            const maxR = Math.max(...pts.map((p) => p.revenue), 1);
+            const x = (i: number) => X0 + (X1 - X0) * (i / (pts.length - 1));
+            const yS = (v: number) => YB - (YB - YT) * (v / maxS);
+            const yR = (v: number) => YB - (YB - YT) * (v / maxR);
+            const area = `M ${x(0)} ${YB} ` + pts.map((p, i) => `L ${x(i).toFixed(1)} ${yS(p.sessions).toFixed(1)}`).join(' ') + ` L ${x(pts.length - 1)} ${YB} Z`;
+            const sLine = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${yS(p.sessions).toFixed(1)}`).join(' ');
+            const rLine = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${yR(p.revenue).toFixed(1)}`).join(' ');
+            const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+            const ticks = [0, Math.floor((pts.length - 1) / 2), pts.length - 1];
+            return (
+              <div className="trend-chartwrap">
+                <svg viewBox="0 0 900 230" className="trend-svg" preserveAspectRatio="none">
+                  {[0.25, 0.5, 0.75, 1].map((g) => <line key={g} x1={X0} x2={X1} y1={YB - (YB - YT) * g} y2={YB - (YB - YT) * g} className="tg-grid" />)}
+                  <path d={area} className="tg-area" />
+                  <path d={sLine} className="tg-sline" />
+                  <path d={rLine} className="tg-rline" />
+                  {pts.map((p, i) => p.revenue > 0 ? <circle key={i} cx={x(i)} cy={yR(p.revenue)} r={2.6} className="tg-rdot" /> : null)}
+                  {ticks.map((i) => <text key={i} x={x(i)} y={224} className="tg-xlab" textAnchor={i === 0 ? 'start' : i === pts.length - 1 ? 'end' : 'middle'}>{dm(pts[i].date)}</text>)}
+                </svg>
+              </div>
+            );
+          })()}
+          <p className="ec-foot">📈 Sesiones = tráfico de ambas webs (GA4). Venta real = pedidos de Shopify (la venta no vive en el checkout web). Cada escala es independiente para comparar <b>forma</b>, no niveles.</p>
+        </div>
 
         {/* CATÁLOGO 1 · sneakerstore.com.mx (demanda GA4) */}
         <div className="ec-sh"><h3>Catálogo · sneakerstore.com.mx</h3><span className="hint">demanda del sitio principal (GA4) · {data.catalogGa4.length} productos · media {formatPercent(data.siteAtcRate, 1)} al carrito</span></div>
@@ -162,6 +263,100 @@ export function EcommerceWeb() {
             format={(v) => formatInt(v)}
           />
         </div>
+
+        {/* CARRITOS ABANDONADOS + RECUPERACIÓN (P2) */}
+        <div className="ec-sh"><h3>Carritos abandonados</h3><span className="hint">checkout iniciado sin pago · oportunidad de recupero (Shopify)</span></div>
+        <div className="card ec-pad">
+          <div className="abn-kpis">
+            <div className="abn-k">
+              <div className="l">🛒 Abandonados</div>
+              <div className="v">{formatInt(data.abandon.count)}</div>
+              <div className={'s ' + (data.abandon.countDelta <= 0 ? 'up' : 'dn')}>{data.abandon.countDelta <= 0 ? '▼' : '▲'} {Math.abs(Math.round(data.abandon.countDelta))}% vs. anterior</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">💸 Valor listado</div>
+              <div className="v warn">{money(data.abandon.value)}</div>
+              <div className="s">ticket prom. {money(data.abandon.avgValue)}</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">♻️ Recuperación</div>
+              <div className={'v ' + (data.abandon.recoveryRate > 0 ? 'up' : 'dn')}>{formatPercent(data.abandon.recoveryRate, 0)}</div>
+              <div className="s">{formatInt(data.abandon.recovered)} recuperados</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">🔻 Abandono vs compra</div>
+              <div className="v">{data.abandon.purchases > 0 ? (data.abandon.count / data.abandon.purchases).toFixed(1) + '×' : '—'}</div>
+              <div className="s">{formatInt(data.abandon.count)} abandonan · {formatInt(data.abandon.purchases)} compran</div>
+            </div>
+          </div>
+          {data.abandon.series.length > 1 && (() => {
+            const mx = Math.max(...data.abandon.series.map((s) => s.value), 1);
+            return (
+              <div className="abn-spark" title="valor abandonado por día">
+                {data.abandon.series.map((s) => (
+                  <div key={s.date} className="abn-bar" title={`${s.date}: ${money(s.value)} · ${formatInt(s.count)} carritos`}>
+                    <i style={{ height: Math.max((s.value / mx) * 100, s.value > 0 ? 6 : 0) + '%' }} />
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          <div className={'ec-verdict' + (data.abandon.hasFlow ? '' : ' warn')}>
+            <span className="vk">Palanca</span>
+            {data.abandon.hasFlow
+              ? <>Ya recuperas <b>{formatPercent(data.abandon.recoveryRate, 0)}</b>. Sube la cadencia del flujo para capturar más de estos {money(data.abandon.value)} listados.</>
+              : <><b>No hay flujo de recuperación activo</b> — 0 recuperados de {formatInt(data.abandon.count)} carritos. Un recordatorio por WhatsApp/email recupera parte de esta caja. Ojo honesto: el valor listado ({money(data.abandon.value)}) no es recuperable 1:1 — son tickets altos y multi-ítem.</>}
+          </div>
+        </div>
+
+        {/* LANDING PAGES QUE CONVIERTEN (P3) */}
+        <div className="ec-sh"><h3>Landing pages que convierten</h3><span className="hint">a dónde mandar la pauta · GA4 · señal fiable = % carrito + rebote</span></div>
+        {(() => {
+          const webLabel = (pid: string) => data.webs.find((w) => w.property === pid)?.label || pid;
+          const props = Array.from(new Set(data.landings.map((l) => l.property)));
+          const base = data.landings.filter((l) => landWeb === 'all' || l.property === landWeb);
+          const sgn = landSort.dir === 'desc' ? 1 : -1;
+          const rows = [...base].sort((a, b) => sgn * (((b as any)[landSort.key] || 0) - ((a as any)[landSort.key] || 0)));
+          const shown = landExpanded ? rows : rows.slice(0, 12);
+          const SH = ({ k, children }: { k: typeof landSort.key; children: ReactNode }) => (
+            <button className={'ec-th' + (landSort.key === k ? ' on' : '')} onClick={() => landSortBy(k)}>{children}{arrow(landSort.key === k, landSort.dir)}</button>
+          );
+          const shortPath = (p: string) => (p.length > 44 ? p.slice(0, 42) + '…' : p);
+          return (
+            <>
+              <div className="ec-chips">
+                <button className={'chip' + (landWeb === 'all' ? ' on' : '')} onClick={() => { setLandWeb('all'); setLandExpanded(false); }}>Todas <b>{data.landings.length}</b></button>
+                {props.map((pid) => (
+                  <button key={pid} className={'chip' + (landWeb === pid ? ' on' : '')} onClick={() => { setLandWeb(pid); setLandExpanded(false); }}>{webLabel(pid)} <b>{data.landings.filter((l) => l.property === pid).length}</b></button>
+                ))}
+              </div>
+              <div className="card ec-pad">
+                <div className="ec-lph">
+                  <div>Landing</div><div>Web</div>
+                  <SH k="sessions">Sesiones</SH><SH k="bounce">Rebote</SH>
+                  <SH k="atcRate">% carrito</SH><SH k="purchases">Compras</SH><SH k="revenue">Revenue</SH>
+                </div>
+                {shown.map((l) => (
+                  <div className="ec-lrow" key={l.property + l.page}>
+                    <div className="lp" title={l.page}>{shortPath(l.page)}</div>
+                    <div className="lw"><span className={'wchip ' + l.kind}>{l.kind === 'shopify' ? 'Shopify' : 'principal'}</span></div>
+                    <div className="nv">{formatInt(l.sessions)}</div>
+                    <div className="nv"><span className={l.bounce <= 0.35 ? 'good' : l.bounce >= 0.55 ? 'bad' : ''}>{formatPercent(l.bounce, 0)}</span></div>
+                    <div className="nv"><span className={'rate ' + (l.atcRate >= data.siteAtcRateLanding * 1.5 ? 'hi' : l.atcRate < data.siteAtcRateLanding * 0.6 && l.sessions >= 50 ? 'lo' : '')}>{formatPercent(l.atcRate, 1)}</span></div>
+                    <div className="nv">{l.purchases ? <b>{formatInt(l.purchases)}</b> : <span className="z">—</span>}</div>
+                    <div className="nv">{l.revenue ? money(l.revenue) : <span className="z">—</span>}</div>
+                  </div>
+                ))}
+                {rows.length > 12 && (
+                  <button className="ec-more" onClick={() => setLandExpanded((x) => !x)}>
+                    {landExpanded ? '▲ Ver menos' : `▼ Ver las ${rows.length} landings`}
+                  </button>
+                )}
+                <p className="ec-foot">🧭 GA4 sub-registra la compra por landing → la señal accionable es <b>% carrito</b> (intención) y <b>rebote</b>. La venta real por producto vive en Shopify. Las landings de <b>alto carrito + bajo rebote</b> son las mejores para mandar pauta.</p>
+              </div>
+            </>
+          );
+        })()}
 
         {/* GRÁFICO · CONCENTRACIÓN DE LA VENTA (pagado vs pendiente por producto) */}
         <div className="ec-sh"><h3>¿Dónde está la plata?</h3><span className="hint">venta por producto · ticket promedio {money(data.aovPaid)}</span>
@@ -227,6 +422,62 @@ export function EcommerceWeb() {
             </div>
           );
         })()}
+
+        {/* SALUD DE VENTA Y CLIENTES (P4) */}
+        <div className="ec-sh"><h3>Salud de venta y clientes</h3><span className="hint">pedidos reales · Shopify · ticket, recurrencia y reembolsos</span></div>
+        <div className="card ec-pad">
+          <div className="abn-kpis">
+            <div className="abn-k">
+              <div className="l">🧾 Pedidos</div>
+              <div className="v">{formatInt(data.salesHealth.orders)}</div>
+              <div className={'s ' + (data.salesHealth.ordersDelta >= 0 ? 'up' : 'dn')}>{data.salesHealth.ordersDelta >= 0 ? '▲' : '▼'} {Math.abs(Math.round(data.salesHealth.ordersDelta))}% vs. anterior</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">🎟️ Ticket promedio</div>
+              <div className="v">{money(data.salesHealth.aov)}</div>
+              <div className="s">{formatInt(data.salesHealth.units)} unidades vendidas</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">👥 Recurrentes</div>
+              <div className={'v ' + (data.salesHealth.returningPct > 0 ? 'up' : 'dn')}>{formatPercent(data.salesHealth.returningPct, 0)}</div>
+              <div className="s">{formatInt(data.salesHealth.newCustomers)} nuevos · {formatInt(data.salesHealth.returningCustomers)} recurrentes</div>
+            </div>
+            <div className="abn-k">
+              <div className="l">↩️ Reembolsos</div>
+              <div className={'v ' + (data.salesHealth.refundsValue > 0 ? 'dn' : 'up')}>{money(data.salesHealth.refundsValue)}</div>
+              <div className="s">venta neta {money(data.salesHealth.netRevenue)}</div>
+            </div>
+          </div>
+          {(() => {
+            const s = data.salesHealth;
+            const segs = [
+              { k: 'Pagados', n: s.ordersPaid, cls: 'paid' },
+              { k: 'Autorizados', n: s.ordersAuthorized, cls: 'auth' },
+              { k: 'Pendientes', n: s.ordersPending, cls: 'pend' },
+              { k: 'Reembolsados', n: s.ordersRefunded, cls: 'ref' },
+              { k: 'Anulados', n: s.ordersVoided, cls: 'void' },
+            ].filter((x) => x.n > 0);
+            const tot = segs.reduce((a, x) => a + x.n, 0) || 1;
+            if (segs.length === 0) return null;
+            return (
+              <div className="sh-status">
+                <div className="sh-statlabel">Estado de los {formatInt(s.orders)} pedidos</div>
+                <div className="sh-statbar">
+                  {segs.map((x) => <i key={x.k} className={x.cls} style={{ width: (x.n / tot) * 100 + '%' }} title={`${x.k}: ${x.n}`} />)}
+                </div>
+                <div className="sh-statleg">
+                  {segs.map((x) => <span key={x.k}><i className={'d ' + x.cls} />{x.k} <b>{formatInt(x.n)}</b></span>)}
+                </div>
+              </div>
+            );
+          })()}
+          <div className={'ec-verdict' + (data.salesHealth.returningPct > 0 ? '' : ' warn')}>
+            <span className="vk">Lectura</span>
+            {data.salesHealth.returningPct > 0
+              ? <><b>{formatPercent(data.salesHealth.returningPct, 0)}</b> de recompra. Fidelizar a quien ya compró baja el CAC efectivo — post-venta y recompra son la palanca más barata.</>
+              : <><b>100% clientes nuevos, 0 recompras</b> — todo es adquisición, nada de retención. Con ticket de {money(data.salesHealth.aov)}, un flujo de post-venta/fidelización sube el LTV sin gastar más en pauta.{data.salesHealth.ordersPending > 0 ? <> Además, <b>{formatInt(data.salesHealth.ordersPending)}</b> pedidos siguen pendientes de pago.</> : null}</>}
+          </div>
+        </div>
 
         {/* ACCIONES — 3 palancas, corto */}
         <div className="ec-sh"><h3>Próximos pasos</h3><span className="hint">las 3 palancas de mayor retorno</span></div>
@@ -357,6 +608,82 @@ const CSS = `
 .ec-act{background:var(--bg1);border:1px solid var(--b1);border-radius:13px;padding:14px 15px;border-left:3px solid var(--acc)}
 .ec-act.good{border-left-color:var(--up)}.ec-act.bad{border-left-color:var(--dn)}.ec-act.warn{border-left-color:var(--warn)}.ec-act.info{border-left-color:var(--acc)}
 .ec-act .tag{font-size:12px;font-weight:800;margin-bottom:5px}.ec-act .body{font-size:11.5px;color:var(--t2);line-height:1.5}
+/* canales por web (P1) */
+.ec-sh .chleg{font-style:normal;display:inline-flex;align-items:center;gap:4px;margin-left:8px;color:var(--t3)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot.paid{background:var(--acc)}.dot.org{background:#0ea5e9}
+.ec-chwebs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ec-chcard{background:var(--bg1);border:1px solid var(--b1);border-radius:16px;padding:16px 18px;display:flex;flex-direction:column}
+.chc-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.chc-title{font-size:14px;font-weight:800;display:flex;align-items:center;gap:8px}
+.chc-tot{font-size:10.5px;color:var(--t3);text-align:right;display:flex;flex-direction:column;gap:1px}
+.chc-tot b{font-size:12px;color:var(--up);font-weight:800}.chc-tot em{font-style:normal;color:var(--warn);font-weight:600}
+.chc-list{display:flex;flex-direction:column;gap:2px}
+.chc-row{display:grid;grid-template-columns:130px 1fr 96px 42px;gap:10px;align-items:center;padding:5px 0}
+.chc-row.rest{opacity:.65}
+.chc-name{font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chc-bar{height:14px;background:var(--track);border-radius:5px;overflow:hidden}
+.chc-bar i{display:block;height:100%;border-radius:5px}.chc-bar i.paid{background:var(--acc)}.chc-bar i.org{background:#0ea5e9}
+.chc-metric{text-align:right;line-height:1.2}
+.chc-metric b{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.chc-metric small{display:block;font-size:9px;color:var(--t3)}
+.chc-delta{text-align:right;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.chc-delta.up{color:var(--up)}.chc-delta.dn{color:var(--dn)}
+.chc-foot{margin-top:12px;font-size:10.5px;color:var(--t3);line-height:1.5;border-top:1px dashed var(--b1);padding-top:9px}.chc-foot b{color:var(--t2)}
+/* carritos abandonados (P2) */
+.abn-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+.abn-k{background:var(--bg2);border:1px solid var(--b1);border-radius:12px;padding:12px 14px}
+.abn-k .l{font-size:11px;color:var(--t3);font-weight:600}
+.abn-k .v{font-size:22px;font-weight:800;letter-spacing:-.02em;margin-top:4px;color:var(--t1)}
+.abn-k .v.warn{color:var(--warn)}.abn-k .v.up{color:var(--up)}.abn-k .v.dn{color:var(--dn)}
+.abn-k .s{font-size:10px;color:var(--t3);margin-top:3px}.abn-k .s.up{color:var(--up)}.abn-k .s.dn{color:var(--dn)}
+.abn-spark{display:flex;align-items:flex-end;gap:3px;height:52px;margin:16px 2px 4px;padding-top:4px}
+.abn-bar{flex:1;height:100%;display:flex;align-items:flex-end}
+.abn-bar i{display:block;width:100%;background:var(--warn);border-radius:3px 3px 0 0;opacity:.7;min-height:0}
+.abn-bar:hover i{opacity:1}
+.ec-verdict.warn{border-left-color:var(--warn)}.ec-verdict.warn .vk{color:var(--warn)}
+/* salud de venta y clientes (P4) */
+.sh-status{margin-top:16px}
+.sh-statlabel{font-size:10.5px;color:var(--t3);font-weight:600;margin-bottom:7px}
+.sh-statbar{display:flex;height:14px;border-radius:6px;overflow:hidden;background:var(--track)}
+.sh-statbar i{display:block;height:100%}
+.sh-statbar i.paid,.sh-statleg .d.paid{background:var(--up)}
+.sh-statbar i.auth,.sh-statleg .d.auth{background:#0ea5e9}
+.sh-statbar i.pend,.sh-statleg .d.pend{background:var(--warn)}
+.sh-statbar i.ref,.sh-statleg .d.ref{background:var(--dn)}
+.sh-statbar i.void,.sh-statleg .d.void{background:var(--t3)}
+.sh-statleg{display:flex;flex-wrap:wrap;gap:14px;margin-top:9px;font-size:10.5px;color:var(--t3)}
+.sh-statleg span{display:inline-flex;align-items:center;gap:5px}
+.sh-statleg .d{width:9px;height:9px;border-radius:3px;display:inline-block}
+.sh-statleg b{color:var(--t1);font-weight:800}
+/* landing pages (P3) */
+.ec-lph,.ec-lrow{display:grid;grid-template-columns:1fr 92px 74px 66px 76px 66px 96px;gap:8px;align-items:center}
+.ec-lph{font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--t3);padding-bottom:8px;border-bottom:1px solid var(--b1)}
+.ec-lph>*:not(:first-child):not(:nth-child(2)){text-align:right;justify-self:end}
+.ec-lph>*:nth-child(2){text-align:center;justify-self:center}
+.ec-lrow{padding:8px 0;border-top:1px solid var(--b1);font-size:12px}
+.ec-lrow .lp{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)}
+.ec-lrow .lw{text-align:center}
+.ec-lrow .nv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.ec-lrow .nv .good{color:var(--up)}.ec-lrow .nv .bad{color:var(--dn)}
+.ec-lrow .nv .rate.hi{color:var(--up)}.ec-lrow .nv .rate.lo{color:var(--dn)}
+.ec-lrow .nv .z{color:var(--t3);font-weight:400}
+.wchip{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 6px;border-radius:5px;background:var(--bg3);color:var(--t3)}
+.wchip.shopify{background:rgba(139,92,246,.12);color:var(--acc)}
+.wchip.main{background:rgba(14,165,233,.12);color:#0ea5e9}
+/* tendencia (serie diaria) */
+.trend-kpis{display:flex;gap:26px;flex-wrap:wrap;margin-bottom:8px}
+.trend-kpis .l{display:block;font-size:10.5px;color:var(--t3);font-weight:600}
+.trend-kpis .v{display:block;font-size:18px;font-weight:800;letter-spacing:-.02em;margin-top:2px;color:var(--t1)}
+.trend-kpis .v.up{color:var(--up)}
+.trend-chartwrap{width:100%;margin-top:6px}
+.trend-svg{width:100%;height:auto;display:block;overflow:visible}
+.tg-grid{stroke:var(--b1);stroke-width:1;stroke-dasharray:3 4}
+.tg-area{fill:color-mix(in srgb,var(--acc) 14%,transparent);stroke:none}
+.tg-sline{fill:none;stroke:var(--acc);stroke-width:2;stroke-linejoin:round}
+.tg-rline{fill:none;stroke:var(--up);stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
+.tg-rdot{fill:var(--up)}
+.tg-xlab{fill:var(--t3);font-size:11px;font-weight:600}
 /* responsive · desktop angosto / tablet (preview de Cloud) */
 @media(max-width:1024px){
   .ec-acts{grid-template-columns:1fr}
@@ -365,10 +692,15 @@ const CSS = `
 /* tablas y comparativas colapsan antes de apretarse */
 @media(max-width:900px){
   .ec-webs{grid-template-columns:1fr}.ec-hkpis{grid-template-columns:repeat(2,1fr)}
+  .ec-chwebs{grid-template-columns:1fr}
+  .chc-row{grid-template-columns:100px 1fr 84px 40px;gap:8px}
+  .abn-kpis{grid-template-columns:repeat(2,1fr)}
   .ec-sph,.ec-sprow{grid-template-columns:1fr 60px 100px 104px}
   .ec-sph>*:nth-child(3),.ec-sprow>*:nth-child(3),.ec-sph>*:nth-child(4),.ec-sprow>*:nth-child(4),.ec-sph>*:nth-child(6),.ec-sprow>*:nth-child(6){display:none}
   .ec-cph,.ec-crow{grid-template-columns:1fr 46px 60px 104px}
   .ec-cph>*:nth-child(3),.ec-crow>*:nth-child(3),.ec-cph>*:nth-child(5),.ec-crow>*:nth-child(5),.ec-cph>*:nth-child(6),.ec-crow>*:nth-child(6){display:none}
+  .ec-lph,.ec-lrow{grid-template-columns:1fr 74px 64px 74px 92px}
+  .ec-lph>*:nth-child(2),.ec-lrow>*:nth-child(2),.ec-lph>*:nth-child(4),.ec-lrow>*:nth-child(4){display:none}
 }
 @media(max-width:560px){
   .ec-hkpis{grid-template-columns:1fr}

@@ -36,6 +36,67 @@ export interface WebPerf {
 
 export interface FunnelStep { key: string; label: string; value: number; pctOfSessions: number; stepRate: number | null; isBreak: boolean }
 
+// ── Canales por web (P1) ── de dónde viene el tráfico y la venta en cada web.
+export interface WebChannel {
+  channel: string;
+  sessions: number; revenue: number; revPerSession: number;
+  sessPct: number;   // % de sesiones de la web
+  revPct: number;    // % de la venta GA4 de la web (0 si la web no reporta venta)
+  sessDelta: number; // % vs período anterior (mismo canal, misma web)
+  isPaid: boolean;   // canal de pauta (paid social, cpc, display, video, cross-network)
+}
+export interface WebChannels {
+  property: string; label: string; kind: 'main' | 'shopify';
+  sessions: number; revenue: number;
+  ga4Tracks: boolean;              // ¿esta web reporta venta en GA4?
+  channels: WebChannel[];          // ordenados por venta (main) o sesiones (shopify)
+  topPaid?: WebChannel;            // mejor canal de pauta (para el titular)
+  topOrganic?: WebChannel;         // mejor canal orgánico (para el titular)
+}
+
+// ── Carritos abandonados + recuperación (P2) ── caja que inicia checkout y no paga.
+export interface AbandonData {
+  count: number;          // checkouts abandonados (no recuperados) en el período
+  value: number;          // valor listado de esos carritos (NO recuperable 1:1)
+  recovered: number;      // checkouts recuperados
+  recoveryRate: number;   // recovered / (count + recovered)
+  avgValue: number;       // ticket abandonado promedio (value / count)
+  countDelta: number;     // % vs período anterior
+  valueDelta: number;     // % vs período anterior
+  purchases: number;      // compras del período (contexto: abandono vs compra)
+  hasFlow: boolean;       // ¿existe algún recupero? (recovered > 0)
+  series: { date: string; value: number; count: number }[]; // mini-tendencia diaria
+}
+
+// ── Salud de venta y clientes (P4) ── pedidos reales de Shopify.
+export interface SalesHealth {
+  orders: number; ordersDelta: number;
+  revenue: number; aov: number;              // ticket promedio = revenue / pedidos
+  newCustomers: number; returningCustomers: number; returningPct: number;
+  refundsValue: number; ordersRefunded: number; refundRate: number; netRevenue: number;
+  ordersPaid: number; ordersPending: number; ordersAuthorized: number; ordersVoided: number;
+  revenuePending: number; units: number;
+  hasOrders: boolean;
+}
+
+// ── Tendencia del período (serie diaria) ── tráfico vs venta real.
+export interface TrendPoint { date: string; sessions: number; revenue: number; orders: number }
+export interface TrendData {
+  points: TrendPoint[];
+  avgSessions: number;
+  totalRevenue: number;
+  bestRevDay: TrendPoint | null;
+}
+
+// ── Landing pages que convierten (P3) ── a dónde mandar la pauta cara.
+export interface LandingPerf {
+  page: string; property: string; kind: 'main' | 'shopify';
+  sessions: number; bounce: number;
+  atc: number; atcRate: number;          // intención (carrito/sesiones) — señal fiable
+  checkout: number; purchases: number; revenue: number;
+  cvr: number;                            // compras/sesiones (GA4 sub-registra: referencial)
+}
+
 export type ShopLabel = 'hero' | 'cobrar' | 'solido';
 export interface ShopProduct {
   title: string;
@@ -72,6 +133,12 @@ export interface EcommerceData {
   products: ShopProduct[];      // por revenue total desc
   // Comparativa de webs + veredicto de inversión
   webs: WebPerf[];
+  websChannels: WebChannels[]; // P1 · canales por web (tráfico + venta)
+  abandon: AbandonData;        // P2 · carritos abandonados + recuperación
+  salesHealth: SalesHealth;    // P4 · salud de venta y clientes (Shopify)
+  landings: LandingPerf[];     // P3 · landing pages que convierten (por web)
+  siteAtcRateLanding: number;  // baseline de % carrito de las landings (para resaltar)
+  trend: TrendData;            // tendencia diaria (sesiones vs venta real)
   investLabel: string;      // web recomendada para escalar
   investReason: string;
   // Demanda (GA4 vistas)
@@ -123,12 +190,17 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
     const run = async () => {
       setLoading(true); setError(null);
       try {
-        const [funnelRows, shopRows, itemRows, metricNow, metricPrev] = await Promise.all([
+        const [funnelRows, shopRows, itemRows, metricNow, metricPrev, abnNow, abnPrev, ordNow, ordPrev, landRows] = await Promise.all([
           fetchAll('ga4_funnel', 'sessions, product_views, add_to_cart, checkout_start, purchases', clientId, range.from, range.to),
           fetchAll('shopify_product_daily', 'title, units_paid, units_pending, revenue_paid, revenue_pending', clientId, range.from, range.to),
           fetchAll('ga4_items', 'item_name, items_viewed, items_added_to_cart, items_checked_out, items_purchased, item_revenue, property_id', clientId, range.from, range.to),
-          fetchAll('ga4_metrics', 'sessions, new_users, active_users, bounce_rate, avg_session_duration, revenue, source_medium', clientId, range.from, range.to),
-          fetchAll('ga4_metrics', 'sessions', clientId, previous.from, previous.to),
+          fetchAll('ga4_metrics', 'date, sessions, new_users, active_users, bounce_rate, avg_session_duration, revenue, source_medium', clientId, range.from, range.to),
+          fetchAll('ga4_metrics', 'sessions, source_medium', clientId, previous.from, previous.to),
+          fetchAll('shopify_abandoned_checkouts', 'date, abandoned_count, abandoned_value, recovered_count, currency', clientId, range.from, range.to),
+          fetchAll('shopify_abandoned_checkouts', 'abandoned_count, abandoned_value', clientId, previous.from, previous.to),
+          fetchAll('shopify_orders', 'date, orders, revenue, new_customers, returning_customers, units_sold, refunds, orders_paid, orders_pending, orders_authorized, orders_refunded, orders_voided, revenue_pending', clientId, range.from, range.to),
+          fetchAll('shopify_orders', 'orders', clientId, previous.from, previous.to),
+          fetchAll('ga4_landing', 'landing_page, sessions, bounce_rate, add_to_cart, checkout, purchases, revenue, property_id', clientId, range.from, range.to),
         ]);
         if (cancelled) return;
 
@@ -329,6 +401,158 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
             ga4Tracks: !isShop || w.rev > 0, paidShare: w.s > 0 ? paid / w.s : 0, topChannel,
           };
         }).filter((w) => w.sessions > 0).sort((a, b) => b.revPerSession - a.revPerSession);
+        // ── CANALES POR WEB (P1) ── sesiones + venta GA4 por (web, canal), con
+        // delta vs período anterior. La venta solo la reporta el sitio principal;
+        // en la web Shopify GA4 mide tráfico pero no valoriza (la venta vive en Shopify).
+        const chAgg = new Map<string, Map<string, { s: number; rev: number }>>();
+        for (const r of metricNow) {
+          const pid = String(r.source_medium || '').split('/')[0].trim();
+          if (!PROP_META[pid]) continue;
+          const ch = String(r.source_medium || '').split('/').slice(1).join('/').trim() || '(sin canal)';
+          const m = chAgg.get(pid) || new Map<string, { s: number; rev: number }>();
+          const e = m.get(ch) || { s: 0, rev: 0 };
+          e.s += Number(r.sessions) || 0; e.rev += Number(r.revenue) || 0;
+          m.set(ch, e); chAgg.set(pid, m);
+        }
+        const chPrev = new Map<string, Map<string, number>>();
+        for (const r of metricPrev) {
+          const pid = String(r.source_medium || '').split('/')[0].trim();
+          if (!PROP_META[pid]) continue;
+          const ch = String(r.source_medium || '').split('/').slice(1).join('/').trim() || '(sin canal)';
+          const m = chPrev.get(pid) || new Map<string, number>();
+          m.set(ch, (m.get(ch) || 0) + (Number(r.sessions) || 0));
+          chPrev.set(pid, m);
+        }
+        const websChannels: WebChannels[] = Object.keys(PROP_META).map((pid) => {
+          const meta = PROP_META[pid];
+          const m = chAgg.get(pid) || new Map<string, { s: number; rev: number }>();
+          const totS = [...m.values()].reduce((a, e) => a + e.s, 0);
+          const totR = [...m.values()].reduce((a, e) => a + e.rev, 0);
+          const prevM = chPrev.get(pid) || new Map<string, number>();
+          const channels: WebChannel[] = [...m.entries()].map(([channel, e]) => ({
+            channel, sessions: e.s, revenue: e.rev,
+            revPerSession: e.s > 0 ? e.rev / e.s : 0,
+            sessPct: totS > 0 ? e.s / totS : 0,
+            revPct: totR > 0 ? e.rev / totR : 0,
+            sessDelta: calcDelta(e.s, prevM.get(channel) || 0),
+            isPaid: PAID_CH.test(channel),
+          }));
+          // Orden: por venta si la web valoriza (main), si no por sesiones (shopify).
+          const tracks = totR > 0;
+          channels.sort((a, b) => (tracks ? b.revenue - a.revenue : b.sessions - a.sessions) || b.sessions - a.sessions);
+          const topPaid = [...channels].filter((c) => c.isPaid).sort((a, b) => (tracks ? b.revenue - a.revenue : b.sessions - a.sessions))[0];
+          const topOrganic = [...channels].filter((c) => !c.isPaid).sort((a, b) => (tracks ? b.revenue - a.revenue : b.sessions - a.sessions))[0];
+          return { property: pid, label: meta.label, kind: meta.kind, sessions: totS, revenue: totR, ga4Tracks: tracks, channels, topPaid, topOrganic };
+        }).filter((w) => w.sessions > 0).sort((a, b) => b.revenue - a.revenue || b.sessions - a.sessions);
+
+        // ── CARRITOS ABANDONADOS + RECUPERACIÓN (P2) ── venta que inicia checkout
+        // y no paga. El valor listado NO es caja recuperable 1:1 (ticket alto,
+        // multi-ítem) — se muestra como oportunidad, con la tasa de recupero real.
+        let abnCount = 0, abnValue = 0, abnRec = 0;
+        const abnSeriesMap = new Map<string, { value: number; count: number }>();
+        for (const r of abnNow) {
+          const c = Number(r.abandoned_count) || 0, v = Number(r.abandoned_value) || 0, rec = Number(r.recovered_count) || 0;
+          abnCount += c; abnValue += v; abnRec += rec;
+          const d = String(r.date || '');
+          const e = abnSeriesMap.get(d) || { value: 0, count: 0 };
+          e.value += v; e.count += c; abnSeriesMap.set(d, e);
+        }
+        let abnCountPrev = 0, abnValuePrev = 0;
+        for (const r of abnPrev) { abnCountPrev += Number(r.abandoned_count) || 0; abnValuePrev += Number(r.abandoned_value) || 0; }
+        const abandon: AbandonData = {
+          count: abnCount, value: abnValue, recovered: abnRec,
+          recoveryRate: (abnCount + abnRec) > 0 ? abnRec / (abnCount + abnRec) : 0,
+          avgValue: abnCount > 0 ? abnValue / abnCount : 0,
+          countDelta: calcDelta(abnCount, abnCountPrev),
+          valueDelta: calcDelta(abnValue, abnValuePrev),
+          purchases: f.purchases,
+          hasFlow: abnRec > 0,
+          series: Array.from(abnSeriesMap.entries()).map(([date, e]) => ({ date, ...e })).sort((a, b) => a.date.localeCompare(b.date)),
+        };
+
+        // ── SALUD DE VENTA Y CLIENTES (P4) ── pedidos reales de Shopify:
+        // ticket promedio, nuevos vs recurrentes (retención), reembolsos (neto)
+        // y estado de cobro a nivel pedido.
+        const oa = { orders: 0, revenue: 0, newC: 0, retC: 0, units: 0, refunds: 0, paid: 0, pending: 0, auth: 0, refunded: 0, voided: 0, revPend: 0 };
+        for (const r of ordNow) {
+          oa.orders += Number(r.orders) || 0; oa.revenue += Number(r.revenue) || 0;
+          oa.newC += Number(r.new_customers) || 0; oa.retC += Number(r.returning_customers) || 0;
+          oa.units += Number(r.units_sold) || 0; oa.refunds += Number(r.refunds) || 0;
+          oa.paid += Number(r.orders_paid) || 0; oa.pending += Number(r.orders_pending) || 0;
+          oa.auth += Number(r.orders_authorized) || 0; oa.refunded += Number(r.orders_refunded) || 0;
+          oa.voided += Number(r.orders_voided) || 0; oa.revPend += Number(r.revenue_pending) || 0;
+        }
+        let ordersPrev = 0; for (const r of ordPrev) ordersPrev += Number(r.orders) || 0;
+        const totCust = oa.newC + oa.retC;
+        const salesHealth: SalesHealth = {
+          orders: oa.orders, ordersDelta: calcDelta(oa.orders, ordersPrev),
+          revenue: oa.revenue, aov: oa.orders > 0 ? oa.revenue / oa.orders : 0,
+          newCustomers: oa.newC, returningCustomers: oa.retC,
+          returningPct: totCust > 0 ? oa.retC / totCust : 0,
+          refundsValue: oa.refunds, ordersRefunded: oa.refunded,
+          refundRate: oa.orders > 0 ? oa.refunded / oa.orders : 0,
+          netRevenue: oa.revenue - oa.refunds,
+          ordersPaid: oa.paid, ordersPending: oa.pending, ordersAuthorized: oa.auth, ordersVoided: oa.voided,
+          revenuePending: oa.revPend, units: oa.units, hasOrders: oa.orders > 0,
+        };
+
+        // ── LANDING PAGES QUE CONVIERTEN (P3) ── por web: intención (carrito) y
+        // rebote para decidir a dónde mandar la pauta. La compra GA4 sub-registra,
+        // por eso la señal fiable es % carrito + rebote (la venta real está en Shopify).
+        const landMap = new Map<string, { pid: string; page: string; s: number; bw: number; atc: number; co: number; pu: number; rev: number }>();
+        for (const r of landRows) {
+          const pid = String(r.property_id || '');
+          if (!PROP_META[pid]) continue;
+          const page = String(r.landing_page || '(no set)');
+          const key = pid + '|' + page;
+          const e = landMap.get(key) || { pid, page, s: 0, bw: 0, atc: 0, co: 0, pu: 0, rev: 0 };
+          const s = Number(r.sessions) || 0;
+          e.s += s; e.bw += (Number(r.bounce_rate) || 0) * s;
+          e.atc += Number(r.add_to_cart) || 0; e.co += Number(r.checkout) || 0;
+          e.pu += Number(r.purchases) || 0; e.rev += Number(r.revenue) || 0;
+          landMap.set(key, e);
+        }
+        let landV = 0, landA = 0;
+        const landings: LandingPerf[] = Array.from(landMap.values())
+          .filter((e) => e.s >= 10)
+          .map((e) => {
+            landV += e.s; landA += e.atc;
+            return {
+              page: e.page, property: e.pid, kind: PROP_META[e.pid].kind,
+              sessions: e.s, bounce: e.s > 0 ? e.bw / e.s : 0,
+              atc: e.atc, atcRate: e.s > 0 ? e.atc / e.s : 0,
+              checkout: e.co, purchases: e.pu, revenue: e.rev,
+              cvr: e.s > 0 ? e.pu / e.s : 0,
+            };
+          })
+          .sort((a, b) => b.sessions - a.sessions)
+          .slice(0, 60);
+        const siteAtcRateLanding = landV > 0 ? landA / landV : 0;
+
+        // ── TENDENCIA DEL PERÍODO (serie diaria) ── tráfico (GA4, ambas webs) vs
+        // venta real (Shopify). Dos escalas: sesiones y venta bruta por día.
+        const sessByDate = new Map<string, number>();
+        for (const r of metricNow) {
+          const d = String(r.date || ''); if (!d) continue;
+          sessByDate.set(d, (sessByDate.get(d) || 0) + (Number(r.sessions) || 0));
+        }
+        const revByDate = new Map<string, { rev: number; ord: number }>();
+        for (const r of ordNow) {
+          const d = String(r.date || ''); if (!d) continue;
+          const e = revByDate.get(d) || { rev: 0, ord: 0 };
+          e.rev += Number(r.revenue) || 0; e.ord += Number(r.orders) || 0;
+          revByDate.set(d, e);
+        }
+        const allDates = Array.from(new Set([...sessByDate.keys(), ...revByDate.keys()])).sort((a, b) => a.localeCompare(b));
+        const trendPoints: TrendPoint[] = allDates.map((d) => ({
+          date: d, sessions: sessByDate.get(d) || 0,
+          revenue: revByDate.get(d)?.rev || 0, orders: revByDate.get(d)?.ord || 0,
+        }));
+        const trendTotalRev = trendPoints.reduce((a, p) => a + p.revenue, 0);
+        const trendAvgSess = trendPoints.length ? trendPoints.reduce((a, p) => a + p.sessions, 0) / trendPoints.length : 0;
+        const trendBest = trendPoints.reduce<TrendPoint | null>((best, p) => (!best || p.revenue > best.revenue ? p : best), null);
+        const trend: TrendData = { points: trendPoints, avgSessions: trendAvgSess, totalRevenue: trendTotalRev, bestRevDay: trendBest };
+
         // Veredicto: la web con mayor $/sesión (venta real) es la de mejor retorno por tráfico.
         const win = webs[0];
         const investLabel = win ? win.label : '—';
@@ -336,7 +560,7 @@ export function useEcommerceWeb(clientId: string, range: DateRange, previous: Da
 
         setData({
           funnel, breakLabel,
-          webs, investLabel, investReason,
+          webs, websChannels, abandon, salesHealth, landings, siteAtcRateLanding, trend, investLabel, investReason,
           revBruto, revPaid, revPending, paidPct: revBruto > 0 ? revPaid / revBruto : 0,
           unitsPaid, unitsPending, aovPaid: unitsPaid > 0 ? revPaid / unitsPaid : 0,
           products,

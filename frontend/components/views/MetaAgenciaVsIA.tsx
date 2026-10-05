@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
-import { useMetaAgenciaVsIA, type Owner, type Objective, type Impact, type RankRow, type RoasBucket } from '@/lib/hooks/useMetaAgenciaVsIA';
+import { useMetaAgenciaVsIA, type Owner, type Objective, type Impact, type RoasBucket, type AdsetNode } from '@/lib/hooks/useMetaAgenciaVsIA';
 import { formatCurrency, formatInt } from '@/lib/utils';
 import { Pager } from '@/components/ui/Pager';
 
@@ -32,12 +32,15 @@ export function MetaAgenciaVsIA() {
   const [filter, setFilter] = useState<Owner | 'all'>('all');
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
+  const [tFilter, setTFilter] = useState<'all' | 'activo' | 'inactivo'>('all');
+  const [tSort, setTSort] = useState<{ k: 'spend' | 'purchases' | 'value' | 'roas' | 'conv'; d: number }>({ k: 'spend', d: -1 });
+  const [tOpen, setTOpen] = useState<Record<string, boolean>>({});
 
   if (loading && !data) return <div className="card av-pad" style={{ textAlign: 'center', color: 'var(--t3)' }}>Cargando Meta…</div>;
   if (error || !data || !data.hasData) return <div className="card av-pad" style={{ textAlign: 'center', color: 'var(--t3)' }}>Aún no hay datos de Meta. Corre el ETL.</div>;
   // Guard de forma: durante un Fast Refresh el estado del hook puede quedar con una
   // forma vieja (sin kpis/ownerPerf) un instante. Evita el crash hasta el re-render limpio.
-  if (!data.kpis || !data.ownerPerf || !data.roas) return <div className="card av-pad" style={{ textAlign: 'center', color: 'var(--t3)' }}>Cargando Meta…</div>;
+  if (!data.kpis || !data.ownerPerf || !data.roas || !data.tree) return <div className="card av-pad" style={{ textAlign: 'center', color: 'var(--t3)' }}>Cargando Meta…</div>;
 
   const money = (v: number) => formatCurrency(v, cur);
   const vmDot = data.verdict.level === 'restando' ? 'dn' : data.verdict.level === 'bien' ? 'up' : 'warn';
@@ -46,27 +49,6 @@ export function MetaAgenciaVsIA() {
   const curPage = Math.min(page, totalPages);
   const pagedCh = changesF.slice((curPage - 1) * pageSize, curPage * pageSize);
   const k = data.kpis;
-
-  const Leader = ({ rows, kind }: { rows: RankRow[]; kind: 'ventas' | 'wa' }) => {
-    if (rows.length === 0) return <div className="av-empty">Sin datos.</div>;
-    const max = Math.max(...rows.map((r) => (kind === 'ventas' ? r.roas : r.conv)), 0.01);
-    return (
-      <div className="lb">
-        {rows.map((r) => {
-          const val = kind === 'ventas' ? r.roas : r.conv;
-          return (
-            <div className="lb-row" key={r.id}>
-              <div className="lb-name" title={r.name}><Chip owner={r.owner} /><span className="lb-nm">{r.name}</span></div>
-              <div className="lb-bar"><i className={kind} style={{ width: Math.max((val / max) * 100, 3) + '%' }} /></div>
-              <div className="lb-val">
-                {kind === 'ventas' ? <><b>{r.roas.toFixed(1)}×</b><small>{money(r.value)}</small></> : <><b>{formatInt(Math.round(r.conv))}</b><small>${Math.round(r.cpc)}/conv</small></>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
 
   const op = data.ownerPerf;
 
@@ -85,6 +67,30 @@ export function MetaAgenciaVsIA() {
       </div>
     );
   };
+
+  // ── Tabla de campañas (desglose activas/inactivas) ──
+  const roasCls = (o: AdsetNode) => (o.objective !== 'ventas' ? '' : o.roas >= 2 ? 'up' : o.roas >= 1 ? 'warn' : 'dn');
+  const tCounts = { all: data.tree.length, activo: data.tree.filter((c) => c.status === 'activo').length, inactivo: data.tree.filter((c) => c.status === 'inactivo').length };
+  const campsView = [...data.tree.filter((c) => (tFilter === 'all' ? true : c.status === tFilter))]
+    .sort((a, b) => tSort.d * ((a[tSort.k] as number) - (b[tSort.k] as number)));
+  const sortSets = (arr: AdsetNode[]) => [...arr].sort((a, b) => tSort.d * ((a[tSort.k] as number) - (b[tSort.k] as number)));
+  const Th = ({ k, label }: { k: typeof tSort.k; label: string }) => (
+    <th className={'srt' + (tSort.k === k ? ' on' : '')} onClick={() => setTSort((s) => ({ k, d: s.k === k ? -s.d : -1 }))}>
+      {label}{tSort.k === k ? (tSort.d < 0 ? ' ▼' : ' ▲') : ''}
+    </th>
+  );
+  const Cells = ({ o }: { o: AdsetNode }) => (
+    <>
+      <td className="l"><span className={'est ' + o.status}>{o.status === 'activo' ? 'Activa' : 'Inactiva'}</span></td>
+      <td className="l"><Chip owner={o.owner} /></td>
+      <td className="l"><span className={'obj ' + OBJ_META[o.objective].cls}>{OBJ_META[o.objective].label}</span></td>
+      <td>{money(o.spend)}</td>
+      <td>{o.purchases > 0 ? formatInt(Math.round(o.purchases)) : '—'}</td>
+      <td>{o.value > 0 ? money(o.value) : '—'}</td>
+      <td className={'mt-roas ' + roasCls(o)}>{o.objective === 'ventas' && o.roas > 0 ? o.roas.toFixed(1) + '×' : '—'}</td>
+      <td>{o.conv > 0 ? formatInt(Math.round(o.conv)) : '—'}</td>
+    </>
+  );
 
   return (
     <>
@@ -139,6 +145,23 @@ export function MetaAgenciaVsIA() {
         .rz-fig{text-align:right;font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--t1)}
         .rz-fig small{display:block;font-size:9px;color:var(--t3);font-weight:500}
         @media(max-width:860px){.rz-row{grid-template-columns:1fr 50px 96px}.rz-bar,.rz-row>.rz-fig:nth-child(5){display:none}}
+        .mt-wrap{overflow-x:auto}
+        .mt-t{width:100%;border-collapse:collapse;font-size:12px;min-width:720px}
+        .mt-t th{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--t3);text-align:right;padding:0 10px 9px;border-bottom:1px solid var(--b1);white-space:nowrap}
+        .mt-t th.l{text-align:left}.mt-t th.srt{cursor:pointer;user-select:none}.mt-t th.srt:hover{color:var(--t1)}.mt-t th.on{color:var(--acc)}
+        .mt-t td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--b1);font-variant-numeric:tabular-nums;white-space:nowrap}
+        .mt-t td.l{text-align:left;white-space:normal}
+        .mt-caret{width:22px;color:var(--t3);cursor:pointer;text-align:center!important;padding-right:0!important}
+        .mt-camp{cursor:pointer}.mt-camp:hover{background:var(--bg2)}
+        .mt-nm{font-weight:700;color:var(--t1);max-width:300px;overflow:hidden;text-overflow:ellipsis}
+        .mt-set td{background:color-mix(in srgb,var(--bg2) 55%,transparent)}
+        .mt-set .mt-nm{font-weight:500;color:var(--t2);padding-left:14px;font-size:11.5px}
+        .mt-roas{font-weight:800}.mt-roas.up{color:var(--up)}.mt-roas.warn{color:var(--warn)}.mt-roas.dn{color:var(--dn)}
+        .est{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px}
+        .est::before{content:'';width:6px;height:6px;border-radius:50%}
+        .est.activo{background:color-mix(in srgb,var(--up) 14%,transparent);color:var(--up)}.est.activo::before{background:var(--up)}
+        .est.inactivo{background:var(--bg3);color:var(--t3)}.est.inactivo::before{background:var(--t3)}
+        @media(max-width:860px){.mt-t{min-width:560px}}
         .mz-counts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
         .mz-count{background:var(--bg2);border:1px solid var(--b1);border-radius:12px;padding:12px 14px;text-align:center}
         .mz-count .v{font-size:22px;font-weight:800;color:var(--t1)}.mz-count .v.dn{color:var(--dn)}.mz-count .l{font-size:10.5px;color:var(--t3);font-weight:600;margin-top:2px}
@@ -191,18 +214,48 @@ export function MetaAgenciaVsIA() {
         )}
       </div>
 
-      {/* Mejores campañas */}
-      <div className="av-sh"><h3>Mejores campañas</h3><span className="hint">ventas por ROAS · WhatsApp por conversaciones</span></div>
-      <div className="lb-wrap">
-        <div className="lb-card"><h4><span className="obj ven">Ventas</span> por ROAS de compra</h4><Leader rows={data.topCampaignsVentas} kind="ventas" /></div>
-        <div className="lb-card"><h4><span className="obj wa">WhatsApp</span> por conversaciones</h4><Leader rows={data.topCampaignsWa} kind="wa" /></div>
+      {/* Desglose por campaña (tabla) */}
+      <div className="av-sh"><h3>Desglose por campaña</h3><span className="hint">activas e inactivas · click en una fila para ver sus conjuntos</span></div>
+      <div className="av-chips">
+        {([['all', 'Todas'], ['activo', 'Activas'], ['inactivo', 'Inactivas']] as const).map(([f, lb]) => (
+          <button key={f} className={'av-chip' + (tFilter === f ? ' on' : '')} onClick={() => setTFilter(f)}>
+            {lb} <b>{tCounts[f]}</b>
+          </button>
+        ))}
       </div>
-
-      {/* Mejores conjuntos */}
-      <div className="av-sh"><h3>Mejores conjuntos</h3><span className="hint">los ad sets que mejor rinden por objetivo</span></div>
-      <div className="lb-wrap">
-        <div className="lb-card"><h4><span className="obj ven">Ventas</span> por ROAS de compra</h4><Leader rows={data.topAdsetsVentas} kind="ventas" /></div>
-        <div className="lb-card"><h4><span className="obj wa">WhatsApp</span> por conversaciones</h4><Leader rows={data.topAdsetsWa} kind="wa" /></div>
+      <div className="card av-pad mt-wrap">
+        <table className="mt-t">
+          <thead>
+            <tr>
+              <th className="mt-caret"></th>
+              <th className="l">Campaña · conjunto</th>
+              <th className="l">Estado</th><th className="l">Gestor</th><th className="l">Objetivo</th>
+              <Th k="spend" label="Inversión" /><Th k="purchases" label="Compras" /><Th k="value" label="Revenue" />
+              <Th k="roas" label="ROAS" /><Th k="conv" label="Conv." />
+            </tr>
+          </thead>
+          <tbody>
+            {campsView.length === 0 ? <tr><td className="l" colSpan={10} style={{ color: 'var(--t3)' }}>Sin campañas en este filtro.</td></tr> : campsView.map((c) => {
+              const open = !!tOpen[c.id];
+              return (
+                <Fragment key={c.id}>
+                  <tr className="mt-camp" onClick={() => c.sets.length && setTOpen((o) => ({ ...o, [c.id]: !o[c.id] }))}>
+                    <td className="mt-caret">{c.sets.length ? (open ? '▾' : '▸') : ''}</td>
+                    <td className="l"><span className="mt-nm" title={c.name}>{c.name}</span></td>
+                    <Cells o={c} />
+                  </tr>
+                  {open && sortSets(c.sets).map((s) => (
+                    <tr className="mt-set" key={s.id}>
+                      <td className="mt-caret"></td>
+                      <td className="l"><span className="mt-nm" title={s.name}>{s.name}</span></td>
+                      <Cells o={s} />
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       {/* Veredicto IA */}

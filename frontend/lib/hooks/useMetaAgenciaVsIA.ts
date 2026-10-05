@@ -37,6 +37,12 @@ export interface PausedItem {
 export interface MetaChangeRow { dt: string; owner: Owner; actor: string; action: string; level: string; name: string; oldV: string | null; newV: string | null }
 export interface Verdict { level: 'bien' | 'observacion' | 'restando'; headline: string; points: string[] }
 export interface OwnerPerf { ventasSpend: number; purchases: number; value: number; roas: number; waSpend: number; conv: number; cpc: number; campaigns: number }
+export type EstadoMeta = 'activo' | 'inactivo';
+export interface AdsetNode {
+  id: string; name: string; owner: Owner; objective: Objective; status: EstadoMeta;
+  spend: number; purchases: number; value: number; roas: number; conv: number; cpc: number;
+}
+export interface CampaignNode extends AdsetNode { sets: AdsetNode[] }
 export interface RoasBucket { key: string; label: string; spend: number; value: number; purchases: number; roas: number; count: number }
 export interface RoasRadiografia {
   total: RoasBucket;
@@ -52,6 +58,7 @@ export interface MetaAgenciaVsIAData {
   topAdsetsWa: RankRow[];
   ownerPerf: Record<'agencia' | 'ia', OwnerPerf>;
   roas: RoasRadiografia;
+  tree: CampaignNode[];
   sinCount: number;
   verdict: Verdict;
   iaPaused: PausedItem[];
@@ -203,6 +210,39 @@ export function useMetaAgenciaVsIA(clientId: string, range?: { from: string; to:
           ],
         };
 
+        // ── Árbol Campaña → Conjunto (con estado, para la tabla) ───────────
+        const campStatus = new Map<string, EstadoMeta>();
+        for (const e of chRows) {
+          if (e.object_type !== 'CAMPAIGN_GROUP' || !e.object_id) continue;
+          const nv = String(e.new_value || '').toLowerCase();
+          if (nv.includes('inactiv') || nv.includes('paused')) campStatus.set(String(e.object_id), 'inactivo');
+          else if (nv.includes('activ') || nv.includes('active')) campStatus.set(String(e.object_id), 'activo');
+        }
+        type RawAgg = { name: string; sp: number; pu: number; pv: number; cv: number };
+        const treeM = new Map<string, RawAgg & { sets: Map<string, RawAgg> }>();
+        for (const r of campRows) {
+          const cid = String(r.campaign_id || ''); if (!cid) continue;
+          const c = treeM.get(cid) || { name: r.campaign_name || cid, sp: 0, pu: 0, pv: 0, cv: 0, sets: new Map() };
+          c.sp += n(r.spend); c.pu += n(r.purchases); c.pv += n(r.purchase_value); c.cv += n(r.conversations);
+          if (r.campaign_name) c.name = r.campaign_name;
+          const aid = String(r.adset_id || '');
+          if (aid) {
+            const a = c.sets.get(aid) || { name: r.adset_name || aid, sp: 0, pu: 0, pv: 0, cv: 0 };
+            a.sp += n(r.spend); a.pu += n(r.purchases); a.pv += n(r.purchase_value); a.cv += n(r.conversations);
+            if (r.adset_name) a.name = r.adset_name;
+            c.sets.set(aid, a);
+          }
+          treeM.set(cid, c);
+        }
+        const mkNode = (id: string, a: RawAgg, creator: Map<string, Owner>, st: Map<string, EstadoMeta>): AdsetNode => ({
+          id, name: a.name, owner: creator.get(id) || 'sin', objective: objOf(a.pu, a.cv), status: st.get(id) || 'activo',
+          spend: +a.sp.toFixed(2), purchases: a.pu, value: a.pv, roas: a.sp > 0 ? a.pv / a.sp : 0, conv: a.cv, cpc: a.cv > 0 ? a.sp / a.cv : 0,
+        });
+        const tree: CampaignNode[] = [...treeM.entries()].map(([cid, c]) => ({
+          ...mkNode(cid, c, campCreator, campStatus),
+          sets: [...c.sets.entries()].map(([aid, a]) => mkNode(aid, a, adsetCreator, adsetStatus)).sort((x, y) => y.spend - x.spend),
+        })).sort((x, y) => y.spend - x.spend);
+
         // Bitácora + pausas de la IA (lo que ya teníamos).
         const perfFor = (ot: string, id: string) => (ot === 'CAMPAIGN' ? adsetM.get(id) : ot === 'CAMPAIGN_GROUP' ? campM.get(id) : undefined);
         // Actividad (bitácora, conteos, pausas) acotada al periodo seleccionado;
@@ -275,7 +315,7 @@ export function useMetaAgenciaVsIA(clientId: string, range?: { from: string; to:
           setData({
             kpis, topCampaignsVentas: topVentas(campaigns), topCampaignsWa: topWa(campaigns),
             topAdsetsVentas: topVentas(adsets), topAdsetsWa: topWa(adsets),
-            ownerPerf, roas: roasRadiografia, sinCount, verdict, iaPaused, riskValue, riskConv, counts,
+            ownerPerf, roas: roasRadiografia, tree, sinCount, verdict, iaPaused, riskValue, riskConv, counts,
             changes: changes.reverse(), actors, from: FROM, hasData: campRows.length > 0 || chRows.length > 0,
           });
           setLoading(false);

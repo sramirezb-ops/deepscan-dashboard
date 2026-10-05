@@ -920,6 +920,56 @@ def extract_change_events(client, customer_id, client_id):
     return rows
 
 
+def extract_conversions_by_action(client, customer_id, client_id, date_start, date_end):
+    """Conversiones DESGLOSADAS por acción de conversión (purchase, add_to_cart,
+    page_view...), por campaña y día. Permite aislar las COMPRAS reales y calcular
+    un ROAS de compra limpio, sin que importe si una acción está marcada como
+    primaria o secundaria. Se trae all_conversions para incluir también las
+    secundarias (metrics.conversions solo refleja las primarias)."""
+    query = f"""
+        SELECT
+            campaign.id,
+            campaign.name,
+            segments.date,
+            segments.conversion_action_name,
+            segments.conversion_action_category,
+            metrics.all_conversions,
+            metrics.all_conversions_value,
+            metrics.conversions,
+            metrics.conversions_value
+        FROM campaign
+        WHERE segments.date BETWEEN '{date_start}' AND '{date_end}'
+            AND campaign.status != 'REMOVED'
+    """
+    rows = []
+    try:
+        response = client.get_service("GoogleAdsService").search(
+            customer_id=customer_id, query=query
+        )
+    except GoogleAdsException as e:
+        log.warning(f"conversions_by_action no disponible {customer_id}: {e}")
+        return rows
+
+    for row in response:
+        try:
+            cat = row.segments.conversion_action_category.name
+        except Exception:
+            cat = None
+        rows.append({
+            "client_id": client_id,
+            "date": row.segments.date,
+            "campaign_id": str(row.campaign.id),
+            "campaign_name": row.campaign.name,
+            "conv_action_name": row.segments.conversion_action_name or "(sin nombre)",
+            "conv_action_category": cat,
+            "all_conversions": round(row.metrics.all_conversions, 2),
+            "all_conv_value": round(row.metrics.all_conversions_value, 2),
+            "conversions": round(row.metrics.conversions, 2),
+            "conv_value": round(row.metrics.conversions_value, 2),
+        })
+    return rows
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def run():
@@ -991,6 +1041,11 @@ def run():
             rows = extract_change_events(gads, customer_id, cid)
             n = upsert("gads_change_events", rows, "client_id,change_id")
             log.info(f"   ✓ gads_change_events: {n} filas")
+
+            # Conversiones desglosadas por acción (para aislar compras / ROAS limpio).
+            rows = extract_conversions_by_action(gads, customer_id, cid, date_start, date_end)
+            n = upsert("gads_conversions_by_action", rows, "client_id,date,campaign_id,conv_action_name")
+            log.info(f"   ✓ gads_conversions_by_action: {n} filas")
 
         except Exception as e:
             log.error(f"   ✗ Error {name}: {e}")

@@ -6,6 +6,7 @@ import { useAgenciaVsIA, type Owner, type Impact } from '@/lib/hooks/useAgenciaV
 import { MetaAgenciaVsIA } from '@/components/views/MetaAgenciaVsIA';
 import { formatCurrency, formatInt } from '@/lib/utils';
 import { Pager } from '@/components/ui/Pager';
+import { usePeriod } from '@/lib/usePeriod';
 
 // ============================================================
 // AgenciaVsIA — storytelling: ¿la IA de Aura ayuda o resta? qué escalar/frenar.
@@ -55,7 +56,8 @@ function OwnerChip({ owner }: { owner: Owner }) {
 export function AgenciaVsIA() {
   const client = useClient();
   const cur = client.currency;
-  const { data, loading, error } = useAgenciaVsIA(client.id);
+  const { range } = usePeriod();
+  const { data, loading, error } = useAgenciaVsIA(client.id, range);
   const [filter, setFilter] = useState<Owner | 'all'>('all');
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);

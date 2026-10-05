@@ -69,15 +69,20 @@ async function pageAll<T>(table: string, select: string, filter: (q: any) => any
   return all;
 }
 
-export function useAgenciaVsIA(clientId: string) {
+export function useAgenciaVsIA(clientId: string, range?: { from: string; to: string }) {
   const [data, setData] = useState<AgenciaVsIAData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const FROM = range?.from;
+  const TO = range?.to;
 
   useEffect(() => {
-    if (!clientId) return;
+    if (!clientId || !FROM || !TO) return;
     let cancelled = false;
+    // El floor (fecha de cambio de cuenta) es un mínimo duro: nunca mostramos
+    // datos anteriores aunque el periodo seleccionado sea más amplio.
     const floor = gadsStartDate(clientId) || '2000-01-01';
+    const effFrom = FROM > floor ? FROM : floor;
     (async () => {
       setLoading(true); setError(null);
       try {
@@ -87,12 +92,17 @@ export function useAgenciaVsIA(clientId: string) {
             (q) => q.eq('client_id', clientId).order('change_dt', { ascending: true })),
           pageAll<any>('gads_campaigns',
             'campaign_id, campaign_name, cost, conversions, conv_value, status, date',
-            (q) => q.eq('client_id', clientId).gte('date', floor)),
+            (q) => q.eq('client_id', clientId).gte('date', effFrom).lte('date', TO)),
           pageAll<any>('gads_conversions_by_action',
             'date, campaign_id, campaign_name, conv_action_name, conv_action_category, all_conversions, all_conv_value, conversions, conv_value',
-            (q) => q.eq('client_id', clientId).gte('date', floor)),
+            (q) => q.eq('client_id', clientId).gte('date', effFrom).lte('date', TO)),
         ]);
         if (cancelled) return;
+
+        // Actividad (bitácora, usuarios, veredicto) acotada al periodo; la
+        // atribución de creador usa el historial completo (creatorByCampaign).
+        const inRange = (dt: string) => { const d = String(dt || '').slice(0, 10); return d >= effFrom && d <= TO; };
+        const chRowsR = chRows.filter((e) => inRange(e.change_dt));
 
         const nameById = new Map<string, string>();
         for (const c of campRows) if (c.campaign_id) nameById.set(String(c.campaign_id), c.campaign_name);
@@ -164,7 +174,7 @@ export function useAgenciaVsIA(clientId: string) {
           return { impact: 'neu', reason: '' };
         };
 
-        const changesAsc: ChangeRow[] = chRows.map((e) => {
+        const changesAsc: ChangeRow[] = chRowsR.map((e) => {
           const owner: Owner = isIA(e.client_type) ? 'ia' : 'agencia';
           const cid = e.campaign_id ? String(e.campaign_id) : null;
           const creator = cid ? creatorByCampaign.get(cid) : undefined;
@@ -188,7 +198,7 @@ export function useAgenciaVsIA(clientId: string) {
 
         // ── Usuarios / firmas ──
         const uAgg = new Map<string, { email: string; clientType: string; owner: Owner; count: number }>();
-        for (const e of chRows) {
+        for (const e of chRowsR) {
           const key = (e.user_email || '?') + '|' + (e.client_type || '?');
           const u = uAgg.get(key) || { email: e.user_email || '(desconocido)', clientType: e.client_type || '?', owner: isIA(e.client_type) ? 'ia' : 'agencia', count: 0 };
           u.count += 1; uAgg.set(key, u);
@@ -247,7 +257,7 @@ export function useAgenciaVsIA(clientId: string) {
       }
     })();
     return () => { cancelled = true; };
-  }, [clientId]);
+  }, [clientId, FROM, TO]);
 
   return { data, loading, error };
 }

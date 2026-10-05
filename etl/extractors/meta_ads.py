@@ -103,9 +103,15 @@ def extract_meta_change_events(access_token: str, ad_account_id: str, client_id:
                 except Exception:
                     pass
             ot = (a.get("object_type") or "").upper()
-            nv = str(new_v).upper() if new_v is not None else ""
+            # Meta manda el estado localizado (es: "Activo"/"Inactivo"), no "ACTIVE"/"PAUSED".
+            nvl = str(new_v).lower() if new_v is not None else ""
             if "run_status" in event_type or "status" in event_type:
-                action = "pausar" if "PAUSED" in nv else ("activar" if "ACTIVE" in nv else "estado")
+                if "paused" in nvl or "inactiv" in nvl:
+                    action = "pausar"
+                elif "active" in nvl or ("activ" in nvl and "inactiv" not in nvl):
+                    action = "activar"
+                else:
+                    action = "estado"  # pendiente de revisión / procesamiento / período de gracia
             elif event_type.startswith("create") or event_type.startswith("add"):
                 action = "crear_" + (ot.lower() or "obj")
             elif "budget" in event_type or "bid" in event_type:

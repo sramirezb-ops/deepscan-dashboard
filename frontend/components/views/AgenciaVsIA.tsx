@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useClient } from '@/lib/useClient';
 import { useAgenciaVsIA, type Owner, type Impact } from '@/lib/hooks/useAgenciaVsIA';
+import { MetaAgenciaVsIA } from '@/components/views/MetaAgenciaVsIA';
 import { formatCurrency, formatInt } from '@/lib/utils';
 
 // ============================================================
@@ -81,9 +82,12 @@ export function AgenciaVsIA() {
           <div className="mk">⚖️</div>
           <div>
             <h1>Agencia vs IA (Aura)</h1>
-            <div className="sub">Quién gestiona qué y si la IA ayuda o resta · {client.name} · <b>Google Ads</b> <span className="soon">Meta próximamente</span> · {data.windowDays} días con datos</div>
+            <div className="sub">Quién gestiona qué y si la IA ayuda o resta · {client.name} · <b>Google</b> + <b>Meta</b> · plataformas independientes</div>
           </div>
         </div>
+
+        {/* ◆ GOOGLE */}
+        <div className="av-platform"><span className="pf-ic g">G</span> Google Ads</div>
 
         {/* 0 · VEREDICTO */}
         <div className={'av-verdicthero ' + data.verdict.level}>
@@ -243,7 +247,11 @@ export function AgenciaVsIA() {
             </div>
           ))}
         </div>
-        <p className="av-foot">Firma: <b>GOOGLE_ADS_API = IA (Aura)</b> · humano/web = Agencia. Google guarda ~30 días de historial; esta vista <b>acumula</b>, así que los veredictos se afinan con cada corrida. Meta llega en la siguiente fase (pausas de conjuntos).</p>
+        {/* ◆ META */}
+        <div className="av-platform meta"><span className="pf-ic m">M</span> Meta Ads</div>
+        <MetaAgenciaVsIA />
+
+        <p className="av-foot">Firmas: Google <b>GOOGLE_ADS_API = IA (Aura)</b> · Meta <b>actor “Christian Desarrollatech” = IA (Aura)</b>; humanos = Agencia. Ambas plataformas guardan ventana corta de historial; esta vista <b>acumula</b>, así que los veredictos se afinan con cada corrida.</p>
       </div>
     </div>
   );
@@ -256,6 +264,10 @@ const CSS = `
 .av-hero h1{font-size:22px;font-weight:800;margin:0;letter-spacing:-.02em}
 .av-hero .sub{font-size:12px;color:var(--t3);margin-top:2px}
 .av-hero .soon{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:var(--bg3);color:var(--t3);padding:2px 7px;border-radius:6px}
+.av-platform{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;letter-spacing:-.01em;margin:34px 0 4px;padding-bottom:10px;border-bottom:2px solid var(--b1)}
+.av-platform:first-of-type{margin-top:16px}
+.av-platform .pf-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-size:13px;font-weight:900;color:#fff}
+.av-platform .pf-ic.g{background:#4285F4}.av-platform .pf-ic.m{background:#0866FF}
 .av-sh{display:flex;align-items:baseline;gap:11px;margin:28px 0 12px;flex-wrap:wrap}.av-sh h3{font-size:15px;font-weight:800;margin:0}.av-sh .hint{font-size:11px;color:var(--t3)}
 .av-pad{padding:16px 18px}
 .card{background:var(--bg1);border:1px solid var(--b1);border-radius:16px}

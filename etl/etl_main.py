@@ -23,6 +23,7 @@ from extractors.meta_ads          import (
     extract_meta_ads, extract_meta_platform, extract_meta_messaging,
     extract_meta_breakdown, extract_meta_ad_creatives, extract_meta_placement,
     extract_meta_catalog_products, extract_meta_catalog_health,
+    extract_meta_change_events,
     _fetch_catalog_products,
 )
 from extractors.tiktok_ads        import extract_tiktok_ads, extract_tiktok_creatives
@@ -240,6 +241,19 @@ def run_etl(client_id: str, days_back: int = 30):
         log.info(f"   ✓ Meta Ads: {len(meta_rows)} filas")
     except Exception as e:
         log.error(f"   ✗ Meta Ads error: {e}")
+
+    # ── 5a2. META HISTORIAL DE CAMBIOS (Agencia vs IA) ───────────
+    log.info("── Meta Ads historial de cambios (actividades)")
+    try:
+        meta_ch = extract_meta_change_events(
+            access_token=os.environ["META_ACCESS_TOKEN"],
+            ad_account_id=os.environ["META_AD_ACCOUNT_ID"],
+            client_id=client_id,
+        )
+        loader.upsert("meta_change_events", meta_ch, client_id)  # ACUMULA (upsert por change_key)
+        log.info(f"   ✓ Meta change events: {len(meta_ch)} filas")
+    except Exception as e:
+        log.error(f"   ✗ Meta change events error: {e}")
 
     # ── 5b. META ADS POR PLATAFORMA (Instagram / Facebook / etc.) ─
     log.info("── Meta Ads por plataforma (publisher_platform)")

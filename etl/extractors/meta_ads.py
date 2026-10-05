@@ -65,6 +65,77 @@ PLATFORM_FIELDS = ",".join([
 ])
 
 
+def extract_meta_change_events(access_token: str, ad_account_id: str, client_id: str) -> list[dict]:
+    """Historial de cambios de Meta por ACTOR (quién creó / pausó / editó).
+
+    Lee el log de actividades de la cuenta (/act_/activities). Captura las pausas
+    a nivel CONJUNTO (object_type=ADSET) con el antes/después, para separar Agencia
+    vs IA (Aura). Meta solo expone una ventana corta, así que la tabla ACUMULA
+    (upsert por change_key). El actor se clasifica luego con el diagnóstico."""
+    from datetime import datetime, timedelta
+    since = (datetime.utcnow() - timedelta(days=60)).strftime("%Y-%m-%d")
+    fields = ("event_time,event_type,translated_event_type,actor_id,actor_name,"
+              "object_type,object_id,object_name,extra_data")
+    url = f"{BASE_URL}/act_{ad_account_id}/activities"
+    params = {"access_token": access_token, "fields": fields, "since": since, "limit": 200}
+    rows, page = [], 0
+    while url and page < 40:
+        page += 1
+        try:
+            resp = requests.get(url, params=params if page == 1 else {}, timeout=60)
+            data = resp.json()
+        except Exception as e:
+            log.warning(f"meta activities request error: {e}")
+            break
+        if isinstance(data, dict) and data.get("error"):
+            log.warning(f"meta activities API error: {data['error'].get('message')}")
+            break
+        for a in data.get("data", []):
+            event_type = a.get("event_type") or ""
+            old_v = new_v = None
+            extra = a.get("extra_data")
+            if extra:
+                try:
+                    ed = json.loads(extra) if isinstance(extra, str) else extra
+                    if isinstance(ed, dict):
+                        old_v = ed.get("old_value", ed.get("old"))
+                        new_v = ed.get("new_value", ed.get("new"))
+                except Exception:
+                    pass
+            ot = (a.get("object_type") or "").upper()
+            nv = str(new_v).upper() if new_v is not None else ""
+            if "run_status" in event_type or "status" in event_type:
+                action = "pausar" if "PAUSED" in nv else ("activar" if "ACTIVE" in nv else "estado")
+            elif event_type.startswith("create") or event_type.startswith("add"):
+                action = "crear_" + (ot.lower() or "obj")
+            elif "budget" in event_type or "bid" in event_type:
+                action = "cambio_presupuesto"
+            elif event_type.startswith("delete") or event_type.startswith("remove"):
+                action = "eliminar"
+            else:
+                action = "editar"
+            et = a.get("event_time")
+            change_key = f"{et}|{a.get('actor_id')}|{a.get('object_id')}|{event_type}"
+            rows.append({
+                "client_id": client_id,
+                "change_key": change_key,
+                "change_dt": et,
+                "actor_id": str(a.get("actor_id") or "") or None,
+                "actor_name": a.get("actor_name"),
+                "event_type": event_type or None,
+                "translated": a.get("translated_event_type"),
+                "object_type": ot or None,
+                "object_id": str(a.get("object_id") or "") or None,
+                "object_name": a.get("object_name"),
+                "old_value": str(old_v) if old_v is not None else None,
+                "new_value": str(new_v) if new_v is not None else None,
+                "action": action,
+            })
+        url = data.get("paging", {}).get("next")
+        params = {}
+    return rows
+
+
 def extract_meta_platform(
     access_token: str,
     ad_account_id: str,

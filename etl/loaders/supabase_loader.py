@@ -133,6 +133,7 @@ class SupabaseLoader:
             "meta_catalog_products":    "client_id,product_name",
             "meta_catalog_health":      "client_id",
             "meta_messaging":           "client_id,date,campaign_name,adset_name",
+            "meta_change_events":       "client_id,change_key",
             "meta_comments":            "client_id,comment_id",
             "ig_account_daily":         "client_id,date",
             "ig_media":                 "client_id,media_id",

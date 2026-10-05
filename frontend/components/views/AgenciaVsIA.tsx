@@ -5,6 +5,7 @@ import { useClient } from '@/lib/useClient';
 import { useAgenciaVsIA, type Owner, type Impact } from '@/lib/hooks/useAgenciaVsIA';
 import { MetaAgenciaVsIA } from '@/components/views/MetaAgenciaVsIA';
 import { formatCurrency, formatInt } from '@/lib/utils';
+import { Pager } from '@/components/ui/Pager';
 
 // ============================================================
 // AgenciaVsIA — storytelling: ¿la IA de Aura ayuda o resta? qué escalar/frenar.
@@ -56,6 +57,8 @@ export function AgenciaVsIA() {
   const cur = client.currency;
   const { data, loading, error } = useAgenciaVsIA(client.id);
   const [filter, setFilter] = useState<Owner | 'all'>('all');
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
 
   if (loading && !data) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Cargando Agencia vs IA…</div></div>;
   if (error || !data || !data.hasData) return <div className="view on"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--t3)' }}>Aún no hay historial de cambios. Corre el ETL de Google para empezar a acumular.</div></div>;
@@ -63,6 +66,9 @@ export function AgenciaVsIA() {
   const money = (v: number) => formatCurrency(v, cur);
   const purchasePct = data.convGoogleTotal > 0 ? data.purchaseConvTotal / data.convGoogleTotal : 0;
   const changesF = filter === 'all' ? data.changes : data.changes.filter((c) => c.owner === filter);
+  const totalPages = Math.max(1, Math.ceil(changesF.length / pageSize));
+  const curPage = Math.min(page, totalPages);
+  const pagedCh = changesF.slice((curPage - 1) * pageSize, curPage * pageSize);
   const vm = VERDICT_META[data.verdict.level];
   const ag = data.totals.agencia, ia = data.totals.ia;
   // escala para barras head-to-head
@@ -219,23 +225,27 @@ export function AgenciaVsIA() {
         <div className="av-sh"><h3>Bitácora completa</h3><span className="hint">auditoría · quién tocó qué, cuándo</span></div>
         <div className="av-chips">
           {(['all', 'agencia', 'ia'] as const).map((f) => (
-            <button key={f} className={'av-chip' + (filter === f ? ' on' : '')} onClick={() => setFilter(f)}>
+            <button key={f} className={'av-chip' + (filter === f ? ' on' : '')} onClick={() => { setFilter(f); setPage(1); }}>
               {f === 'all' ? 'Todos' : OWNER_META[f].label} <b>{f === 'all' ? data.changes.length : data.changes.filter((c) => c.owner === f).length}</b>
             </button>
           ))}
         </div>
         <div className="card av-pad">
-          {changesF.length === 0 ? <div className="av-empty">Sin cambios en este filtro.</div> : changesF.map((c, i) => (
-            <div className={'av-log' + (c.touchesAgency ? ' touch' : '')} key={i}>
-              <div className="av-logdt">{fmtDate(c.dt)}</div>
-              <div className="av-logown"><OwnerChip owner={c.owner} /></div>
-              <div className="av-logtxt">
-                <b>{ACTION_LABEL[c.action] || c.action}</b> {c.campaignName}
-                {c.action === 'pausar' && c.oldStatus && <span className="av-status"> ({c.oldStatus} → {c.newStatus})</span>}
-                {c.touchesAgency && <span className="av-tflag"> · tocó una campaña de la agencia</span>}
+          {changesF.length === 0 ? <div className="av-empty">Sin cambios en este filtro.</div> : (<>
+            {pagedCh.map((c, i) => (
+              <div className={'av-log' + (c.touchesAgency ? ' touch' : '')} key={(curPage - 1) * pageSize + i}>
+                <div className="av-logdt">{fmtDate(c.dt)}</div>
+                <div className="av-logown"><OwnerChip owner={c.owner} /></div>
+                <div className="av-logtxt">
+                  <b>{ACTION_LABEL[c.action] || c.action}</b> {c.campaignName}
+                  {c.action === 'pausar' && c.oldStatus && <span className="av-status"> ({c.oldStatus} → {c.newStatus})</span>}
+                  {c.touchesAgency && <span className="av-tflag"> · tocó una campaña de la agencia</span>}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+            <Pager total={changesF.length} page={curPage} pageSize={pageSize}
+              onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1); }} label="cambios" />
+          </>)}
         </div>
 
         <div className="av-users">

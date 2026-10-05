@@ -818,6 +818,108 @@ def extract_asset_groups(client, customer_id, client_id, date_start, date_end):
     return rows
 
 
+def extract_change_events(client, customer_id, client_id):
+    """Historial de cambios por USUARIO (quién creó / pausó / editó cada campaña).
+
+    El recurso `change_event` es la única señal confiable para separar Agencia vs
+    IA (Aura): trae user_email + client_type (WEB_CLIENT=humano, API=automatización)
+    y el antes/después, para detectar pausas (ENABLED→PAUSED) incluso en campañas
+    con buen rendimiento. Limitaciones de la API: solo ~30 días y exige LIMIT; por
+    eso la tabla ACUMULA (upsert por change_id), no es snapshot."""
+    start_dt = (datetime.now() - timedelta(days=29)).strftime("%Y-%m-%d %H:%M:%S")
+    end_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    query = f"""
+        SELECT
+            change_event.resource_name,
+            change_event.change_date_time,
+            change_event.user_email,
+            change_event.client_type,
+            change_event.change_resource_type,
+            change_event.resource_change_operation,
+            change_event.changed_fields,
+            change_event.campaign,
+            change_event.old_resource,
+            change_event.new_resource
+        FROM change_event
+        WHERE change_event.change_date_time BETWEEN '{start_dt}' AND '{end_dt}'
+            AND change_event.change_resource_type IN ('CAMPAIGN', 'CAMPAIGN_BUDGET')
+        ORDER BY change_event.change_date_time DESC
+        LIMIT 9000
+    """
+    rows = []
+    try:
+        response = client.get_service("GoogleAdsService").search(
+            customer_id=customer_id, query=query
+        )
+    except GoogleAdsException as e:
+        log.warning(f"change_event no disponible {customer_id}: {e}")
+        return rows
+
+    def _enum(v):
+        try:
+            return v.name
+        except Exception:
+            return str(v) if v else None
+
+    for row in response:
+        ce = row.change_event
+        camp_res = ce.campaign or ""
+        campaign_id = camp_res.split("/")[-1] if camp_res else None
+        rtype = _enum(ce.change_resource_type)
+        op = _enum(ce.resource_change_operation)
+        ctype = _enum(ce.client_type)
+        try:
+            fields = list(ce.changed_fields.paths)
+        except Exception:
+            fields = []
+
+        # Estado antes/después: solo cuando cambió el status de una CAMPAÑA.
+        old_status = new_status = None
+        if rtype == "CAMPAIGN" and any(f.endswith("status") for f in fields):
+            try:
+                s = ce.old_resource.campaign.status
+                old_status = _enum(s) if int(s) else None
+            except Exception:
+                pass
+            try:
+                s = ce.new_resource.campaign.status
+                new_status = _enum(s) if int(s) else None
+            except Exception:
+                pass
+
+        # Acción legible para el dashboard.
+        if rtype == "CAMPAIGN_BUDGET":
+            action = "cambio_presupuesto"
+        elif op == "CREATE" and rtype == "CAMPAIGN":
+            action = "crear_campana"
+        elif op == "REMOVE":
+            action = "eliminar"
+        elif rtype == "CAMPAIGN" and new_status == "PAUSED":
+            action = "pausar"
+        elif rtype == "CAMPAIGN" and new_status == "ENABLED":
+            action = "activar"
+        elif rtype == "CAMPAIGN" and new_status == "REMOVED":
+            action = "eliminar"
+        else:
+            action = "editar"
+
+        rows.append({
+            "client_id": client_id,
+            "change_id": ce.resource_name,
+            "change_dt": ce.change_date_time or None,
+            "user_email": ce.user_email or None,
+            "client_type": ctype,
+            "campaign_id": campaign_id,
+            "resource_type": rtype,
+            "operation": op,
+            "action": action,
+            "old_status": old_status,
+            "new_status": new_status,
+            "changed_fields": ",".join(fields) if fields else None,
+        })
+    return rows
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def run():
@@ -883,6 +985,12 @@ def run():
             rows = extract_asset_groups(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_asset_groups", rows, "client_id,date,campaign_name,asset_group_name")
             log.info(f"   ✓ gads_asset_groups (PMax): {n} filas")
+
+            # Historial de cambios por usuario (Agencia vs IA). ACUMULA (upsert por
+            # change_id), no snapshot: la API solo da ~30 días pero vamos juntando.
+            rows = extract_change_events(gads, customer_id, cid)
+            n = upsert("gads_change_events", rows, "client_id,change_id")
+            log.info(f"   ✓ gads_change_events: {n} filas")
 
         except Exception as e:
             log.error(f"   ✗ Error {name}: {e}")

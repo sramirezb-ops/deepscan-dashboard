@@ -15,7 +15,6 @@ import { supabase } from '@/lib/supabase';
 
 const PAGE = 1000;
 const n = (v: unknown) => Number(v || 0);
-const FROM = '2026-09-01';
 const IA_NAME = 'Christian Desarrollatech';
 const IA_ID = '122341483712074578';
 const WA_MIN_CONV = 20;
@@ -88,13 +87,15 @@ const actionOf = (stored: string, oldV?: string | null, newV?: string | null): s
 };
 const objOf = (pu: number, cv: number): Objective => (pu > 0 ? 'ventas' : cv > 0 ? 'whatsapp' : 'otro');
 
-export function useMetaAgenciaVsIA(clientId: string) {
+export function useMetaAgenciaVsIA(clientId: string, range?: { from: string; to: string }) {
   const [data, setData] = useState<MetaAgenciaVsIAData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const FROM = range?.from;
+  const TO = range?.to;
 
   useEffect(() => {
-    if (!clientId) return;
+    if (!clientId || !FROM || !TO) return;
     let cancelled = false;
     (async () => {
       setLoading(true); setError(null);
@@ -105,7 +106,7 @@ export function useMetaAgenciaVsIA(clientId: string) {
             (q) => q.eq('client_id', clientId).order('change_dt', { ascending: true })),
           pageAll<any>('meta_campaigns',
             'campaign_id, campaign_name, adset_id, adset_name, status, spend, purchases, purchase_value, conversations',
-            (q) => q.eq('client_id', clientId).gte('date', FROM)),
+            (q) => q.eq('client_id', clientId).gte('date', FROM).lte('date', TO)),
         ]);
         if (cancelled) return;
 
@@ -204,10 +205,14 @@ export function useMetaAgenciaVsIA(clientId: string) {
 
         // Bitácora + pausas de la IA (lo que ya teníamos).
         const perfFor = (ot: string, id: string) => (ot === 'CAMPAIGN' ? adsetM.get(id) : ot === 'CAMPAIGN_GROUP' ? campM.get(id) : undefined);
+        // Actividad (bitácora, conteos, pausas) acotada al periodo seleccionado;
+        // la atribución de creador se mantiene con el historial completo (arriba).
+        const inRange = (dt: string) => { const d = String(dt || '').slice(0, 10); return d >= FROM && d <= TO; };
+        const chRowsR = chRows.filter((e) => inRange(e.change_dt));
         const changes: MetaChangeRow[] = [];
         const counts = { iaPaused: 0, iaPausedAds: 0, iaCreated: 0, iaEdited: 0, agencyPaused: 0 };
         const iaPausedMap = new Map<string, PausedItem>();
-        for (const e of chRows) {
+        for (const e of chRowsR) {
           const owner = ownerOf(e.actor_name, e.actor_id);
           const action = actionOf(e.action || '', e.old_value, e.new_value);
           const level = LEVEL[e.object_type] || e.object_type || '—';
@@ -243,7 +248,7 @@ export function useMetaAgenciaVsIA(clientId: string) {
         const riskConv = iaPaused.filter((x) => x.objective === 'whatsapp' && x.impact === 'neg').reduce((s, x) => s + x.conv, 0);
 
         const aAgg = new Map<string, { name: string; owner: Owner; count: number }>();
-        for (const e of chRows) {
+        for (const e of chRowsR) {
           const owner = ownerOf(e.actor_name, e.actor_id);
           const key = (e.actor_name || '?') + '|' + owner;
           const a = aAgg.get(key) || { name: e.actor_name || '(sistema)', owner, count: 0 };
@@ -280,7 +285,7 @@ export function useMetaAgenciaVsIA(clientId: string) {
       }
     })();
     return () => { cancelled = true; };
-  }, [clientId]);
+  }, [clientId, FROM, TO]);
 
   return { data, loading, error };
 }

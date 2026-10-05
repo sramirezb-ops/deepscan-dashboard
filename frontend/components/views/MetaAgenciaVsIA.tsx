@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useClient } from '@/lib/useClient';
+import { usePeriod } from '@/lib/usePeriod';
 import { useMetaAgenciaVsIA, type Owner, type Objective, type Impact, type RankRow, type RoasBucket } from '@/lib/hooks/useMetaAgenciaVsIA';
 import { formatCurrency, formatInt } from '@/lib/utils';
 import { Pager } from '@/components/ui/Pager';
@@ -26,7 +27,8 @@ const Chip = ({ owner }: { owner: Owner }) => <span className={'av-own ' + OWNER
 export function MetaAgenciaVsIA() {
   const client = useClient();
   const cur = client.currency;
-  const { data, loading, error } = useMetaAgenciaVsIA(client.id);
+  const { range } = usePeriod();
+  const { data, loading, error } = useMetaAgenciaVsIA(client.id, range);
   const [filter, setFilter] = useState<Owner | 'all'>('all');
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
@@ -149,7 +151,7 @@ export function MetaAgenciaVsIA() {
       `}</style>
 
       {/* KPIs · resultados */}
-      <div className="av-sh"><h3>Resultados</h3><span className="hint">Meta · {data.from}+ · ventas y WhatsApp</span></div>
+      <div className="av-sh"><h3>Resultados</h3><span className="hint">Meta · {data.from} → {range.to} · ventas y WhatsApp</span></div>
       <div className="mk-kpis">
         <div className="mk-kpi"><div className="l">Inversión</div><div className="v">{money(k.spend)}</div></div>
         <div className="mk-kpi"><div className="l">Compras</div><div className="v">{formatInt(Math.round(k.purchases))}</div></div>

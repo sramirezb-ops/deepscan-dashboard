@@ -37,6 +37,7 @@ const CHANNEL_BRAND: Record<ChannelId, Brand> = {
   shop: 'google-ads',
   yt: 'youtube',
   prop: 'google-ads',
+  avsia: 'google-ads',
   meta: 'meta',
   mili: 'meta',
   wa: 'whatsapp',

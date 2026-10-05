@@ -156,6 +156,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'ov2', label: 'Overview', icon: '▣', href: '/overview', crumb1: 'General', crumb2: 'Overview' },
       { id: 'week', label: 'Esta semana', icon: '⚡', href: '/week', crumb1: 'General', crumb2: 'Accionables' },
+      { id: 'avsia', label: 'Agencia vs IA', icon: '⚖️', href: '/google-ads/agencia-vs-ia', crumb1: 'General', crumb2: 'Agencia vs IA' },
       { id: 'bot', label: 'Bot & Operación', icon: '🤖', href: '/bot', crumb1: 'General', crumb2: 'Bot' },
     ],
   },
@@ -172,7 +173,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'gads', label: 'Overview', icon: '◎', href: '/google-ads', crumb1: 'Google Ads', crumb2: 'Overview' },
       { id: 'pmax', label: 'Performance Max', icon: '', href: '/google-ads/pmax', crumb1: 'Google Ads', crumb2: 'PMAX', isSubItem: true },
-      { id: 'avsia', label: 'Agencia vs IA', icon: '', href: '/google-ads/agencia-vs-ia', crumb1: 'Google Ads', crumb2: 'Agencia vs IA', isSubItem: true },
       { id: 'srch', label: 'Search', icon: '', href: '/google-ads/search', crumb1: 'Google Ads', crumb2: 'Search', isSubItem: true },
       // Propietarios (id 'prop') se retiró del menú: modelo desactivado (foco 100%
       // en venta de vehículos). La vista y la ruta /google-ads/propietarios siguen

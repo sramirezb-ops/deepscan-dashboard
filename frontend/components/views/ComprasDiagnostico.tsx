@@ -108,15 +108,15 @@ function fatigue(d: Derived): { freq: number; ctr: number; level: 'ok' | 'warn' 
 }
 
 // ── Sitio de destino / confiabilidad de medición por nombre de campaña ────────
-// .mx (Web Original / SS.COM.MX): compra PREPAGADA → ROAS web confiable.
-// Shopify: el purchase mezcla COD (no pagado) → optimizar a Compra Pagada y
-// juzgar por MER/AURA, no por el ROAS crudo. Por defecto, lo que no declara .mx
-// se asume Shopify (conservador: no confiar en un ROAS que puede traer COD).
+// Web / .mx (SS.COM.MX): compra PREPAGADA → ROAS web confiable. Es el default:
+// todas las campañas nuevas van a la web.
+// Shopify: SOLO la campaña histórica llamada "Shopify"; su purchase mezcla COD
+// (no pagado) → optimizar a Compra Pagada y juzgar por MER/AURA, no por el ROAS crudo.
 type Site = 'mx' | 'shopify';
+// Solo la campaña histórica llamada "Shopify" es Shopify; todo lo demás es web
+// (SS.com.mx). Las campañas nuevas van todas a la web.
 function siteOf(campaignName: string): Site {
-  const n = (campaignName || '').toLowerCase();
-  if (n.includes('ss.com.mx') || n.includes('web original') || n.includes('com.mx')) return 'mx';
-  return 'shopify';
+  return (campaignName || '').toLowerCase().includes('shopify') ? 'shopify' : 'mx';
 }
 // Chip de gestor (Agencia vs IA·Aura) — quién creó la campaña/conjunto.
 const OWNER_CHIP: Record<'agencia' | 'ia', { l: string; c: string }> = {

@@ -360,6 +360,7 @@ function GaugeBar({ value, goal }: { value: number; goal: number }) {
 }
 // Chart de doble eje: barras = inversión diaria, línea = ROAS, guía = meta.
 function Cabina({ daily, cur, goal }: { daily: { date: string; spend: number; purchases: number; purchaseValue: number }[]; cur: string; goal: number }) {
+  const [hover, setHover] = useState<number | null>(null);
   const W = 920, H = 250, X0 = 46, X1 = 884, YT = 20, YB = 200;
   const d = daily.filter((x) => x.spend > 0);
   if (d.length < 2) return <div className="cab-empty">Se necesitan ≥2 días con inversión para trazar la cabina.</div>;
@@ -398,13 +399,33 @@ function Cabina({ daily, cur, goal }: { daily: { date: string; spend: number; pu
             <text x={X1 + 6} y={yR(roasMax * f) + 4} textAnchor="start" style={{ fontSize: 11, fill: 'var(--up)' }}>{(roasMax * f).toFixed(0)}×</text>
           </g>
         ))}
+        {hover != null && <line x1={xC(hover)} y1={YT} x2={xC(hover)} y2={YB} stroke="var(--b2)" strokeDasharray="3 3" />}
         {d.map((x, i) => (
-          <rect key={i} x={xC(i) - barW / 2} y={yS(x.spend)} width={barW} height={Math.max(YB - yS(x.spend), 0)} rx="2" fill="#3b82f6" opacity="0.45" />
+          <rect key={i} x={xC(i) - barW / 2} y={yS(x.spend)} width={barW} height={Math.max(YB - yS(x.spend), 0)} rx="2" fill="#3b82f6" opacity={hover === i ? 0.85 : 0.45} />
         ))}
         <line x1={X0} y1={yR(goal)} x2={X1} y2={yR(goal)} stroke="var(--warn)" strokeWidth="1.5" strokeDasharray="5 4" />
         <polyline points={line} fill="none" stroke="var(--up)" strokeWidth="2.5" strokeLinejoin="round" />
-        {roas.map((r, i) => <circle key={i} cx={xC(i)} cy={yR(r)} r="2.5" fill="var(--up)" />)}
+        {roas.map((r, i) => <circle key={i} cx={xC(i)} cy={yR(r)} r={hover === i ? 4.5 : 2.5} fill="var(--up)" />)}
         {xi.map((i, k) => <text key={k} x={xC(i)} y={YB + 20} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--t3)' }}>{sd(d[i].date)}</text>)}
+        {/* Bandas invisibles que capturan el hover por día */}
+        {d.map((x, i) => (
+          <rect key={'hb' + i} x={X0 + band * i} y={YT} width={band} height={YB - YT} fill="transparent" style={{ cursor: 'pointer' }}
+            onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover((h) => (h === i ? null : h))} />
+        ))}
+        {/* Tooltip del día */}
+        {hover != null && (() => {
+          const i = hover, x = d[i], tw = 130, th = 72;
+          const tx = Math.min(Math.max(xC(i) - tw / 2, X0), X1 - tw), ty = YT + 2;
+          return (
+            <g pointerEvents="none">
+              <rect x={tx} y={ty} width={tw} height={th} rx="8" fill="var(--bg1)" stroke="var(--b2)" />
+              <text x={tx + 11} y={ty + 19} style={{ fontSize: 11.5, fontWeight: 700, fill: 'var(--t1)' }}>{sd(x.date)}</text>
+              <text x={tx + 11} y={ty + 36} style={{ fontSize: 11, fill: 'var(--t2)' }}>Inversión {abbr(x.spend)}</text>
+              <text x={tx + 11} y={ty + 51} style={{ fontSize: 11, fontWeight: 700, fill: 'var(--up)' }}>ROAS {roas[i].toFixed(1)}×</text>
+              <text x={tx + 11} y={ty + 66} style={{ fontSize: 11, fill: 'var(--t2)' }}>{Math.round(x.purchases)} compras · {abbr(x.purchaseValue)}</text>
+            </g>
+          );
+        })()}
       </svg>
       <div className="cab-read" style={{ color: read.c }}>{read.t}</div>
     </div>

@@ -240,6 +240,26 @@ function PlatformBars({ rows, cur, goal }: { rows: PlaceRow[]; cur: string; goal
     </div>
   );
 }
+// Barras de placement: la barra = GASTO (dónde va el presupuesto), el color =
+// desempeño (verde si ROAS ≥ meta, ámbar si no, gris si aún sin compras).
+function PlacementBars({ rows, cur, goal }: { rows: PlaceRow[]; cur: string; goal: number }) {
+  const vis = rows.filter((r) => r.spend > 1).slice(0, 8); // rows ya vienen ordenadas por gasto desc
+  if (vis.length < 2) return null;
+  const max = Math.max(...vis.map((r) => r.spend));
+  return (
+    <div className="pbars">
+      {vis.map((r, i) => (
+        <div className="pbar" key={i}>
+          <div className="pbar-l">{niceLabel(r.key)}</div>
+          <div className="pbar-track">
+            <div className="pbar-fill" style={{ width: (r.spend / max) * 100 + '%', background: r.purchases > 0 ? (r.roas >= goal ? 'var(--up)' : 'var(--warn)') : 'var(--b2)' }} />
+          </div>
+          <div className="pbar-v">{formatCurrency(r.spend, cur)} <span>· {Math.round(r.share)}% · {r.purchases > 0 ? r.roas.toFixed(1) + '×' : '—'} · {formatInt(r.purchases)} compras</span></div>
+        </div>
+      ))}
+    </div>
+  );
+}
 // P4d: tendencia diaria del funnel (carritos y compras).
 function FunnelTrend({ daily, cur }: { daily: { date: string; addToCart: number; purchases: number; purchaseValue: number }[]; cur: string }) {
   const W = 920, H = 190, X0 = 40, X1 = 900, YT = 16, YB = 150;
@@ -783,7 +803,8 @@ export function ComprasDiagnostico() {
               <div className="cat-block"><div className="cat-h">Por plataforma <span className="cat-fresh">FB vs IG</span> <span className="cat-sub">clic para desglosar campaña → conjunto → anuncio</span></div>
                 <PlaceTable rows={pl.platforms} cur={cur} first="Plataforma" tree={pl.platTree} />
               </div>
-              <div className="cat-block"><div className="cat-h">Por placement <span className="cat-sub">top por gasto</span></div>
+              <div className="cat-block"><div className="cat-h">Por placement <span className="cat-sub">dónde va el gasto · color = ROAS vs meta</span></div>
+                <PlacementBars rows={pl.placements} cur={cur} goal={GOAL} />
                 <PlaceTable rows={pl.placements} cur={cur} first="Placement" limit={12} />
               </div>
               {pl.segments.length > 0 && (

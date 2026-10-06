@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useMetaCompras, type ComprasHierNode, type ComprasMetric } from '@/lib/hooks/useMetaCompras';
+import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner } from '@/lib/hooks/useMetaCompras';
 import { useCatalog } from '@/lib/hooks/useCatalog';
 import { useMetaPlacements, type PlaceRow, type PlaceNode } from '@/lib/hooks/useMetaPlacements';
 import { formatCurrency, formatInt } from '@/lib/utils';
@@ -117,6 +117,15 @@ function siteOf(campaignName: string): Site {
   const n = (campaignName || '').toLowerCase();
   if (n.includes('ss.com.mx') || n.includes('web original') || n.includes('com.mx')) return 'mx';
   return 'shopify';
+}
+// Chip de gestor (Agencia vs IA·Aura) — quién creó la campaña/conjunto.
+const OWNER_CHIP: Record<'agencia' | 'ia', { l: string; c: string }> = {
+  agencia: { l: 'Agencia', c: '#0ea5e9' }, ia: { l: 'IA·Aura', c: '#8b5cf6' },
+};
+function ownerChip(o?: ComprasOwner) {
+  if (o !== 'agencia' && o !== 'ia') return null;
+  const m = OWNER_CHIP[o];
+  return <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.02em', padding: '1px 6px', borderRadius: 5, margin: '0 6px 0 2px', color: m.c, border: `1px solid ${m.c}`, whiteSpace: 'nowrap', verticalAlign: 'middle' }}>{m.l}</span>;
 }
 // Veredicto consciente del sitio: una campaña Shopify NO puede quedar como
 // "Escalar"/"Iterar" por un ROAS inflado con COD → se manda a "Revisar cierre".
@@ -517,9 +526,9 @@ export function ComprasDiagnostico() {
       const ps = prevSets[`${c.name}\u0000${s.name}`];
       const sHad = !!ps && ps.spend > 0;
       const sMom = sHad && ps ? sd.roas - derive(ps).roas : null;
-      return { name: s.name, d: sd, v: verdictFor(sd, GOAL, targetCpa, site), mom: sMom, hadPrev: sHad, node: s };
+      return { name: s.name, d: sd, v: verdictFor(sd, GOAL, targetCpa, site), mom: sMom, hadPrev: sHad, node: s, owner: s.owner };
     }).sort(rank);
-    return { name: c.name, d: dd, v: verdictFor(dd, GOAL, targetCpa, site), site, mom: cMom, hadPrev: cHad, sets };
+    return { name: c.name, d: dd, v: verdictFor(dd, GOAL, targetCpa, site), site, mom: cMom, hadPrev: cHad, sets, owner: c.owner };
   }).sort(rank);
 
   return (
@@ -648,7 +657,24 @@ export function ComprasDiagnostico() {
             )}
           </div>
         )}
-        <div className="cj-hint">Clic en una campaña para ver sus conjuntos, y en un conjunto para ver sus anuncios · clic en un anuncio para su preview.</div>
+        {data.ownerSplit.ia.count > 0 && (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch', margin: '2px 0 12px' }}>
+            {([['nosotros', 'Nosotros', '#0ea5e9'], ['ia', 'IA · Aura', '#8b5cf6']] as const).map(([k, lbl, col]) => {
+              const s = data.ownerSplit[k];
+              return (
+                <div key={k} style={{ flex: '1 1 210px', minWidth: 190, border: '1px solid var(--b1)', borderLeft: `3px solid ${col}`, borderRadius: 12, padding: '10px 14px', background: 'var(--bg1)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.03em', color: col }}>{lbl}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3 }}>
+                    <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em' }}>{s.roas > 0 ? s.roas.toFixed(1) + '×' : '—'}</span>
+                    <span style={{ fontSize: 11, color: 'var(--t3)' }}>ROAS · {s.count} camp. · {formatCurrency(s.spend, cur)} · {formatInt(s.purchases)} compras</span>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ alignSelf: 'center', fontSize: 11, color: 'var(--t3)', maxWidth: 220 }}>Quién creó cada campaña. "Nosotros" incluye lo histórico sin registro de creación.</div>
+          </div>
+        )}
+        <div className="cj-hint">Clic en una campaña para ver sus conjuntos, y en un conjunto para ver sus anuncios · clic en un anuncio para su preview. Los chips <b>Agencia</b> / <b>IA·Aura</b> marcan quién creó cada campaña o conjunto.</div>
         <div className="mc-wrap"><div className="mc-scroll">
           <table className="cj-t sortable">
             <thead><tr><th className="cj-caret"></th><th>Campaña · conjunto · anuncio</th>{th('veredicto', 'Veredicto')}{th('mom', 'Momentum')}{TMETRICS.map((m) => th(m.k, m.l))}</tr></thead>
@@ -660,7 +686,7 @@ export function ComprasDiagnostico() {
                   <tr key={ck} className={'cj-row cj-camp clk' + (cOpen ? ' open' : '')}
                     onClick={() => setExpCj((e) => ({ ...e, [ck]: !e[ck] }))}>
                     <td className="cj-caret">{camp.sets.length ? (cOpen ? '▾' : '▸') : ''}</td>
-                    <td className="nm" title={camp.name}>{siteBadge(camp.site)} {camp.name}</td>
+                    <td className="nm" title={camp.name}>{siteBadge(camp.site)} {ownerChip(camp.owner)}{camp.name}</td>
                     <td><span className={`v-badge ${camp.v.c}`} title={camp.v.tip}>{camp.v.l}</span></td>
                     <td>{momBadge(camp.mom, camp.hadPrev)}</td>
                     {tcells(camp.d, cur)}
@@ -674,7 +700,7 @@ export function ComprasDiagnostico() {
                     <tr key={sk} className={'cj-row cj-set' + (sOpen ? ' open' : '') + (ads.length ? ' clk' : '')}
                       onClick={() => ads.length && setExpCj((e) => ({ ...e, [sk]: !e[sk] }))}>
                       <td className="cj-caret l2">{ads.length ? (sOpen ? '▾' : '▸') : ''}</td>
-                      <td className="nm sub" title={s.name}>{s.name}</td>
+                      <td className="nm sub" title={s.name}>{ownerChip(s.owner)}{s.name}</td>
                       <td><span className={`v-badge ${s.v.c}`} title={s.v.tip}>{s.v.l}</span></td>
                       <td>{momBadge(s.mom, s.hadPrev)}</td>
                       {tcells(s.d, cur)}

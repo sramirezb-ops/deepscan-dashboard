@@ -107,6 +107,7 @@ export interface MetaComprasData {
   metaExistsEver: boolean;
   // ── Explorador jerárquico + contexto de los 3 objetivos de Meta ──
   hierarchy: ComprasHierNode[];   // campaña → conjunto → anuncio (solo compras)
+  ownerSplit: Record<'nosotros' | 'ia', ComprasOwnerStat>; // IA·Aura vs el resto (nuestro), campañas de venta
   whatsappSpend: number;          // gasto de las campañas de mensajería
   waConversations: number;        // conversaciones (píxel) de esas campañas
   spendSplit: { sales: number; whatsapp: number; brand: number };
@@ -139,7 +140,9 @@ interface RawRow {
   date: string | null;
   ad_id: string | null;
   ad_name: string | null;
+  campaign_id: string | null;
   campaign_name: string | null;
+  adset_id: string | null;
   adset_name: string | null;
   thumb_url: string | null;
   spend: number | null;
@@ -155,7 +158,7 @@ interface RawRow {
 }
 
 const SELECT =
-  'date, ad_id, ad_name, campaign_name, adset_name, thumb_url, spend, impressions, clicks, reach, purchases, purchase_value, add_to_cart, initiate_checkout, view_content, conversations';
+  'date, ad_id, ad_name, campaign_id, campaign_name, adset_id, adset_name, thumb_url, spend, impressions, clicks, reach, purchases, purchase_value, add_to_cart, initiate_checkout, view_content, conversations';
 
 const PAGE = 1000;
 const AD_LIMIT = 60; // top anuncios por inversión
@@ -447,13 +450,39 @@ export interface ComprasMetric {
   viewContent: number; addToCart: number; initiateCheckout: number;
   purchases: number; purchaseValue: number;
 }
+export type ComprasOwner = 'agencia' | 'ia' | 'sin';
+export interface ComprasOwnerStat { spend: number; value: number; purchases: number; roas: number; count: number }
 export interface ComprasHierNode {
   name: string;
   adId?: string;             // solo anuncios
   thumbUrl?: string | null;  // solo anuncios (creativo real desde meta_ad_creatives)
   isVideo?: boolean;         // solo anuncios
+  owner?: ComprasOwner;      // campañas y conjuntos: quién lo creó (Agencia vs IA·Aura)
   m: ComprasMetric;
   kids?: ComprasHierNode[];  // campañas y conjuntos
+}
+
+/** Creador por objeto (Agencia vs IA·Aura) desde los eventos crear_* de la bitácora.
+ * IA (Aura) = actor "Christian Desarrollatech" / actor_id 122341483712074578. */
+async function fetchCreators(clientId: string): Promise<{ campById: Map<string, ComprasOwner>; adsById: Map<string, ComprasOwner> }> {
+  const campById = new Map<string, ComprasOwner>();
+  const adsById = new Map<string, ComprasOwner>();
+  const { data, error } = await supabase
+    .from('meta_change_events')
+    .select('actor_name, actor_id, action, object_type, object_id')
+    .eq('client_id', clientId)
+    .range(0, 9999);
+  if (error) return { campById, adsById };
+  const IA_NAME = 'Christian Desarrollatech', IA_ID = '122341483712074578';
+  const ownerOf = (n: unknown, i: unknown): ComprasOwner =>
+    (n === IA_NAME || String(i) === IA_ID) ? 'ia' : (n === 'Meta' || !i || String(i) === '0') ? 'sin' : 'agencia';
+  for (const e of (data || []) as any[]) {
+    if (!String(e.action || '').startsWith('crear') || !e.object_id) continue;
+    const o = ownerOf(e.actor_name, e.actor_id);
+    if (e.object_type === 'CAMPAIGN_GROUP') campById.set(String(e.object_id), o);
+    else if (e.object_type === 'CAMPAIGN') adsById.set(String(e.object_id), o);
+  }
+  return { campById, adsById };
 }
 
 /** Creativo por anuncio (imagen o thumbnail de video) desde meta_ad_creatives. */
@@ -492,7 +521,8 @@ function addM(t: ComprasMetric, r: RawRow) {
 function buildHierarchy(
   rows: RawRow[],
   salesNames: Set<string>,
-  creatives: Map<string, { img: string | null; isVideo: boolean }>
+  creatives: Map<string, { img: string | null; isVideo: boolean }>,
+  owners?: { byCamp: Map<string, ComprasOwner>; byAdset: Map<string, ComprasOwner> }
 ): ComprasHierNode[] {
   const camps = new Map<
     string,
@@ -522,9 +552,9 @@ function buildHierarchy(
   const bySpend = (x: { m: ComprasMetric }, y: { m: ComprasMetric }) => y.m.spend - x.m.spend;
   return Array.from(camps.entries())
     .map(([name, c]) => ({
-      name, m: c.m,
+      name, m: c.m, owner: owners?.byCamp.get(name),
       kids: Array.from(c.sets.entries())
-        .map(([sn, s]) => ({ name: sn, m: s.m, kids: Array.from(s.ads.values()).sort(bySpend) }))
+        .map(([sn, s]) => ({ name: sn, m: s.m, owner: owners?.byAdset.get(`${name}\u0000${sn}`), kids: Array.from(s.ads.values()).sort(bySpend) }))
         .sort(bySpend),
     }))
     .sort(bySpend);
@@ -565,14 +595,26 @@ export function useMetaCompras(
       setLoading(true);
       setError(null);
       try {
-        const [nowRows, prevRows, msgNow, msgPrev, creatives] = await Promise.all([
+        const [nowRows, prevRows, msgNow, msgPrev, creatives, creators] = await Promise.all([
           fetchRows(clientId, range.from, range.to),
           fetchRows(clientId, previous.from, previous.to),
           fetchMessagingCampaigns(clientId, range.from, range.to),
           fetchMessagingCampaigns(clientId, previous.from, previous.to),
           fetchAdCreatives(clientId),
+          fetchCreators(clientId),
         ]);
         if (cancelled) return;
+
+        // Mapea el creador (por id) al nombre actual de la campaña/conjunto.
+        const ownerByCamp = new Map<string, ComprasOwner>();
+        const ownerByAdset = new Map<string, ComprasOwner>();
+        for (const r of nowRows) {
+          const cn = r.campaign_name || '(sin nombre)';
+          if (r.campaign_id && creators.campById.has(String(r.campaign_id))) ownerByCamp.set(cn, creators.campById.get(String(r.campaign_id))!);
+          const an = r.adset_name || '(sin conjunto)';
+          if (r.adset_id && creators.adsById.has(String(r.adset_id))) ownerByAdset.set(`${cn}\u0000${an}`, creators.adsById.get(String(r.adset_id))!);
+        }
+        const owners = { byCamp: ownerByCamp, byAdset: ownerByAdset };
 
         // ── Período actual ──────────────────────────────────────
         const allAgg = aggregateCampaigns(nowRows, msgNow);
@@ -595,8 +637,19 @@ export function useMetaCompras(
         const daily = buildDaily(nowRows, purchaseNames);
 
         // Explorador jerárquico + los tres objetivos de Meta (venta / WhatsApp / marca).
-        const hierarchy = buildHierarchy(nowRows, purchaseNames, creatives);
+        const hierarchy = buildHierarchy(nowRows, purchaseNames, creatives, owners);
         const monthlyRoas = monthlyRoasFrom(nowRows, purchaseNames);
+
+        // Resumen IA·Aura vs el resto (nuestro) sobre las campañas de venta.
+        // Las creadas por la IA se atribuyen por evento; todo lo demás (incluido
+        // lo histórico sin evento) cuenta como "nosotros".
+        const mkOw = (): ComprasOwnerStat => ({ spend: 0, value: 0, purchases: 0, roas: 0, count: 0 });
+        const ownerSplit: Record<'nosotros' | 'ia', ComprasOwnerStat> = { nosotros: mkOw(), ia: mkOw() };
+        for (const c of hierarchy) {
+          const t = ownerSplit[c.owner === 'ia' ? 'ia' : 'nosotros'];
+          t.spend += c.m.spend; t.value += c.m.purchaseValue; t.purchases += c.m.purchases; t.count += 1;
+        }
+        (['nosotros', 'ia'] as const).forEach((k) => { ownerSplit[k].roas = ownerSplit[k].spend > 0 ? ownerSplit[k].value / ownerSplit[k].spend : 0; });
         let whatsappSpend = 0;
         let waConversations = 0;
         for (const r of nowRows) {
@@ -649,6 +702,7 @@ export function useMetaCompras(
           otherSpend: brandSpend,
           metaExistsEver,
           hierarchy,
+          ownerSplit,
           whatsappSpend,
           waConversations,
           spendSplit: { sales: totals.spend, whatsapp: whatsappSpend, brand: brandSpend },

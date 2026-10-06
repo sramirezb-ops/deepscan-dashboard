@@ -7,6 +7,7 @@ import { formatRangeLabel } from '@/lib/period';
 import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner } from '@/lib/hooks/useMetaCompras';
 import { useCatalog } from '@/lib/hooks/useCatalog';
 import { useMetaPlacements, type PlaceRow, type PlaceNode } from '@/lib/hooks/useMetaPlacements';
+import { Pager } from '@/components/ui/Pager';
 import { formatCurrency, formatInt } from '@/lib/utils';
 
 // Meta de ROAS que gobierna el semáforo. TODO: leerla de la config del cliente
@@ -258,6 +259,86 @@ function PlacementBars({ rows, cur, goal }: { rows: PlaceRow[]; cur: string; goa
         </div>
       ))}
     </div>
+  );
+}
+// Top anuncios: tabla plana de TODOS los anuncios con sus métricas, ordenable
+// por cualquier columna y paginada (10/20/30). Cada fila muestra a qué conjunto
+// y campaña pertenece, para verlo "desde afuera" sin abrir el árbol.
+function TopAdsTable({ rows, cur }: { rows: { ad: ComprasHierNode; camp: string; set: string }[]; cur: string }) {
+  const [sortK, setSortK] = useState<string>('roas');
+  const [dir, setDir] = useState(-1);
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+
+  const total = rows.reduce((s, r) => s + r.ad.m.spend, 0) || 1;
+  const items = rows.map((r) => {
+    const d = derive(r.ad.m), m = r.ad.m;
+    return {
+      ad: r.ad, camp: r.camp, set: r.set,
+      roas: d.roas, spend: d.spend, share: (d.spend / total) * 100, purch: d.purch, rev: m.purchaseValue,
+      cr: d.clicks ? d.purch / d.clicks : 0, atc: d.atc, cartpct: d.clicks ? d.atc / d.clicks : 0,
+      vc: d.vc, ctr: d.impr ? d.clicks / d.impr : 0, cpm: d.impr ? (d.spend / d.impr) * 1000 : 0, freq: d.freq,
+    };
+  });
+  type Item = typeof items[number];
+  const money = (v: number) => formatCurrency(v, cur);
+  const pctf = (v: number, dec = 1) => (v > 0 ? (v * 100).toFixed(dec) + '%' : '—');
+  const COLS: { k: string; l: string; f: (x: Item) => ReactNode; sem?: boolean }[] = [
+    { k: 'roas', l: 'ROAS', f: (x) => (x.roas > 0 ? x.roas.toFixed(1) + '×' : '—'), sem: true },
+    { k: 'spend', l: 'Gasto', f: (x) => money(x.spend) },
+    { k: 'share', l: '%Gasto', f: (x) => (x.share >= 0.5 ? Math.round(x.share) + '%' : '<1%') },
+    { k: 'purch', l: 'Compras', f: (x) => formatInt(x.purch) },
+    { k: 'rev', l: 'Revenue', f: (x) => (x.rev > 0 ? money(x.rev) : '—') },
+    { k: 'cr', l: 'CR%', f: (x) => pctf(x.cr) },
+    { k: 'atc', l: 'Carritos', f: (x) => formatInt(x.atc) },
+    { k: 'cartpct', l: '%Carr', f: (x) => pctf(x.cartpct) },
+    { k: 'vc', l: 'Vistas prod.', f: (x) => formatInt(x.vc) },
+    { k: 'ctr', l: 'CTR', f: (x) => pctf(x.ctr, 2) },
+    { k: 'cpm', l: 'CPM', f: (x) => (x.cpm > 0 ? money(x.cpm) : '—') },
+    { k: 'freq', l: 'Frec.', f: (x) => (x.freq > 0 ? x.freq.toFixed(1) : '—') },
+  ];
+  if (items.length === 0) return <div className="cat-msg">Sin anuncios con datos en el período.</div>;
+  const sorted = [...items].sort((a, b) => dir * (((a as any)[sortK] ?? 0) - ((b as any)[sortK] ?? 0)));
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const curPage = Math.min(page, totalPages);
+  const paged = sorted.slice((curPage - 1) * pageSize, curPage * pageSize);
+  const onSort = (k: string) => { if (sortK === k) setDir((d) => -d); else { setSortK(k); setDir(-1); } setPage(1); };
+  return (
+    <>
+      <div className="mc-wrap"><div className="mc-scroll">
+        <table className="cj-t sortable">
+          <thead><tr>
+            <th style={{ textAlign: 'left' }}>Anuncio</th>
+            <th style={{ textAlign: 'left' }}>Conjunto</th>
+            <th style={{ textAlign: 'left' }}>Campaña</th>
+            {COLS.map((c) => (
+              <th key={c.k} className={'srt' + (sortK === c.k ? ' on' : '')} onClick={() => onSort(c.k)} style={{ cursor: 'pointer' }}>
+                {c.l}<span className="ar">{sortK === c.k ? (dir < 0 ? '▼' : '▲') : '⇅'}</span>
+              </th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {paged.map((x, i) => (
+              <tr key={i} className="cj-row">
+                <td className="nm ad" title={x.ad.name} style={{ maxWidth: 230 }}>
+                  <span className="cj-thwrap">
+                    {x.ad.thumbUrl ? <img className="cj-thmb" src={x.ad.thumbUrl} alt="" loading="lazy" /> : <span className="cj-thmb">🖼</span>}
+                    {x.ad.isVideo && <span className="cj-vb">▶</span>}
+                  </span>
+                  <span className="cj-adnm">{x.ad.name}</span>
+                </td>
+                <td className="nm sub" title={x.set} style={{ maxWidth: 160 }}>{x.set}</td>
+                <td className="nm sub" title={x.camp} style={{ maxWidth: 160 }}>{x.camp}</td>
+                {COLS.map((c) => (
+                  <td key={c.k} className={c.sem ? (x.purch > 0 ? semCls(x.roas) : '') : ''}>{c.f(x)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div></div>
+      <Pager total={sorted.length} page={curPage} pageSize={pageSize} onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1); }} sizes={[10, 20, 30]} label="anuncios" />
+    </>
   );
 }
 // P4d: tendencia diaria del funnel (carritos y compras).
@@ -775,6 +856,10 @@ export function ComprasDiagnostico() {
             </tbody>
           </table>
         </div></div>
+
+        {/* TOP ANUNCIOS — tabla plana de todos los anuncios */}
+        <div className="mc-sh"><h2>Top anuncios</h2><span className="hint">todos los anuncios · ordena por cualquier métrica · con su conjunto y campaña</span></div>
+        <TopAdsTable rows={(data.hierarchy ?? []).flatMap((c) => (c.kids ?? []).flatMap((s) => (s.kids ?? []).map((ad) => ({ ad, camp: c.name, set: s.name }))))} cur={cur} />
 
         {/* DÓNDE CONVIERTE — plataforma y placement (P3) */}
         <div className="mc-sh"><h2>Dónde convierte · plataforma y placement</h2><span className="hint">Facebook vs Instagram · ¿Advantage+ completo o restringir?</span></div>

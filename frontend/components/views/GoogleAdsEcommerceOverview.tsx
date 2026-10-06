@@ -11,6 +11,7 @@ import {
   type GadsEcomTypeBucket,
   type GadsCampaignType,
   type GadsEcomMetrics,
+  type GadsOwner,
 } from '@/lib/hooks/useGadsEcommerce';
 import { GadsGeoCharts } from '@/components/views/GadsGeoCharts';
 import { GadsProducts } from '@/components/views/GadsProducts';
@@ -33,6 +34,15 @@ const TYPE_COLORS: Record<GadsCampaignType, string> = {
   DISPLAY: '#10b981',
   OTHER: '#94a3b8',
 };
+// Chip de gestor (Agencia vs IA·Aura) para la tabla de campañas.
+const OWNER_CHIP: Record<'agencia' | 'ia', { l: string; c: string }> = {
+  agencia: { l: 'Agencia', c: '#0ea5e9' }, ia: { l: 'IA·Aura', c: '#8b5cf6' },
+};
+function ownerChip(o: GadsOwner) {
+  if (o !== 'agencia' && o !== 'ia') return <span style={{ color: MUTED }}>—</span>;
+  const x = OWNER_CHIP[o];
+  return <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.02em', padding: '1px 6px', borderRadius: 5, color: x.c, border: `1px solid ${x.c}`, whiteSpace: 'nowrap' }}>{x.l}</span>;
+}
 const TYPE_ICON: Record<GadsCampaignType, string> = {
   PERFORMANCE_MAX: '⚡',
   SHOPPING: '🛍️',
@@ -269,6 +279,8 @@ export function GoogleAdsEcommerceOverview() {
     (c) => c.carts,
     (c) => c.cartValue,
     (c) => c.atcRoas,
+    (c) => c.purchaseRoas,
+    (c) => c.owner,
   ];
   const { rows: campRows, headerProps: campHeader } = useSortableTable(data?.campaigns ?? [], campAccessors);
 
@@ -350,6 +362,36 @@ export function GoogleAdsEcommerceOverview() {
         <BigStat label="Carritos añadidos" value={formatInt(m.carts)} delta={d.carts} hint={`vs ${previousLabel}`} />
         <BigStat label="Valor de carrito" value={formatCurrency(m.cartValue, cur)} delta={d.cartValue} hint={`vs ${previousLabel}`} />
         <BigStat label="atcROAS (intención)" value={formatROAS(m.atcRoas)} delta={d.atcRoas} deltaMode="abs" accent={m.atcRoas >= 1 ? GREEN : RED} hint={`vs ${previousLabel}`} />
+      </div>
+
+      {/* 2b. Compra real (PURCHASE) + Agencia vs IA */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>🛍️ Compra real & gestión</div>
+          <div style={{ fontSize: 11, color: MUTED }}>El ROAS de compra aísla la conversión <b>PURCHASE</b> (ignora view item / carrito, que inflan)</div>
+        </div>
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          <BigStat label="ROAS de compra (real)" value={m.purchaseConv > 0 ? formatROAS(m.purchaseRoas) : '—'} accent={m.purchaseRoas >= 1 ? GREEN : RED} hint="revenue PURCHASE ÷ inversión" />
+          <BigStat label="Compras" value={formatInt(Math.round(m.purchaseConv))} hint="conversión PURCHASE" />
+          <BigStat label="Valor de compra" value={formatCurrency(m.purchaseValue, cur)} hint="PURCHASE · all_conv_value" />
+        </div>
+        {data.ownerSplit.ia.count > 0 && (
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 14, alignItems: 'stretch' }}>
+            {([['nosotros', 'Nosotros', '#0ea5e9'], ['ia', 'IA · Aura', '#8b5cf6']] as const).map(([k, lbl, col]) => {
+              const s = data.ownerSplit[k];
+              return (
+                <div key={k} className="card" style={{ flex: '1 1 230px', minWidth: 210, borderLeft: `3px solid ${col}`, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.03em', color: col }}>{lbl}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3 }}>
+                    <span style={{ fontSize: 22, fontWeight: 800 }}>{s.purchaseConv > 0 ? formatROAS(s.purchaseRoas) : '—'}</span>
+                    <span style={{ fontSize: 11, color: MUTED }}>ROAS compra · {s.count} camp. · {formatCurrency(s.cost, cur)} · {formatInt(Math.round(s.purchaseConv))} compras</span>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ alignSelf: 'center', fontSize: 11, color: MUTED, maxWidth: 230 }}>Quién creó cada campaña. "Nosotros" incluye lo histórico sin registro de creación.</div>
+          </div>
+        )}
       </div>
 
       {/* 3. Mapa de inversión por tipo (treemap) */}
@@ -438,6 +480,8 @@ export function GoogleAdsEcommerceOverview() {
                 <th {...campHeader(7)}>Carritos</th>
                 <th {...campHeader(8)}>Valor carrito</th>
                 <th {...campHeader(9)}>atcROAS</th>
+                <th {...campHeader(10)}>ROAS compra</th>
+                <th {...campHeader(11)}>Gestor</th>
               </tr>
             </thead>
             <tbody>
@@ -458,6 +502,10 @@ export function GoogleAdsEcommerceOverview() {
                   <td style={{ color: c.cartValue > 0 ? (c.atcRoas >= 1 ? GREEN : RED) : MUTED, fontWeight: 600 }}>
                     {c.cartValue > 0 ? formatROAS(c.atcRoas) : '—'}
                   </td>
+                  <td style={{ color: c.purchaseConv > 0 ? (c.purchaseRoas >= 1 ? GREEN : RED) : MUTED, fontWeight: 600 }}>
+                    {c.purchaseConv > 0 ? formatROAS(c.purchaseRoas) : '—'}
+                  </td>
+                  <td>{ownerChip(c.owner)}</td>
                 </tr>
               ))}
               <tr className="t-avg">
@@ -471,6 +519,8 @@ export function GoogleAdsEcommerceOverview() {
                 <td>{formatInt(m.carts)}</td>
                 <td>{formatCurrency(m.cartValue, cur)}</td>
                 <td style={{ color: m.atcRoas >= 1 ? GREEN : RED, fontWeight: 600 }}>{formatROAS(m.atcRoas)}</td>
+                <td style={{ color: m.purchaseRoas >= 1 ? GREEN : RED, fontWeight: 600 }}>{m.purchaseConv > 0 ? formatROAS(m.purchaseRoas) : '—'}</td>
+                <td>—</td>
               </tr>
             </tbody>
           </table>

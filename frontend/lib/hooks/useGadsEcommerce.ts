@@ -25,6 +25,9 @@ export type GadsCampaignType =
   | 'DISPLAY'
   | 'OTHER';
 
+export type GadsOwner = 'agencia' | 'ia' | 'sin';
+export interface GadsOwnerStat { cost: number; purchaseConv: number; purchaseValue: number; purchaseRoas: number; count: number }
+
 export interface GadsEcomMetrics {
   cost: number;
   impressions: number;
@@ -32,6 +35,11 @@ export interface GadsEcomMetrics {
   carts: number; // carritos añadidos (puede ser fraccional)
   cartValue: number; // valor de carrito (intención, no venta)
   atcRoas: number; // cartValue / cost
+  // Compra REAL aislada por acción de conversión (conv_action_category=PURCHASE),
+  // no la conversión amplia (view_item / add_to_cart) que infla.
+  purchaseConv: number;
+  purchaseValue: number;
+  purchaseRoas: number; // purchaseValue / cost
   ctr: number; // clicks / impressions (0..1)
   cpc: number; // cost / clicks
   cpAtc: number; // cost / carts (costo por carrito)
@@ -69,6 +77,10 @@ export interface GadsEcomCampaign {
   cartRate: number;
   searchImprShare: number | null;
   spendShare: number; // 0..1
+  purchaseConv: number;
+  purchaseValue: number;
+  purchaseRoas: number;
+  owner: GadsOwner; // quién creó la campaña (agencia / IA·Aura / sin atribuir)
 }
 
 export interface GadsEcomTypeBucket {
@@ -84,6 +96,9 @@ export interface GadsEcomTypeBucket {
   cpc: number;
   spendShare: number; // 0..1
   campaignCount: number;
+  purchaseConv: number;
+  purchaseValue: number;
+  purchaseRoas: number;
   campaigns: GadsEcomCampaign[]; // de este tipo, orden gasto desc
 }
 
@@ -98,6 +113,7 @@ export interface GadsEcommerceData {
   deltas: GadsEcomDeltas;
   byType: GadsEcomTypeBucket[]; // orden gasto desc
   campaigns: GadsEcomCampaign[]; // orden gasto desc
+  ownerSplit: Record<'nosotros' | 'ia', GadsOwnerStat>; // Nosotros vs IA·Aura (por ROAS de compra)
   daily: GadsEcomDayPoint[]; // serie diaria período actual, asc
   hasVideo: boolean;
   hasAny: boolean;
@@ -115,6 +131,7 @@ export interface UseGadsEcommerceResult {
 
 interface RawRow {
   date: string | null;
+  campaign_id: string | null;
   campaign_name: string | null;
   campaign_type: string | null;
   impressions: number | null;
@@ -128,7 +145,7 @@ interface RawRow {
 }
 
 const SELECT =
-  'date, campaign_name, campaign_type, impressions, clicks, cost, conversions, conv_value, search_impression_share, search_abs_top_impression_share, video_views';
+  'date, campaign_id, campaign_name, campaign_type, impressions, clicks, cost, conversions, conv_value, search_impression_share, search_abs_top_impression_share, video_views';
 const PAGE = 1000;
 
 const TYPE_LABELS: Record<GadsCampaignType, string> = {
@@ -182,6 +199,49 @@ async function fetchExistsEver(clientId: string): Promise<boolean> {
   ).limit(1);
   if (error) throw error;
   return (data || []).length > 0;
+}
+
+// Compra REAL por campaña: aísla la acción de conversión PURCHASE (ignora
+// view_item / add_to_cart que inflan). Suma all_conversions / all_conv_value.
+async function fetchPurchaseByCampaign(clientId: string, from: string, to: string): Promise<Map<string, { conv: number; value: number }>> {
+  const effFrom = floorGadsFrom(from, clientId);
+  const m = new Map<string, { conv: number; value: number }>();
+  let off = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await supabase
+      .from('gads_conversions_by_action')
+      .select('campaign_name, conv_action_category, all_conversions, all_conv_value')
+      .eq('client_id', clientId).gte('date', effFrom).lte('date', to)
+      .range(off, off + PAGE - 1);
+    if (error) { if (off === 0) return m; break; }
+    const batch = (data || []) as any[];
+    for (const r of batch) {
+      if (r.conv_action_category !== 'PURCHASE') continue;
+      const n = r.campaign_name || '';
+      const g = m.get(n) || { conv: 0, value: 0 };
+      g.conv += Number(r.all_conversions) || 0; g.value += Number(r.all_conv_value) || 0;
+      m.set(n, g);
+    }
+    if (batch.length < PAGE) break; off += PAGE;
+  }
+  return m;
+}
+
+// Creador por campaña (Agencia vs IA·Aura) desde la bitácora. IA = client_type
+// GOOGLE_ADS_API; cualquier otro (p.ej. GOOGLE_ADS_WEB_CLIENT) = agencia.
+async function fetchCreators(clientId: string): Promise<Map<string, GadsOwner>> {
+  const m = new Map<string, GadsOwner>();
+  const { data, error } = await supabase
+    .from('gads_change_events')
+    .select('action, client_type, campaign_id')
+    .eq('client_id', clientId).range(0, 9999);
+  if (error) return m;
+  for (const e of (data || []) as any[]) {
+    if (e.action !== 'crear_campana' || !e.campaign_id) continue;
+    m.set(String(e.campaign_id), e.client_type === 'GOOGLE_ADS_API' ? 'ia' : 'agencia');
+  }
+  return m;
 }
 
 interface Sum {
@@ -245,6 +305,10 @@ function deriveMetrics(s: Sum): GadsEcomMetrics {
     cartRate: s.clicks > 0 ? s.carts / s.clicks : 0,
     searchImprShare: s.isEligible > 0 ? s.isImpr / s.isEligible : null,
     searchAbsTopShare: s.absTopEligible > 0 ? s.absTopImpr / s.absTopEligible : null,
+    // Compra real se calcula aparte (gads_conversions_by_action); default 0.
+    purchaseConv: 0,
+    purchaseValue: 0,
+    purchaseRoas: 0,
   };
 }
 
@@ -279,6 +343,10 @@ function campaignFromSum(name: string, type: GadsCampaignType, s: Sum, totalCost
     cartRate: m.cartRate,
     searchImprShare: m.searchImprShare,
     spendShare: totalCost > 0 ? m.cost / totalCost : 0,
+    purchaseConv: 0,
+    purchaseValue: 0,
+    purchaseRoas: 0,
+    owner: 'sin',
   };
 }
 
@@ -314,6 +382,8 @@ function groupByType(campaigns: GadsEcomCampaign[], totalCost: number): GadsEcom
     const clicks = camps.reduce((a, c) => a + c.clicks, 0);
     const carts = camps.reduce((a, c) => a + c.carts, 0);
     const cartValue = camps.reduce((a, c) => a + c.cartValue, 0);
+    const purchaseConv = camps.reduce((a, c) => a + c.purchaseConv, 0);
+    const purchaseValue = camps.reduce((a, c) => a + c.purchaseValue, 0);
     list.push({
       type,
       label: gadsTypeLabel(type),
@@ -327,6 +397,9 @@ function groupByType(campaigns: GadsEcomCampaign[], totalCost: number): GadsEcom
       cpc: clicks > 0 ? cost / clicks : 0,
       spendShare: totalCost > 0 ? cost / totalCost : 0,
       campaignCount: camps.length,
+      purchaseConv,
+      purchaseValue,
+      purchaseRoas: cost > 0 ? purchaseValue / cost : 0,
       campaigns: [...camps].sort((a, b) => b.cost - a.cost),
     });
   }
@@ -370,9 +443,11 @@ export function useGadsEcommerce(
       setLoading(true);
       setError(null);
       try {
-        const [nowRows, prevRows] = await Promise.all([
+        const [nowRows, prevRows, purchaseByName, creators] = await Promise.all([
           fetchRows(clientId, range.from, range.to),
           fetchRows(clientId, previous.from, previous.to),
+          fetchPurchaseByCampaign(clientId, range.from, range.to),
+          fetchCreators(clientId),
         ]);
         if (cancelled) return;
 
@@ -384,7 +459,33 @@ export function useGadsEcommerce(
         const metrics = deriveMetrics(nowSum);
         const deltas = deriveDeltas(metrics, deriveMetrics(prevSum));
 
-        const campaigns = groupCampaigns(nowRows, metrics.cost);
+        // Mapa nombre→id (para atribuir creador por id, inmune a renombres) y
+        // nombre→owner.
+        const idByName = new Map<string, string>();
+        for (const r of nowRows) if (r.campaign_name && r.campaign_id) idByName.set(r.campaign_name, String(r.campaign_id));
+
+        // Campañas con compra real + creador inyectados.
+        const campaigns = groupCampaigns(nowRows, metrics.cost).map((c): GadsEcomCampaign => {
+          const id = idByName.get(c.name);
+          const owner: GadsOwner = (id && creators.get(id)) || 'sin';
+          const p = purchaseByName.get(c.name) || { conv: 0, value: 0 };
+          return { ...c, owner, purchaseConv: p.conv, purchaseValue: p.value, purchaseRoas: c.cost > 0 ? p.value / c.cost : 0 };
+        });
+
+        // Métricas globales de compra real.
+        metrics.purchaseConv = campaigns.reduce((a, c) => a + c.purchaseConv, 0);
+        metrics.purchaseValue = campaigns.reduce((a, c) => a + c.purchaseValue, 0);
+        metrics.purchaseRoas = metrics.cost > 0 ? metrics.purchaseValue / metrics.cost : 0;
+
+        // Resumen IA·Aura vs el resto (nuestro), por ROAS de compra.
+        const mkOw = (): GadsOwnerStat => ({ cost: 0, purchaseConv: 0, purchaseValue: 0, purchaseRoas: 0, count: 0 });
+        const ownerSplit: Record<'nosotros' | 'ia', GadsOwnerStat> = { nosotros: mkOw(), ia: mkOw() };
+        for (const c of campaigns) {
+          const t = ownerSplit[c.owner === 'ia' ? 'ia' : 'nosotros'];
+          t.cost += c.cost; t.purchaseConv += c.purchaseConv; t.purchaseValue += c.purchaseValue; t.count += 1;
+        }
+        (['nosotros', 'ia'] as const).forEach((k) => { ownerSplit[k].purchaseRoas = ownerSplit[k].cost > 0 ? ownerSplit[k].purchaseValue / ownerSplit[k].cost : 0; });
+
         const byType = groupByType(campaigns, metrics.cost);
         const daily = buildDaily(nowRows);
         const hasVideo = byType.some((b) => b.type === 'VIDEO' && b.cost > 0);
@@ -401,6 +502,7 @@ export function useGadsEcommerce(
           deltas,
           byType,
           campaigns,
+          ownerSplit,
           daily,
           hasVideo,
           hasAny,

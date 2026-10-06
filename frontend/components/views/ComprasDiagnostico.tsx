@@ -539,7 +539,7 @@ export function ComprasDiagnostico() {
   const { data, loading, error } = useMetaCompras(client.id, range, previous);
   const catalog = useCatalog(client.id, range);
   const salesNames = (data?.hierarchy ?? []).map((c) => c.name);
-  const placements = useMetaPlacements(client.id, salesNames);
+  const placements = useMetaPlacements(client.id, salesNames, range);
   const cur = client.currency;
   const rangeLabel = formatRangeLabel(range);
 

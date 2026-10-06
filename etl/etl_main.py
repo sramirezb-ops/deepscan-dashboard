@@ -290,6 +290,9 @@ def run_etl(client_id: str, days_back: int = 30):
             bd_all += extract_meta_placement(_tok, _acc, date_from, date_to)
         except Exception as e:
             log.error(f"   ✗ breakdown ad×placement: {e}")
+        # Ahora el desglose es por día: reescribimos la ventana para que renames y
+        # entidades removidas no dejen huérfanos (y la hoja filtre por rango).
+        loader.delete_for_date_range("meta_breakdowns", client_id, date_from, date_to)
         loader.upsert("meta_breakdowns", bd_all, client_id)
         log.info(f"   ✓ Meta Breakdowns: {len(bd_all)} filas")
     except Exception as e:

@@ -233,12 +233,13 @@ def extract_meta_breakdown(
     ent = "adset_name,adset_id" if level == "adset" else "ad_name,ad_id,adset_name"
     fields = f"campaign_name,{ent},spend,impressions,reach,actions,action_values"
     params = {
-        "level":        level,
-        "fields":       fields,
-        "breakdowns":   breakdown,
-        "time_range":   f'{{"since":"{date_from}","until":"{date_to}"}}',
-        "limit":        500,
-        "access_token": access_token,
+        "level":          level,
+        "fields":         fields,
+        "breakdowns":     breakdown,
+        "time_range":     f'{{"since":"{date_from}","until":"{date_to}"}}',
+        "time_increment": 1,   # una fila POR DÍA → la hoja de Compras filtra por rango
+        "limit":          500,
+        "access_token":   access_token,
     }
     url = f"{BASE_URL}/act_{ad_account_id}/insights"
     rows, page = [], 0
@@ -251,6 +252,7 @@ def extract_meta_breakdown(
             actions = r.get("actions", []); avals = r.get("action_values", [])
             spend = float(r.get("spend", 0) or 0)
             rows.append({
+                "date":             r.get("date_start"),
                 "level":            level,
                 "breakdown_type":   breakdown,
                 "breakdown_value":  r.get(breakdown, "") or "unknown",
@@ -314,12 +316,13 @@ def extract_meta_placement(
     breakdown_type='platform_position' y breakdown_value = label combinado."""
     fields = "campaign_name,ad_name,ad_id,adset_name,spend,impressions,reach,actions,action_values"
     params = {
-        "level":        "ad",
-        "fields":       fields,
-        "breakdowns":   "publisher_platform,platform_position",
-        "time_range":   f'{{"since":"{date_from}","until":"{date_to}"}}',
-        "limit":        500,
-        "access_token": access_token,
+        "level":          "ad",
+        "fields":         fields,
+        "breakdowns":     "publisher_platform,platform_position",
+        "time_range":     f'{{"since":"{date_from}","until":"{date_to}"}}',
+        "time_increment": 1,   # una fila POR DÍA → filtrable por rango en la hoja de Compras
+        "limit":          500,
+        "access_token":   access_token,
     }
     url = f"{BASE_URL}/act_{ad_account_id}/insights"
     rows, page = [], 0
@@ -333,6 +336,7 @@ def extract_meta_placement(
         for r in data.get("data", []):
             actions = r.get("actions", []); avals = r.get("action_values", [])
             rows.append({
+                "date":               r.get("date_start"),
                 "level":              "ad",
                 "breakdown_type":     "platform_position",
                 "breakdown_value":    _placement_label(r.get("publisher_platform", ""),

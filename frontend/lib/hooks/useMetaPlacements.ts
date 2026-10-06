@@ -75,7 +75,7 @@ async function pageAll<T>(filter: (q: any) => any): Promise<T[]> {
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { data, error } = await filter(supabase.from('meta_breakdowns').select(
-      'level,breakdown_type,breakdown_value,campaign_name,adset_name,entity_name,spend,purchases,purchase_value,add_to_cart,link_clicks'
+      'date,level,breakdown_type,breakdown_value,campaign_name,adset_name,entity_name,spend,purchases,purchase_value,add_to_cart,link_clicks'
     )).range(off, off + PAGE - 1);
     if (error) throw error;
     const batch = (data || []) as T[];
@@ -109,11 +109,12 @@ function rollup(rows: any[], type: string, level: string): PlaceRow[] {
     .sort((x, y) => y.spend - x.spend);
 }
 
-export function useMetaPlacements(clientId: string, salesNames: string[]) {
+export function useMetaPlacements(clientId: string, salesNames: string[], range?: { from: string; to: string }) {
   const [data, setData] = useState<PlacementsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const key = salesNames.join('\u0000');
+  const from = range?.from, to = range?.to;
 
   useEffect(() => {
     if (!clientId) return;
@@ -121,7 +122,13 @@ export function useMetaPlacements(clientId: string, salesNames: string[]) {
     (async () => {
       setLoading(true); setError(null);
       try {
-        const rows = await pageAll<any>((q) => q.eq('client_id', clientId));
+        const rows = await pageAll<any>((q) => {
+          let qq = q.eq('client_id', clientId);
+          // El desglose es por día: filtra al periodo seleccionado. Filas viejas
+          // sin fecha (date = NULL) quedan fuera hasta que el ETL repueble.
+          if (from && to) qq = qq.gte('date', from).lte('date', to);
+          return qq;
+        });
         const salesSet = new Set(salesNames);
         // Si aún no hay nombres de venta, no filtramos (evita pantalla vacía en el primer render).
         const sales = salesSet.size > 0 ? rows.filter((r) => salesSet.has(r.campaign_name)) : rows;
@@ -141,7 +148,7 @@ export function useMetaPlacements(clientId: string, salesNames: string[]) {
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientId, key]);
+  }, [clientId, key, from, to]);
 
   return { data, loading, error };
 }

@@ -128,7 +128,7 @@ class SupabaseLoader:
             "tiktok_comments":          "client_id,comment_id",
             "implementations":          "client_id,channel,date,title",
             "meta_platform":            "client_id,date,publisher_platform,campaign_name",
-            "meta_breakdowns":          "client_id,level,breakdown_type,breakdown_value,entity_id",
+            "meta_breakdowns":          "client_id,date,level,breakdown_type,breakdown_value,entity_id",
             "meta_ad_creatives":        "client_id,ad_id",
             "meta_catalog_products":    "client_id,product_name",
             "meta_catalog_health":      "client_id",

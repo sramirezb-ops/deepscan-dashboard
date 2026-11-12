@@ -1007,9 +1007,15 @@ def run():
             n = upsert("gads_keywords", rows, "client_id,date_start,keyword_id")
             log.info(f"   ✓ gads_keywords: {n} filas")
 
-            rows = extract_search_terms(gads, customer_id, cid, date_start, date_end)
-            n = upsert("gads_search_term_details", rows, "client_id,date_start,campaign_id,search_term")
-            log.info(f"   ✓ gads_search_term_details: {n} filas")
+            # gads_search_term_details lo escribe EXCLUSIVAMENTE el script "search
+            # terms" (hoja PMAX) vía etl_main.py (delete_for_client + upsert con
+            # llave de 3 columnas: client_id, campaign_id, search_term). Esta ruta
+            # de la API usaba una llave de 4 columnas (con date_start) que chocaba
+            # con esa tabla y la rompía (error 42P10 → timeout del job). Desactivada
+            # para que la hoja sea la única fuente. Ver supabase/schema.sql.
+            # rows = extract_search_terms(gads, customer_id, cid, date_start, date_end)
+            # n = upsert("gads_search_term_details", rows, "client_id,date_start,campaign_id,search_term")
+            # log.info(f"   ✓ gads_search_term_details: {n} filas")
 
             rows = extract_geo(gads, customer_id, cid, date_start, date_end)
             n = upsert("gads_geo", rows, "client_id,date_start,campaign_id,city")

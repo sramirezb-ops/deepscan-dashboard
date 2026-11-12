@@ -698,3 +698,14 @@ alter table gads_campaigns
 
 alter table gads_search_term_details
   add column if not exists keyword_text text;
+
+-- Índices únicos que el script "search terms" (hoja PMAX) necesita para su upsert
+-- (on_conflict). Sin esto cada fila rebota con error 42P10 ("no unique or exclusion
+-- constraint matching the ON CONFLICT specification"), el job se vuelve lentísimo y
+-- se cancela por timeout, congelando TODAS las tablas de Google Ads. Deben coincidir
+-- con el conflict_map de etl/loaders/supabase_loader.py (llaves de 3 columnas, sin
+-- date_start porque estas tablas son snapshot del período, no serie diaria).
+create unique index if not exists gads_search_term_details_uq
+  on gads_search_term_details (client_id, campaign_id, search_term);
+create unique index if not exists gads_search_categories_uq
+  on gads_search_categories (client_id, campaign_id, category_id);

@@ -395,6 +395,9 @@ def extract_ga4_pages(
                 Metric(name="userEngagementDuration"),
                 Metric(name="bounceRate"),
                 Metric(name="conversions"),
+                # Tasa de evento clave de sesión NATIVA de GA4 (sesiones con
+                # evento clave ÷ sesiones). Se agrega ponderada por sesiones.
+                Metric(name="sessionKeyEventRate"),
             ],
             date_ranges=[DateRange(start_date=str(date_from), end_date=str(date_to))],
             order_bys=[OrderBy(dimension=OrderBy.DimensionOrderBy(dimension_name="date"))],
@@ -416,6 +419,7 @@ def extract_ga4_pages(
             eng = float(m[3] or 0)
             bounce = float(m[4] or 0)
             conv = int(float(m[5] or 0))
+            ker = float(m[6] or 0)  # sessionKeyEventRate (0..1)
 
             key = (d, path)
             g = agg.get(key)
@@ -423,7 +427,7 @@ def extract_ga4_pages(
                 g = {
                     "date": d, "page_path": path, "page_title": title,
                     "views": 0, "sessions": 0, "users": 0,
-                    "engagement_seconds": 0.0, "_bounce_w": 0.0, "conversions": 0,
+                    "engagement_seconds": 0.0, "_bounce_w": 0.0, "_ker_w": 0.0, "conversions": 0,
                     "_title_views": -1,
                 }
                 agg[key] = g
@@ -432,6 +436,7 @@ def extract_ga4_pages(
             g["users"] += usrs
             g["engagement_seconds"] += eng
             g["_bounce_w"] += bounce * sess
+            g["_ker_w"] += ker * sess
             g["conversions"] += conv
             if views > g["_title_views"]:
                 g["page_title"] = title
@@ -448,6 +453,7 @@ def extract_ga4_pages(
                 "users": g["users"],
                 "engagement_seconds": round(g["engagement_seconds"], 2),
                 "bounce_rate": round(g["_bounce_w"] / sess, 4) if sess > 0 else 0,
+                "key_event_rate": round(g["_ker_w"] / sess, 4) if sess > 0 else 0,
                 "conversions": g["conversions"],
             })
         log.info(f"   GA4 páginas top: {len(top_pages_rows)} filas (fecha×ruta)")

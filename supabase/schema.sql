@@ -279,10 +279,15 @@ create table if not exists ga4_pages (
   users               bigint default 0,
   engagement_seconds  numeric(16,2) default 0,
   bounce_rate         numeric(8,4) default 0,
+  key_event_rate      numeric(8,4) default 0,  -- sessionKeyEventRate nativo de GA4 (0..1)
   conversions         bigint default 0,
   inserted_at         timestamptz default now(),
   unique (client_id, date, page_path)
 );
+
+-- Para tablas ga4_pages ya existentes (la CREATE de arriba no las altera).
+alter table ga4_pages
+  add column if not exists key_event_rate numeric(8,4) default 0;
 
 -- Páginas de entrada / landing (fecha × landing page)
 create table if not exists ga4_landing (

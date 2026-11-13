@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { formatNumber } from '@/lib/utils';
 
 // ============================================================
@@ -63,6 +63,7 @@ export function GA4CityMap({ cities }: { cities: CityRowLite[] }) {
   }, [cities]);
 
   const labeled = pts.slice(0, 6);
+  const [hover, setHover] = useState<(typeof pts)[number] | null>(null);
 
   return (
     <div className="card" style={{ padding: '16px 18px' }}>
@@ -75,19 +76,36 @@ export function GA4CityMap({ cities }: { cities: CityRowLite[] }) {
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <svg viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ width: '100%', maxWidth: 360, height: 'auto' }} role="img" aria-label="Mapa de sesiones por ciudad en Colombia">
           <path d={COLOMBIA_PATH} fill="var(--bg3)" stroke="var(--b2)" strokeWidth={1.5} strokeLinejoin="round" />
-          {pts.map((p) => (
-            <circle key={p.city} cx={p.x} cy={p.y} r={p.r} fill="#34A853" fillOpacity={0.45} stroke="#34A853" strokeWidth={1} />
-          ))}
+          {pts.map((p) => {
+            const on = hover?.city === p.city;
+            return (
+              <circle key={p.city} cx={p.x} cy={p.y} r={p.r}
+                fill="#34A853" fillOpacity={on ? 0.8 : 0.45} stroke="#34A853" strokeWidth={on ? 2.5 : 1}
+                style={{ cursor: 'pointer', transition: 'fill-opacity .12s, stroke-width .12s' }}
+                onMouseEnter={() => setHover(p)} onMouseLeave={() => setHover((h) => (h?.city === p.city ? null : h))} />
+            );
+          })}
           {labeled.map((p) => (
-            <text key={`t-${p.city}`} x={p.x} y={p.y - p.r - 3} textAnchor="middle" style={{ fontSize: 13, fontWeight: 700, fill: 'var(--t1)' }}>
+            <text key={`t-${p.city}`} x={p.x} y={p.y - p.r - 4} textAnchor="middle" style={{ fontSize: 13, fontWeight: 700, fill: 'var(--t1)', pointerEvents: 'none' }}>
               {p.city}
             </text>
           ))}
-          {labeled.map((p) => (
-            <text key={`v-${p.city}`} x={p.x} y={p.y + 4} textAnchor="middle" style={{ fontSize: 11, fontWeight: 800, fill: 'var(--bg1)' }}>
-              {formatNumber(p.sessions)}
-            </text>
-          ))}
+          {hover && (() => {
+            const label = hover.city;
+            const val = `${formatNumber(hover.sessions)} sesiones`;
+            const w = Math.max(label.length, val.length) * 8.2 + 24;
+            const h = 44;
+            const tx = Math.max(4, Math.min(VB_W - w - 4, hover.x - w / 2));
+            const ty = hover.y - hover.r - h - 6 < 4 ? hover.y + hover.r + 8 : hover.y - hover.r - h - 6;
+            return (
+              <g pointerEvents="none">
+                <rect x={tx} y={ty} width={w} height={h} rx={9} fill="var(--bg1)" stroke="var(--b1)" strokeWidth={1}
+                  style={{ filter: 'drop-shadow(0 3px 8px rgba(0,0,0,0.22))' }} />
+                <text x={tx + w / 2} y={ty + 18} textAnchor="middle" style={{ fontSize: 14, fontWeight: 800, fill: 'var(--t1)' }}>{label}</text>
+                <text x={tx + w / 2} y={ty + 35} textAnchor="middle" style={{ fontSize: 12.5, fontWeight: 700, fill: '#34A853' }}>{val}</text>
+              </g>
+            );
+          })()}
         </svg>
       </div>
     </div>

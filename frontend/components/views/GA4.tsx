@@ -201,29 +201,29 @@ export function GA4() {
       <div style={{ ...slabel, margin: '24px 0 4px' }}>El desglose quirúrgico</div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
-        <TableSection title="¿Desde qué ciudades visitan la web?" legend="Sesiones · usuarios · eventos clave por ciudad">
+        <TableSection title="¿Desde qué ciudades visitan la web?" legend="Sesiones · usuarios · eventos clave por ciudad" total={cities.length}>
           {(tp) => <CitiesTable rows={cities} {...tp} />}
         </TableSection>
         <div style={{ marginTop: 18 }}><GA4CityMap cities={cities} /></div>
       </div>
 
-      <TableSection title="Performance de las ciudades · vs período anterior" legend="Δ% de sesiones, usuarios y eventos clave">
+      <TableSection title="Performance de las ciudades · vs período anterior" legend="Δ% de sesiones, usuarios y eventos clave" total={cities.length}>
         {(tp) => <CitiesPerfTable rows={cities} {...tp} />}
       </TableSection>
 
-      <TableSection title="Canales de adquisición de tráfico" legend="Sesiones y eventos clave por canal">
+      <TableSection title="Canales de adquisición de tráfico" legend="Sesiones y eventos clave por canal" total={channels.length}>
         {(tp) => <ChannelsTable rows={channels} {...tp} />}
       </TableSection>
 
-      <TableSection title="Páginas con mayor tráfico" legend="Usuarios · eventos clave · tasa de evento clave">
+      <TableSection title="Páginas con mayor tráfico" legend="Usuarios · eventos clave · tasa de evento clave" total={pages.length}>
         {(tp) => <PagesTable rows={pages} {...tp} />}
       </TableSection>
 
-      <TableSection title="Páginas de entrada" legend="Sesiones · usuarios · eventos clave">
+      <TableSection title="Páginas de entrada" legend="Sesiones · usuarios · eventos clave" total={landings.length}>
         {(tp) => <LandingsTable rows={landings} {...tp} />}
       </TableSection>
 
-      <TableSection title="Eventos · clics a WhatsApp y eventos clave" legend="★ = evento clave · rojo = clic a WhatsApp NO contado como clave">
+      <TableSection title="Eventos · clics a WhatsApp y eventos clave" legend="★ = evento clave · rojo = clic a WhatsApp NO contado como clave" total={events.length}>
         {(tp) => <EventsTable rows={events} {...tp} />}
       </TableSection>
 
@@ -247,10 +247,13 @@ export function GA4() {
 
 // ── Tablas del desglose · scroll continuo ────────────────────────────────────
 interface ChRow { name: string; sessions: number; conversions: number; cr: number; }
-function TableSection({ title, legend, children }: { title: string; legend: string; children: (tp: TP) => ReactNode }) {
+function TableSection({ title, legend, total, children }: { title: string; legend: string; total?: number; children: (tp: TP) => ReactNode }) {
   const [sortCol, setSortCol] = useState<string>('');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [page, setPage] = useState(0);
+  const [perPage, setPerPage] = useState(25);
   const onSort = (col: string) => {
+    setPage(0);
     if (col === sortCol) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortCol(col); setSortDir('desc'); }
   };
@@ -259,6 +262,11 @@ function TableSection({ title, legend, children }: { title: string; legend: stri
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...arr].sort((a, b) => (get(a) - get(b)) * dir);
   };
+  const n = total ?? 0;
+  const nPages = Math.max(1, Math.ceil(n / perPage));
+  const pg = Math.min(page, nPages - 1);
+  const start = n === 0 ? 0 : pg * perPage + 1;
+  const end = Math.min((pg + 1) * perPage, n);
   return (
     <section style={{ marginTop: 18 }}>
       <div style={expHead}>
@@ -267,15 +275,30 @@ function TableSection({ title, legend, children }: { title: string; legend: stri
       </div>
       <div style={tblWrap}>
         <table className="t ttc-table" style={{ minWidth: 720 }}>
-          {children({ sortBy, sortCol, sortDir, onSort })}
+          {children({ sortBy, sortCol, sortDir, onSort, page: pg, perPage })}
         </table>
       </div>
+      {total !== undefined && (
+        <div style={pagerWrap}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 11, color: 'var(--mu)' }}>Filas:</span>
+            {[10, 25, 50, 100].map((pp) => (
+              <button key={pp} onClick={() => { setPerPage(pp); setPage(0); }} style={ppBtn(perPage === pp)}>{pp}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--t2)', fontVariantNumeric: 'tabular-nums' }}>{start}–{end} de {formatNumber(n)}</span>
+            <button onClick={() => setPage(Math.max(0, pg - 1))} disabled={pg <= 0} style={navBtn(pg <= 0)} aria-label="Anterior">‹</button>
+            <button onClick={() => setPage(Math.min(nPages - 1, pg + 1))} disabled={pg >= nPages - 1} style={navBtn(pg >= nPages - 1)} aria-label="Siguiente">›</button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
 type SortFn = <T,>(arr: T[], get: (r: T) => number) => T[];
-interface TP { sortBy: SortFn; sortCol: string; sortDir: SortDir; onSort: (c: string) => void; }
+interface TP { sortBy: SortFn; sortCol: string; sortDir: SortDir; onSort: (c: string) => void; page: number; perPage: number; }
 function Th({ col, sortCol, sortDir, onSort, children, first }: { col?: string; sortCol: string; sortDir: SortDir; onSort: (c: string) => void; children: ReactNode; first?: boolean }) {
   if (!col) return <th className="nos" style={{ textAlign: first ? 'left' : 'right' }}>{children}</th>;
   return (
@@ -301,17 +324,25 @@ function NameCell({ name, dot, sub, flag, flagColor }: { name: string; dot: stri
     </td>
   );
 }
-function Bar({ v, max }: { v: number; max: number }) {
+function Bar({ v, max, color = 'var(--acc)', fmt = formatNumber }: { v: number; max: number; color?: string; fmt?: (n: number) => string }) {
   return (
     <td className="num" style={{ position: 'relative' }}>
-      <span style={{ position: 'relative', zIndex: 1 }}>{formatNumber(v)}</span>
-      <div style={{ position: 'absolute', left: 10, bottom: 3, height: 3, width: `calc((100% - 20px) * ${max > 0 ? v / max : 0})`, background: 'var(--acc)', opacity: 0.5, borderRadius: 2, zIndex: 0 }} />
+      <span style={{ position: 'relative', zIndex: 1, fontWeight: 700 }}>{fmt(v)}</span>
+      <div style={{ position: 'absolute', left: 10, bottom: 3, height: 3, width: `calc((100% - 20px) * ${max > 0 ? v / max : 0})`, background: color, opacity: 0.5, borderRadius: 2, zIndex: 0 }} />
     </td>
   );
 }
+function PctDelta({ d }: { d: number }) {
+  const up = d >= 0;
+  return <td className="num" style={{ color: up ? GOOD : BAD, fontWeight: 700, fontSize: 11.5 }}>{up ? '▲ +' : '▼ '}{Math.abs(d).toFixed(1)}%</td>;
+}
+function pageSlice<T>(arr: T[], page: number, perPage: number): T[] {
+  return arr.slice(page * perPage, page * perPage + perPage);
+}
 
-function ChannelsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: ChRow[] }) {
-  const max = Math.max(1, ...rows.map((r) => r.sessions));
+function ChannelsTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: TP & { rows: ChRow[] }) {
+  const maxS = Math.max(1, ...rows.map((r) => r.sessions));
+  const maxE = Math.max(1, ...rows.map((r) => r.conversions));
   const get = (r: ChRow) => (sortCol === 'ev' ? r.conversions : r.sessions);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
@@ -322,19 +353,20 @@ function ChannelsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: 
         <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
       </tr></thead>
       <tbody>
-        {view.map((r) => (
+        {pageSlice(view, page, perPage).map((r) => (
           <tr key={r.name}>
             <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 320 }} title={r.name}>{r.name}</div></div></td>
-            <Bar v={r.sessions} max={max} />
-            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+            <Bar v={r.sessions} max={maxS} />
+            <Bar v={r.conversions} max={maxE} fmt={formatInt} color="#34A853" />
           </tr>
         ))}
       </tbody>
     </>
   );
 }
-function PagesTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
-  const max = Math.max(1, ...rows.map((r) => r.users));
+function PagesTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: TP & { rows: any[] }) {
+  const maxU = Math.max(1, ...rows.map((r) => r.users));
+  const maxE = Math.max(1, ...rows.map((r) => r.conversions));
   const rate = (r: any) => (r.views > 0 ? (r.conversions / r.views) * 100 : 0);
   const get = (r: any) => (sortCol === 'ev' ? r.conversions : sortCol === 'cr' ? rate(r) : r.users);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.users - a.users);
@@ -347,14 +379,14 @@ function PagesTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any
         <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Tasa de evento clave</Th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 25).map((r) => (
+        {pageSlice(view, page, perPage).map((r) => (
           <tr key={r.path}>
             <td><div style={nameCell}><div style={{ minWidth: 0 }}>
               <div style={{ ...ellipsis, fontWeight: 600, maxWidth: 340 }} title={r.title || r.path}>{r.title || r.path}</div>
               <div style={subStyle}>{r.path}</div>
             </div></div></td>
-            <Bar v={r.users} max={max} />
-            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+            <Bar v={r.users} max={maxU} />
+            <Bar v={r.conversions} max={maxE} fmt={formatInt} color="#34A853" />
             <td className="num" style={{ fontWeight: 700 }}>{formatPercentRaw(rate(r), 2)}</td>
           </tr>
         ))}
@@ -362,8 +394,10 @@ function PagesTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any
     </>
   );
 }
-function LandingsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
-  const max = Math.max(1, ...rows.map((r) => r.sessions));
+function LandingsTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: TP & { rows: any[] }) {
+  const maxS = Math.max(1, ...rows.map((r) => r.sessions));
+  const maxU = Math.max(1, ...rows.map((r) => r.users));
+  const maxE = Math.max(1, ...rows.map((r) => r.conversions));
   const get = (r: any) => (sortCol === 'u' ? r.users : sortCol === 'ev' ? r.conversions : r.sessions);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
@@ -375,20 +409,22 @@ function LandingsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: 
         <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 25).map((r) => (
+        {pageSlice(view, page, perPage).map((r) => (
           <tr key={r.landing}>
             <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 340 }} title={r.landing}>{r.landing}</div></div></td>
-            <Bar v={r.sessions} max={max} />
-            <td className="num">{formatNumber(r.users)}</td>
-            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+            <Bar v={r.sessions} max={maxS} />
+            <Bar v={r.users} max={maxU} />
+            <Bar v={r.conversions} max={maxE} fmt={formatInt} color="#34A853" />
           </tr>
         ))}
       </tbody>
     </>
   );
 }
-function CitiesTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
-  const max = Math.max(1, ...rows.map((r) => r.sessions));
+function CitiesTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: TP & { rows: any[] }) {
+  const maxS = Math.max(1, ...rows.map((r) => r.sessions));
+  const maxU = Math.max(1, ...rows.map((r) => r.users));
+  const maxE = Math.max(1, ...rows.map((r) => r.conversions));
   const get = (r: any) => (sortCol === 'u' ? r.users : sortCol === 'ev' ? r.conversions : r.sessions);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
@@ -400,28 +436,31 @@ function CitiesTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: an
         <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 50).map((r) => (
+        {pageSlice(view, page, perPage).map((r) => (
           <tr key={r.city}>
             <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 320 }} title={r.city}>{r.city}</div></div></td>
-            <Bar v={r.sessions} max={max} />
-            <td className="num">{formatNumber(r.users)}</td>
-            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+            <Bar v={r.sessions} max={maxS} />
+            <Bar v={r.users} max={maxU} color="#1a7f37" />
+            <Bar v={r.conversions} max={maxE} fmt={formatInt} color="#34A853" />
           </tr>
         ))}
       </tbody>
     </>
   );
 }
-function DeltaCell({ v, d }: { v: number; d: number }) {
-  const up = d >= 0;
+// Celda de métrica con barra (igual que el Looker: número + barra de apoyo).
+function BarCell({ v, max, color, fmt = formatNumber }: { v: number; max: number; color: string; fmt?: (n: number) => string }) {
   return (
-    <td className="num">
-      <div style={{ fontWeight: 700 }}>{formatNumber(v)}</div>
-      <div style={{ fontSize: 10, color: up ? GOOD : BAD }}>{up ? '▲ +' : '▼ '}{Math.abs(d).toFixed(1)}%</div>
+    <td className="num" style={{ position: 'relative' }}>
+      <span style={{ position: 'relative', zIndex: 1, fontWeight: 700 }}>{fmt(v)}</span>
+      <div style={{ position: 'absolute', left: 10, bottom: 3, height: 3, width: `calc((100% - 20px) * ${max > 0 ? v / max : 0})`, background: color, opacity: 0.5, borderRadius: 2, zIndex: 0 }} />
     </td>
   );
 }
-function CitiesPerfTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
+function CitiesPerfTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: TP & { rows: any[] }) {
+  const maxS = Math.max(1, ...rows.map((r) => r.sessions));
+  const maxU = Math.max(1, ...rows.map((r) => r.users));
+  const maxE = Math.max(1, ...rows.map((r) => r.conversions));
   const get = (r: any) => (sortCol === 'u' ? r.users : sortCol === 'ev' ? r.conversions : r.sessions);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
@@ -429,23 +468,29 @@ function CitiesPerfTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows
       <thead><tr>
         <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Ciudad</Th>
         <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
+        <th className="nos" style={{ textAlign: 'right' }}>% Δ</th>
         <Th col="u" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Total usuarios</Th>
+        <th className="nos" style={{ textAlign: 'right' }}>% Δ</th>
         <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
+        <th className="nos" style={{ textAlign: 'right' }}>% Δ</th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 50).map((r) => (
+        {pageSlice(view, page, perPage).map((r) => (
           <tr key={r.city}>
-            <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 320 }} title={r.city}>{r.city}</div></div></td>
-            <DeltaCell v={r.sessions} d={r.sessionsDelta} />
-            <DeltaCell v={r.users} d={r.usersDelta} />
-            <DeltaCell v={r.conversions} d={r.conversionsDelta} />
+            <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 220 }} title={r.city}>{r.city}</div></div></td>
+            <BarCell v={r.sessions} max={maxS} color="var(--acc)" />
+            <PctDelta d={r.sessionsDelta} />
+            <BarCell v={r.users} max={maxU} color="#1a7f37" />
+            <PctDelta d={r.usersDelta} />
+            <BarCell v={r.conversions} max={maxE} color="#34A853" fmt={formatInt} />
+            <PctDelta d={r.conversionsDelta} />
           </tr>
         ))}
       </tbody>
     </>
   );
 }
-function EventsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: { name: string; count: number; key: boolean }[] }) {
+function EventsTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: TP & { rows: { name: string; count: number; key: boolean }[] }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
   const view = sortCol ? sortBy(rows, (r) => r.count) : [...rows].sort((a, b) => b.count - a.count);
   return (
@@ -456,7 +501,7 @@ function EventsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: { 
         <th className="nos" style={{ textAlign: 'right' }}>¿Clave?</th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 30).map((r) => {
+        {pageSlice(view, page, perPage).map((r) => {
           const isWa = /whatsapp/i.test(r.name);
           const flag = isWa && !r.key ? 'NO clave' : undefined;
           return (
@@ -568,3 +613,10 @@ const nameCell: React.CSSProperties = { display: 'flex', alignItems: 'center', g
 const dotStyle: React.CSSProperties = { flex: 'none', width: 8, height: 8, borderRadius: '50%', display: 'inline-block' };
 const subStyle: React.CSSProperties = { fontSize: 9.5, color: 'var(--mu)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 300 };
 const ellipsis: React.CSSProperties = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+const pagerWrap: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', margin: '8px 2px 0' };
+function ppBtn(on: boolean): React.CSSProperties {
+  return { fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 7, cursor: 'pointer', border: '1px solid var(--b1)', background: on ? 'var(--acc)' : 'var(--bg3)', color: on ? '#fff' : 'var(--t2)' };
+}
+function navBtn(disabled: boolean): React.CSSProperties {
+  return { fontSize: 15, fontWeight: 700, width: 26, height: 26, borderRadius: 7, cursor: disabled ? 'default' : 'pointer', border: '1px solid var(--b1)', background: 'var(--bg3)', color: disabled ? 'var(--b2)' : 'var(--t1)', opacity: disabled ? 0.5 : 1, lineHeight: 1 };
+}

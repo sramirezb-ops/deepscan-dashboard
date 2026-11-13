@@ -74,7 +74,7 @@ export function GA4CityMap({ cities }: { cities: CityRowLite[] }) {
         Burbujas = sesiones por ciudad · dato real de GA4.
       </div>
       <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <svg viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ width: '100%', maxWidth: 360, height: 'auto' }} role="img" aria-label="Mapa de sesiones por ciudad en Colombia">
+        <svg viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="xMidYMid meet" style={{ width: '100%', maxWidth: 520, height: 'auto' }} role="img" aria-label="Mapa de sesiones por ciudad en Colombia">
           <path d={COLOMBIA_PATH} fill="var(--bg3)" stroke="var(--b2)" strokeWidth={1.5} strokeLinejoin="round" />
           {pts.map((p) => {
             const on = hover?.city === p.city;

@@ -10,9 +10,11 @@ import { useGA4Pages } from '@/lib/hooks/useGA4Pages';
 import { useGA4Cities } from '@/lib/hooks/useGA4Cities';
 import { useGA4Funnel } from '@/lib/hooks/useGA4Funnel';
 import { useGA4Routes } from '@/lib/hooks/useGA4Routes';
+import { useGA4WhatsApp } from '@/lib/hooks/useGA4WhatsApp';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ComparisonAreaChart } from '@/components/ui/ComparisonAreaChart';
 import { GA4Funnel } from '@/components/views/GA4Funnel';
+import { GA4CityMap } from '@/components/views/GA4CityMap';
 import { formatInt, formatNumber, formatPercentRaw } from '@/lib/utils';
 
 // ============================================================
@@ -41,8 +43,6 @@ function shortDate(iso: string): string {
 }
 // "485875757 / Organic Search" → "Organic Search"
 const cleanChannel = (s: string) => s.replace(/^\d+\s*\/\s*/, '').trim() || s;
-const convDot = (cr: number, avg: number) => (cr >= avg * 1.2 ? GOOD : cr >= avg * 0.8 ? WARN : BAD);
-const bounceDot = (b: number) => (b < 40 ? GOOD : b < 60 ? WARN : BAD);
 
 type SortDir = 'asc' | 'desc';
 
@@ -53,6 +53,7 @@ export function GA4() {
   const pagesR = useGA4Pages(client.id, range, previous);
   const citiesR = useGA4Cities(client.id, range, previous);
   const funnelR = useGA4Funnel(client.id, range, previous);
+  const wa = useGA4WhatsApp(client.id, range, previous);
 
   const rangeLabel = formatRangeLabel(range);
 
@@ -180,35 +181,54 @@ export function GA4() {
           labelsCurrent={labels} labelsPrevious={labelsPrev} color="#34A853" format={formatInt} />
       </div>
 
+      {/* ═══ COMPORTAMIENTO DE EVENTOS DE WHATSAPP (diario) ═══ */}
+      {wa.data && wa.data.total > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <ComparisonAreaChart
+            title="Comportamiento de los eventos de WhatsApp"
+            headline={formatInt(wa.data.total)}
+            sub={`Clics a WhatsApp por día · ${rangeLabel} vs anterior`}
+            current={wa.data.current} previous={wa.data.previous}
+            labelsCurrent={wa.data.labels.map(shortDate)} labelsPrevious={wa.data.labels.map(shortDate)}
+            color="#25D366" format={formatInt} />
+        </div>
+      )}
+
       {/* ═══ FUNNEL ═══ */}
       <GA4Funnel clientId={client.id} range={range} previous={previous} totals={t} totalsPrev={data.totalsPrev} />
 
-      {/* ═══ DESGLOSE · scroll continuo, enfocado en WhatsApp / eventos clave ═══ */}
+      {/* ═══ DESGLOSE · scroll continuo · métricas idénticas al Looker ═══ */}
       <div style={{ ...slabel, margin: '24px 0 4px' }}>El desglose quirúrgico</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
+        <TableSection title="¿Desde qué ciudades visitan la web?" legend="Sesiones · usuarios · eventos clave por ciudad">
+          {(tp) => <CitiesTable rows={cities} {...tp} />}
+        </TableSection>
+        <div style={{ marginTop: 18 }}><GA4CityMap cities={cities} /></div>
+      </div>
+
+      <TableSection title="Performance de las ciudades · vs período anterior" legend="Δ% de sesiones, usuarios y eventos clave">
+        {(tp) => <CitiesPerfTable rows={cities} {...tp} />}
+      </TableSection>
+
+      <TableSection title="Canales de adquisición de tráfico" legend="Sesiones y eventos clave por canal">
+        {(tp) => <ChannelsTable rows={channels} {...tp} />}
+      </TableSection>
+
+      <TableSection title="Páginas con mayor tráfico" legend="Usuarios · eventos clave · tasa de evento clave">
+        {(tp) => <PagesTable rows={pages} {...tp} />}
+      </TableSection>
+
+      <TableSection title="Páginas de entrada" legend="Sesiones · usuarios · eventos clave">
+        {(tp) => <LandingsTable rows={landings} {...tp} />}
+      </TableSection>
 
       <TableSection title="Eventos · clics a WhatsApp y eventos clave" legend="★ = evento clave · rojo = clic a WhatsApp NO contado como clave">
         {(tp) => <EventsTable rows={events} {...tp} />}
       </TableSection>
 
-      <TableSection title="Ciudades" legend={`Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}`}>
-        {(tp) => <CitiesTable rows={cities} avgConv={avgConv} total={t.sessions} {...tp} />}
-      </TableSection>
-
-      <TableSection title="Canales" legend={`Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}`}>
-        {(tp) => <ChannelsTable rows={channels} avgConv={avgConv} total={t.sessions} {...tp} />}
-      </TableSection>
-
-      <TableSection title="Páginas · conversión por producto" legend="Conv % = eventos ÷ vistas · semáforo por rebote">
-        {(tp) => <PagesTable rows={pages} avgConv={avgConv} {...tp} />}
-      </TableSection>
-
-      <TableSection title="Páginas de entrada" legend="Semáforo por rebote">
-        {(tp) => <LandingsTable rows={landings} avgConv={avgConv} {...tp} />}
-      </TableSection>
-
-      <div style={{ fontSize: 11, color: 'var(--mu)', margin: '12px 2px 0', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        <span><Dot c={GOOD} /> mejor</span><span><Dot c={WARN} /> promedio</span><span><Dot c={BAD} /> peor</span>
-        <span>· clic en una columna para ordenar</span>
+      <div style={{ fontSize: 11, color: 'var(--mu)', margin: '12px 2px 0' }}>
+        Clic en una columna para ordenar.
       </div>
 
       {/* ═══ EXPLORACIÓN DE RUTA (1 salto) ═══ */}
@@ -290,121 +310,137 @@ function Bar({ v, max }: { v: number; max: number }) {
   );
 }
 
-function ChannelsTable({ rows, avgConv, total, sortBy, sortCol, sortDir, onSort }: TP & { rows: ChRow[]; avgConv: number; total: number }) {
+function ChannelsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: ChRow[] }) {
   const max = Math.max(1, ...rows.map((r) => r.sessions));
-  const sorted = sortBy(rows, (r) => (sortCol === 'cr' ? r.cr : sortCol === 'ev' ? r.conversions : r.sessions));
-  const view = sortCol ? sorted : [...rows].sort((a, b) => b.sessions - a.sessions);
+  const get = (r: ChRow) => (sortCol === 'ev' ? r.conversions : r.sessions);
+  const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
     <>
       <thead><tr>
         <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Canal</Th>
         <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
-        <th className="nos" style={{ textAlign: 'right' }}>Share</th>
-        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos</Th>
-        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv %</Th>
+        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
       </tr></thead>
       <tbody>
-        {view.map((r) => {
-          const flag = /unassigned/i.test(r.name) ? 'sin UTM' : undefined;
-          return (
-            <tr key={r.name}>
-              <NameCell name={r.name} dot={convDot(r.cr, avgConv)} flag={flag} flagColor={WARN} />
-              <Bar v={r.sessions} max={max} />
-              <td className="num">{formatPercentRaw((r.sessions / total) * 100, 1)}</td>
-              <td className="num">{formatInt(r.conversions)}</td>
-              <td className="num" style={{ color: convDot(r.cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(r.cr, 1)}</td>
-            </tr>
-          );
-        })}
+        {view.map((r) => (
+          <tr key={r.name}>
+            <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 320 }} title={r.name}>{r.name}</div></div></td>
+            <Bar v={r.sessions} max={max} />
+            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+          </tr>
+        ))}
       </tbody>
     </>
   );
 }
-function PagesTable({ rows, sortBy, sortCol, sortDir, onSort, avgConv }: TP & { rows: any[]; avgConv: number }) {
-  const max = Math.max(1, ...rows.map((r) => r.views));
-  const get = (r: any) => (sortCol === 'cr' ? (r.views > 0 ? r.conversions / r.views * 100 : 0) : sortCol === 'ev' ? r.conversions : sortCol === 'b' ? r.bounceRate : r.views);
-  const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.views - a.views);
+function PagesTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
+  const max = Math.max(1, ...rows.map((r) => r.users));
+  const rate = (r: any) => (r.views > 0 ? (r.conversions / r.views) * 100 : 0);
+  const get = (r: any) => (sortCol === 'ev' ? r.conversions : sortCol === 'cr' ? rate(r) : r.users);
+  const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.users - a.users);
   return (
     <>
       <thead><tr>
         <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Página</Th>
-        <Th col="v" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Vistas</Th>
-        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos</Th>
-        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv % (ev/vista)</Th>
-        <Th col="b" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Rebote</Th>
+        <Th col="u" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Total usuarios</Th>
+        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
+        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Tasa de evento clave</Th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 25).map((r) => {
-          const cr = r.views > 0 ? (r.conversions / r.views) * 100 : 0;
-          const b = r.bounceRate * 100;
-          return (
-            <tr key={r.path}>
-              <NameCell name={r.path} dot={bounceDot(b)} sub={r.title} />
-              <Bar v={r.views} max={max} />
-              <td className="num">{formatInt(r.conversions)}</td>
-              <td className="num" style={{ color: convDot(cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(cr, 1)}</td>
-              <td className="num" style={{ color: bounceDot(b), fontWeight: 700 }}>{formatPercentRaw(b, 0)}</td>
-            </tr>
-          );
-        })}
+        {view.slice(0, 25).map((r) => (
+          <tr key={r.path}>
+            <td><div style={nameCell}><div style={{ minWidth: 0 }}>
+              <div style={{ ...ellipsis, fontWeight: 600, maxWidth: 340 }} title={r.title || r.path}>{r.title || r.path}</div>
+              <div style={subStyle}>{r.path}</div>
+            </div></div></td>
+            <Bar v={r.users} max={max} />
+            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+            <td className="num" style={{ fontWeight: 700 }}>{formatPercentRaw(rate(r), 2)}</td>
+          </tr>
+        ))}
       </tbody>
     </>
   );
 }
-function LandingsTable({ rows, sortBy, sortCol, sortDir, onSort, avgConv }: TP & { rows: any[]; avgConv: number }) {
+function LandingsTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
   const max = Math.max(1, ...rows.map((r) => r.sessions));
-  const get = (r: any) => (sortCol === 'cr' ? (r.sessions > 0 ? r.conversions / r.sessions * 100 : 0) : sortCol === 'b' ? r.bounceRate : r.sessions);
+  const get = (r: any) => (sortCol === 'u' ? r.users : sortCol === 'ev' ? r.conversions : r.sessions);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
     <>
       <thead><tr>
         <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Entrada</Th>
         <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
-        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv %</Th>
-        <Th col="b" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Rebote</Th>
+        <Th col="u" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Usuarios</Th>
+        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 25).map((r) => {
-          const cr = r.sessions > 0 ? (r.conversions / r.sessions) * 100 : 0;
-          const b = r.bounceRate * 100;
-          const flag = b > 90 ? 'roto' : undefined;
-          return (
-            <tr key={r.landing}>
-              <NameCell name={r.landing} dot={bounceDot(b)} flag={flag} />
-              <Bar v={r.sessions} max={max} />
-              <td className="num" style={{ color: convDot(cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(cr, 1)}</td>
-              <td className="num" style={{ color: bounceDot(b), fontWeight: 700 }}>{formatPercentRaw(b, 0)}</td>
-            </tr>
-          );
-        })}
+        {view.slice(0, 25).map((r) => (
+          <tr key={r.landing}>
+            <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 340 }} title={r.landing}>{r.landing}</div></div></td>
+            <Bar v={r.sessions} max={max} />
+            <td className="num">{formatNumber(r.users)}</td>
+            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+          </tr>
+        ))}
       </tbody>
     </>
   );
 }
-function CitiesTable({ rows, avgConv, total, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[]; avgConv: number; total: number }) {
+function CitiesTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
   const max = Math.max(1, ...rows.map((r) => r.sessions));
-  const get = (r: any) => (sortCol === 'cr' ? (r.sessions > 0 ? r.conversions / r.sessions * 100 : 0) : r.sessions);
+  const get = (r: any) => (sortCol === 'u' ? r.users : sortCol === 'ev' ? r.conversions : r.sessions);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
     <>
       <thead><tr>
         <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Ciudad</Th>
         <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
-        <th className="nos" style={{ textAlign: 'right' }}>Share</th>
-        <Th col="cr" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Conv %</Th>
+        <Th col="u" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Total usuarios</Th>
+        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
       </tr></thead>
       <tbody>
-        {view.slice(0, 25).map((r) => {
-          const cr = r.sessions > 0 ? (r.conversions / r.sessions) * 100 : 0;
-          return (
-            <tr key={r.city}>
-              <NameCell name={r.city} dot={convDot(cr, avgConv)} />
-              <Bar v={r.sessions} max={max} />
-              <td className="num">{formatPercentRaw((r.sessions / total) * 100, 1)}</td>
-              <td className="num" style={{ color: convDot(cr, avgConv), fontWeight: 800 }}>{formatPercentRaw(cr, 1)}</td>
-            </tr>
-          );
-        })}
+        {view.slice(0, 50).map((r) => (
+          <tr key={r.city}>
+            <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 320 }} title={r.city}>{r.city}</div></div></td>
+            <Bar v={r.sessions} max={max} />
+            <td className="num">{formatNumber(r.users)}</td>
+            <td className="num" style={{ fontWeight: 700 }}>{formatInt(r.conversions)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </>
+  );
+}
+function DeltaCell({ v, d }: { v: number; d: number }) {
+  const up = d >= 0;
+  return (
+    <td className="num">
+      <div style={{ fontWeight: 700 }}>{formatNumber(v)}</div>
+      <div style={{ fontSize: 10, color: up ? GOOD : BAD }}>{up ? '▲ +' : '▼ '}{Math.abs(d).toFixed(1)}%</div>
+    </td>
+  );
+}
+function CitiesPerfTable({ rows, sortBy, sortCol, sortDir, onSort }: TP & { rows: any[] }) {
+  const get = (r: any) => (sortCol === 'u' ? r.users : sortCol === 'ev' ? r.conversions : r.sessions);
+  const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
+  return (
+    <>
+      <thead><tr>
+        <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Ciudad</Th>
+        <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
+        <Th col="u" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Total usuarios</Th>
+        <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
+      </tr></thead>
+      <tbody>
+        {view.slice(0, 50).map((r) => (
+          <tr key={r.city}>
+            <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 320 }} title={r.city}>{r.city}</div></div></td>
+            <DeltaCell v={r.sessions} d={r.sessionsDelta} />
+            <DeltaCell v={r.users} d={r.usersDelta} />
+            <DeltaCell v={r.conversions} d={r.conversionsDelta} />
+          </tr>
+        ))}
       </tbody>
     </>
   );
@@ -521,9 +557,6 @@ function ActionStrip({ color, title, big, lab, small }: { color: string; title: 
       <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 1, lineHeight: 1.3 }}>{lab}</div>
     </div>
   );
-}
-function Dot({ c }: { c: string }) {
-  return <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: c, verticalAlign: 1, marginRight: 4 }} />;
 }
 
 const slabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--t3)' };

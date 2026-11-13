@@ -200,11 +200,12 @@ export function GA4() {
       {/* ═══ DESGLOSE · scroll continuo · métricas idénticas al Looker ═══ */}
       <div style={{ ...slabel, margin: '24px 0 4px' }}>El desglose quirúrgico</div>
 
-      <TableSection title="¿Desde qué ciudades visitan la web?" legend="Sesiones · usuarios · eventos clave por ciudad" total={cities.length}>
-        {(tp) => <CitiesTable rows={cities} {...tp} />}
-      </TableSection>
-
-      <div style={{ marginTop: 16 }}><GA4CityMap cities={cities} /></div>
+      <div className="ga4-cities-row">
+        <TableSection title="¿Desde qué ciudades visitan la web?" legend="Sesiones · usuarios · eventos clave por ciudad" total={cities.length} minW={600}>
+          {(tp) => <CitiesTable rows={cities} {...tp} />}
+        </TableSection>
+        <GA4CityMap cities={cities} />
+      </div>
 
       <TableSection title="Performance de las ciudades · vs período anterior" legend="Δ% de sesiones, usuarios y eventos clave" total={cities.length}>
         {(tp) => <CitiesPerfTable rows={cities} {...tp} />}
@@ -246,7 +247,7 @@ export function GA4() {
 
 // ── Tablas del desglose · scroll continuo ────────────────────────────────────
 interface ChRow { name: string; sessions: number; conversions: number; cr: number; }
-function TableSection({ title, legend, total, children }: { title: string; legend: string; total?: number; children: (tp: TP) => ReactNode }) {
+function TableSection({ title, legend, total, minW = 720, children }: { title: string; legend: string; total?: number; minW?: number; children: (tp: TP) => ReactNode }) {
   const [sortCol, setSortCol] = useState<string>('');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(0);
@@ -273,7 +274,7 @@ function TableSection({ title, legend, total, children }: { title: string; legen
         <span style={{ fontSize: 11, color: 'var(--mu)' }}>{legend}</span>
       </div>
       <div style={tblWrap}>
-        <table className="t ttc-table" style={{ minWidth: 720 }}>
+        <table className="t ttc-table" style={{ minWidth: minW }}>
           {children({ sortBy, sortCol, sortDir, onSort, page: pg, perPage })}
         </table>
       </div>

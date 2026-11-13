@@ -23,8 +23,9 @@ import { formatInt, formatNumber, formatPercentRaw } from '@/lib/utils';
 // un explorador con semáforo para diagnosticar a detalle:
 //   ZONA 1 — Diagnóstico + KPIs + acciones (Escalar/Revisar/Arreglar medición).
 //   ZONA 2 — Gráficas acumuladas (tráfico + eventos clave, actual vs anterior),
-//            Funnel de leads a color, y explorador con pestañas Canales ·
-//            Páginas (conv. por producto) · Entrada · Ciudades · Eventos.
+//            Funnel de leads a color, y el desglose en SCROLL CONTINUO
+//            (sin pestañas), liderando con Eventos/WhatsApp y luego Ciudades ·
+//            Canales · Páginas · Entrada.
 // GA4 mide leads/engagement (no dinero: es lead-gen). Todo dinámico por fecha.
 // ============================================================
 
@@ -43,7 +44,6 @@ const cleanChannel = (s: string) => s.replace(/^\d+\s*\/\s*/, '').trim() || s;
 const convDot = (cr: number, avg: number) => (cr >= avg * 1.2 ? GOOD : cr >= avg * 0.8 ? WARN : BAD);
 const bounceDot = (b: number) => (b < 40 ? GOOD : b < 60 ? WARN : BAD);
 
-type Tab = 'ch' | 'pg' | 'ld' | 'ci' | 'ev';
 type SortDir = 'asc' | 'desc';
 
 export function GA4() {
@@ -116,6 +116,14 @@ export function GA4() {
   }
   const brokenLanding = (pagesR.data?.landings ?? []).find((l) => /not set|no definido|\(/.test(l.landing) && l.bounceRate > 0.9);
 
+  // Datos del desglose (scroll continuo). Eventos/WhatsApp van primero.
+  const events = funnelR.data
+    ? Array.from(funnelR.data.byName.entries()).map(([name, a]) => ({ name, count: a.count, key: a.isKeyEvent }))
+    : [];
+  const pages = pagesR.data?.pages ?? [];
+  const landings = pagesR.data?.landings ?? [];
+  const cities = citiesR.data?.cities ?? [];
+
   return (
     <div className="view on">
       <div className="hero">
@@ -175,17 +183,33 @@ export function GA4() {
       {/* ═══ FUNNEL ═══ */}
       <GA4Funnel clientId={client.id} range={range} previous={previous} totals={t} totalsPrev={data.totalsPrev} />
 
-      {/* ═══ EXPLORADOR ═══ */}
-      <div style={{ ...slabel, margin: '24px 0 10px' }}>El desglose quirúrgico</div>
-      <Explorer
-        avgConv={avgConv}
-        channels={channels}
-        pages={pagesR.data?.pages ?? []}
-        landings={pagesR.data?.landings ?? []}
-        cities={citiesR.data?.cities ?? []}
-        events={funnelR.data ? Array.from(funnelR.data.byName.entries()).map(([name, a]) => ({ name, count: a.count, key: a.isKeyEvent })) : []}
-        totalSessions={t.sessions}
-      />
+      {/* ═══ DESGLOSE · scroll continuo, enfocado en WhatsApp / eventos clave ═══ */}
+      <div style={{ ...slabel, margin: '24px 0 4px' }}>El desglose quirúrgico</div>
+
+      <TableSection title="Eventos · clics a WhatsApp y eventos clave" legend="★ = evento clave · rojo = clic a WhatsApp NO contado como clave">
+        {(tp) => <EventsTable rows={events} {...tp} />}
+      </TableSection>
+
+      <TableSection title="Ciudades" legend={`Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}`}>
+        {(tp) => <CitiesTable rows={cities} avgConv={avgConv} total={t.sessions} {...tp} />}
+      </TableSection>
+
+      <TableSection title="Canales" legend={`Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}`}>
+        {(tp) => <ChannelsTable rows={channels} avgConv={avgConv} total={t.sessions} {...tp} />}
+      </TableSection>
+
+      <TableSection title="Páginas · conversión por producto" legend="Conv % = eventos ÷ vistas · semáforo por rebote">
+        {(tp) => <PagesTable rows={pages} avgConv={avgConv} {...tp} />}
+      </TableSection>
+
+      <TableSection title="Páginas de entrada" legend="Semáforo por rebote">
+        {(tp) => <LandingsTable rows={landings} avgConv={avgConv} {...tp} />}
+      </TableSection>
+
+      <div style={{ fontSize: 11, color: 'var(--mu)', margin: '12px 2px 0', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <span><Dot c={GOOD} /> mejor</span><span><Dot c={WARN} /> promedio</span><span><Dot c={BAD} /> peor</span>
+        <span>· clic en una columna para ordenar</span>
+      </div>
 
       {/* ═══ EXPLORACIÓN DE RUTA (1 salto) ═══ */}
       <div style={{ ...slabel, margin: '24px 0 10px' }}>Exploración de ruta · patrones de navegación</div>
@@ -201,66 +225,32 @@ export function GA4() {
   );
 }
 
-// ── Explorador con pestañas ──────────────────────────────────────────────────
+// ── Tablas del desglose · scroll continuo ────────────────────────────────────
 interface ChRow { name: string; sessions: number; conversions: number; cr: number; }
-function Explorer({
-  avgConv, channels, pages, landings, cities, events, totalSessions,
-}: {
-  avgConv: number;
-  channels: ChRow[];
-  pages: { path: string; title: string; views: number; sessions: number; bounceRate: number; conversions: number }[] | any[];
-  landings: { landing: string; sessions: number; bounceRate: number; conversions: number }[] | any[];
-  cities: { city: string; sessions: number; conversions: number }[] | any[];
-  events: { name: string; count: number; key: boolean }[];
-  totalSessions: number;
-}) {
-  const [tab, setTab] = useState<Tab>('ch');
+function TableSection({ title, legend, children }: { title: string; legend: string; children: (tp: TP) => ReactNode }) {
   const [sortCol, setSortCol] = useState<string>('');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-
   const onSort = (col: string) => {
     if (col === sortCol) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortCol(col); setSortDir('desc'); }
   };
-  const changeTab = (n: Tab) => { setTab(n); setSortCol(''); setSortDir('desc'); };
-  const sortBy = <T,>(arr: T[], get: (r: T) => number, defaultDesc = true): T[] => {
+  const sortBy = <T,>(arr: T[], get: (r: T) => number): T[] => {
     if (!sortCol) return arr;
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...arr].sort((a, b) => (get(a) - get(b)) * dir);
   };
-
-  const meta: Record<Tab, { label: string; legend: string }> = {
-    ch: { label: 'Canales', legend: `Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}` },
-    pg: { label: 'Páginas (conv. por producto)', legend: 'Conv % = eventos ÷ vistas · semáforo por rebote' },
-    ld: { label: 'Entrada', legend: 'Semáforo por rebote' },
-    ci: { label: 'Ciudades', legend: `Semáforo conv. vs promedio ${formatPercentRaw(avgConv, 1)}` },
-    ev: { label: 'Eventos', legend: '★ = evento clave · rojo = clic a WhatsApp NO contado como clave' },
-  };
-
   return (
-    <>
+    <section style={{ marginTop: 18 }}>
       <div style={expHead}>
-        <div style={tabsWrap}>
-          {(Object.keys(meta) as Tab[]).map((k) => (
-            <button key={k} onClick={() => changeTab(k)} style={tabBtn(tab === k)}>{meta[k].label}</button>
-          ))}
-        </div>
-        <span style={{ fontSize: 11, color: 'var(--mu)' }}>{meta[tab].legend}</span>
+        <div style={slabel}>{title}</div>
+        <span style={{ fontSize: 11, color: 'var(--mu)' }}>{legend}</span>
       </div>
       <div style={tblWrap}>
         <table className="t ttc-table" style={{ minWidth: 720 }}>
-          {tab === 'ch' && <ChannelsTable rows={channels} avgConv={avgConv} total={totalSessions} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} />}
-          {tab === 'pg' && <PagesTable rows={pages} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} avgConv={avgConv} />}
-          {tab === 'ld' && <LandingsTable rows={landings} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} avgConv={avgConv} />}
-          {tab === 'ci' && <CitiesTable rows={cities} avgConv={avgConv} total={totalSessions} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} />}
-          {tab === 'ev' && <EventsTable rows={events} sortBy={sortBy} sortCol={sortCol} sortDir={sortDir} onSort={onSort} />}
+          {children({ sortBy, sortCol, sortDir, onSort })}
         </table>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--mu)', margin: '10px 2px 0', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        <span><Dot c={GOOD} /> mejor</span><span><Dot c={WARN} /> promedio</span><span><Dot c={BAD} /> peor</span>
-        <span>· clic en una columna para ordenar</span>
-      </div>
-    </>
+    </section>
   );
 }
 
@@ -540,10 +530,6 @@ const slabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpaci
 const headline: React.CSSProperties = { fontSize: 'clamp(18px,2.2vw,24px)', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2, marginTop: 4 };
 const headSub: React.CSSProperties = { fontSize: 12.5, color: 'var(--t2)', marginTop: 9, lineHeight: 1.5 };
 const expHead: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 11 };
-const tabsWrap: React.CSSProperties = { display: 'inline-flex', background: 'var(--bg3)', border: '1px solid var(--b1)', borderRadius: 10, padding: 3, gap: 2, flexWrap: 'wrap' };
-function tabBtn(on: boolean): React.CSSProperties {
-  return { fontSize: 12, fontWeight: 700, padding: '7px 12px', borderRadius: 8, cursor: 'pointer', border: 'none', background: on ? 'var(--bg1)' : 'transparent', color: on ? 'var(--t1)' : 'var(--t2)', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.12)' : 'none' };
-}
 const tblWrap: React.CSSProperties = { overflowX: 'auto', border: '1px solid var(--b1)', borderRadius: 14, background: 'var(--bg1)' };
 const nameCell: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 };
 const dotStyle: React.CSSProperties = { flex: 'none', width: 8, height: 8, borderRadius: '50%', display: 'inline-block' };

@@ -425,6 +425,7 @@ function CitiesTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: 
   const maxS = Math.max(1, ...rows.map((r) => r.sessions));
   const maxU = Math.max(1, ...rows.map((r) => r.users));
   const maxE = Math.max(1, ...rows.map((r) => r.conversions));
+  const totalS = Math.max(1, rows.reduce((a, r) => a + r.sessions, 0));
   const get = (r: any) => (sortCol === 'u' ? r.users : sortCol === 'ev' ? r.conversions : r.sessions);
   const view = sortCol ? sortBy(rows, get) : [...rows].sort((a, b) => b.sessions - a.sessions);
   return (
@@ -432,6 +433,7 @@ function CitiesTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: 
       <thead><tr>
         <Th first sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Ciudad</Th>
         <Th col="s" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Sesiones</Th>
+        <th className="nos" style={{ textAlign: 'right' }}>% sesiones</th>
         <Th col="u" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Total usuarios</Th>
         <Th col="ev" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Eventos clave</Th>
       </tr></thead>
@@ -440,6 +442,7 @@ function CitiesTable({ rows, sortBy, sortCol, sortDir, onSort, page, perPage }: 
           <tr key={r.city}>
             <td><div style={nameCell}><div style={{ ...ellipsis, fontWeight: 600, maxWidth: 320 }} title={r.city}>{r.city}</div></div></td>
             <Bar v={r.sessions} max={maxS} />
+            <td className="num" style={{ color: 'var(--t2)', fontWeight: 700 }}>{formatPercentRaw((r.sessions / totalS) * 100, 1)}</td>
             <Bar v={r.users} max={maxU} color="#1a7f37" />
             <Bar v={r.conversions} max={maxE} fmt={formatInt} color="#34A853" />
           </tr>

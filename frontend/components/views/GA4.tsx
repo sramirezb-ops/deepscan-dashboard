@@ -200,12 +200,11 @@ export function GA4() {
       {/* ═══ DESGLOSE · scroll continuo · métricas idénticas al Looker ═══ */}
       <div style={{ ...slabel, margin: '24px 0 4px' }}>El desglose quirúrgico</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
-        <TableSection title="¿Desde qué ciudades visitan la web?" legend="Sesiones · usuarios · eventos clave por ciudad" total={cities.length}>
-          {(tp) => <CitiesTable rows={cities} {...tp} />}
-        </TableSection>
-        <div style={{ marginTop: 18 }}><GA4CityMap cities={cities} /></div>
-      </div>
+      <TableSection title="¿Desde qué ciudades visitan la web?" legend="Sesiones · usuarios · eventos clave por ciudad" total={cities.length}>
+        {(tp) => <CitiesTable rows={cities} {...tp} />}
+      </TableSection>
+
+      <div style={{ marginTop: 16 }}><GA4CityMap cities={cities} /></div>
 
       <TableSection title="Performance de las ciudades · vs período anterior" legend="Δ% de sesiones, usuarios y eventos clave" total={cities.length}>
         {(tp) => <CitiesPerfTable rows={cities} {...tp} />}

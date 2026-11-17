@@ -1006,18 +1006,16 @@ def run():
             gads = build_client(customer_id)
 
             rows = extract_campaigns(gads, customer_id, cid, date_start, date_end)
-            # Limpia la ventana (filas de la API) antes de reescribir: si una
-            # campaña se renombró, evita el choque 23505 contra la unique vieja
-            # (client_id,date,campaign_id) y no duplica. Ver delete_api_window.
+            # IDENTIDAD POR campaign_id (migración 0022): el id es ESTABLE, el
+            # nombre cambia. Al renombrar, el upsert por id ACTUALIZA la fila (nuevo
+            # nombre) en vez de insertar y chocar 23505 contra la unique por id.
+            # delete_api_window queda como red de seguridad: limpia la ventana
+            # (filas de la API, campaign_id no nulo) antes de escribir, por si
+            # quedaran filas viejas de antes de este fix; preserva las de hoja
+            # (campaign_id NULL). Requiere haber corrido la migración 0022
+            # (quita la unique por nombre y garantiza la unique por id).
             delete_api_window("gads_campaigns", cid, date_start, date_end)
-            # Conflicto por NOMBRE (no por id): la identidad canónica de una
-            # campaña-día en esta tabla es (client_id, date, campaign_name) —es
-            # la unique constraint del esquema y la que comparten el sheet y la
-            # API. Las filas viejas del sheet traen campaign_id NULL; al hacer
-            # upsert por id, la API insertaba una fila nueva que chocaba contra
-            # la unique de nombre (error 23505 en Sneakers). Por nombre, la API
-            # ACTUALIZA esas filas y rellena el campaign_id real, sin colisión.
-            n = upsert("gads_campaigns", rows, "client_id,date,campaign_name")
+            n = upsert("gads_campaigns", rows, "client_id,date,campaign_id")
             log.info(f"   ✓ gads_campaigns: {n} filas")
 
             rows = extract_ad_groups(gads, customer_id, cid, date_start, date_end)

@@ -116,6 +116,7 @@ export interface MetaComprasData {
   // ── Explorador jerárquico + contexto de los 3 objetivos de Meta ──
   hierarchy: ComprasHierNode[];   // campaña → conjunto → anuncio (solo compras)
   ownerSplit: Record<'nosotros' | 'ia', ComprasOwnerStat>; // IA·Aura vs el resto (nuestro), campañas de venta
+  ownerDetail: Record<'nosotros' | 'ia', OwnerDetail>;      // detalle: top campañas + diversidad creativa
   whatsappSpend: number;          // gasto de las campañas de mensajería
   waConversations: number;        // conversaciones (píxel) de esas campañas
   spendSplit: { sales: number; whatsapp: number; brand: number };
@@ -307,6 +308,65 @@ function finalizeCampaign(c: CampAgg): ComprasCampaignRow {
 }
 
 const EMPTY_DIAG: Diagnosis = { factor: 'ok', title: '', detail: '', ctr: 0, benchCtr: 0, freq: 0, near: null };
+
+/** Formato del creativo: isVideo es confiable; el resto es heurístico del nombre. */
+function adFormat(name: string, isVideo?: boolean): string {
+  if (isVideo) return 'Video';
+  const s = (name || '').toLowerCase();
+  if (/video|reel/.test(s)) return 'Video';
+  if (/carrusel|carousel|secuencia/.test(s)) return 'Carrusel';
+  if (/cat[áa]logo|catalog|\bdpa\b|din[áa]mic/.test(s)) return 'Catálogo';
+  if (/imagen|\bimg\b|foto|est[áa]tic/.test(s)) return 'Imagen';
+  return 'Otro';
+}
+
+// Motor AURA se atribuye por NOMBRE "[MOTOR AURA]", no por creador: algunas las
+// subió la agencia con ayuda de AURA, así que el creador no es fiable. Consistente
+// con el Overview.
+const isAuraName = (n: string | null | undefined) => /aura/i.test(n || '');
+
+/** Detalle por owner (Agencia vs Motor AURA): totales + qué escala + diversidad creativa. */
+function buildOwnerDetail(hierarchy: ComprasHierNode[], target: number): Record<'nosotros' | 'ia', OwnerDetail> {
+  const init = (): OwnerDetail => ({ spend: 0, value: 0, purchases: 0, roas: 0, count: 0, topCampaigns: [], diversity: { activeAds: 0, winners: 0, dead: 0, concentration: 0, formats: [] } });
+  const out: Record<'nosotros' | 'ia', OwnerDetail> = { nosotros: init(), ia: init() };
+  const camps: Record<'nosotros' | 'ia', { name: string; spend: number; roas: number }[]> = { nosotros: [], ia: [] };
+  const adAgg: Record<'nosotros' | 'ia', Map<string, { spend: number; rev: number; isVideo: boolean }>> = { nosotros: new Map(), ia: new Map() };
+  for (const camp of hierarchy) {
+    const k: 'nosotros' | 'ia' = isAuraName(camp.name) ? 'ia' : 'nosotros';
+    const o = out[k];
+    o.spend += camp.m.spend; o.value += camp.m.purchaseValue; o.purchases += camp.m.purchases; o.count += 1;
+    camps[k].push({ name: camp.name, spend: camp.m.spend, roas: camp.m.spend > 0 ? camp.m.purchaseValue / camp.m.spend : 0 });
+    for (const set of camp.kids ?? []) for (const ad of set.kids ?? []) {
+      const m = adAgg[k].get(ad.name) ?? { spend: 0, rev: 0, isVideo: !!ad.isVideo };
+      m.spend += ad.m.spend; m.rev += ad.m.purchaseValue; m.isVideo = m.isVideo || !!ad.isVideo;
+      adAgg[k].set(ad.name, m);
+    }
+  }
+  (['nosotros', 'ia'] as const).forEach((k) => {
+    out[k].roas = out[k].spend > 0 ? out[k].value / out[k].spend : 0;
+    out[k].topCampaigns = camps[k].sort((a, b) => b.spend - a.spend).slice(0, 3);
+    const ads = [...adAgg[k].values()].filter((m) => m.spend > 100);
+    const tot = ads.reduce((s, m) => s + m.spend, 0);
+    const top = ads.reduce((mx, m) => Math.max(mx, m.spend), 0);
+    const fmt = new Map<string, { ads: number; spend: number }>();
+    let winners = 0, dead = 0;
+    for (const [name, m] of adAgg[k]) {
+      if (m.spend <= 100) continue;
+      const roas = m.spend > 0 ? m.rev / m.spend : 0;
+      if (roas >= target) winners += 1;
+      if (m.rev <= 0) dead += 1;
+      const f = adFormat(name, m.isVideo);
+      const e = fmt.get(f) ?? { ads: 0, spend: 0 }; e.ads += 1; e.spend += m.spend; fmt.set(f, e);
+    }
+    out[k].diversity = {
+      activeAds: ads.length,
+      winners, dead,
+      concentration: tot > 0 ? (top / tot) * 100 : 0,
+      formats: [...fmt.entries()].map(([label, v]) => ({ label, ...v })).sort((a, b) => b.spend - a.spend),
+    };
+  });
+  return out;
+}
 
 /**
  * Diagnóstico por campaña (factor de falla + anuncios/adsets + "qué falta"),
@@ -507,6 +567,20 @@ export interface ComprasMetric {
 }
 export type ComprasOwner = 'agencia' | 'ia' | 'sin';
 export interface ComprasOwnerStat { spend: number; value: number; purchases: number; roas: number; count: number }
+
+// ── Diversidad creativa (D) + detalle por owner (C) ──
+export interface CreativeFormat { label: string; ads: number; spend: number; }
+export interface CreativeDiversity {
+  activeAds: number;     // anuncios con gasto
+  winners: number;       // anuncios con ROAS ≥ objetivo
+  dead: number;          // anuncios con gasto y 0 revenue (quemando plata)
+  concentration: number; // % del gasto en el anuncio top (riesgo si muy alto)
+  formats: CreativeFormat[]; // por formato (isVideo + heurístico de nombre)
+}
+export interface OwnerDetail extends ComprasOwnerStat {
+  topCampaigns: { name: string; spend: number; roas: number }[]; // qué escala
+  diversity: CreativeDiversity;
+}
 export interface ComprasHierNode {
   name: string;
   adId?: string;             // solo anuncios
@@ -712,6 +786,7 @@ export function useMetaCompras(
           t.spend += c.m.spend; t.value += c.m.purchaseValue; t.purchases += c.m.purchases; t.count += 1;
         }
         (['nosotros', 'ia'] as const).forEach((k) => { ownerSplit[k].roas = ownerSplit[k].spend > 0 ? ownerSplit[k].value / ownerSplit[k].spend : 0; });
+        const ownerDetail = buildOwnerDetail(hierarchy, target);
         let whatsappSpend = 0;
         let waConversations = 0;
         for (const r of nowRows) {
@@ -765,6 +840,7 @@ export function useMetaCompras(
           metaExistsEver,
           hierarchy,
           ownerSplit,
+          ownerDetail,
           whatsappSpend,
           waConversations,
           spendSplit: { sales: totals.spend, whatsapp: whatsappSpend, brand: brandSpend },

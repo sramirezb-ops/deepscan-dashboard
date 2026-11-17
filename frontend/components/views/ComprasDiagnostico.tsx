@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -602,6 +602,27 @@ function shortName(n: string): string {
   return (s || n).slice(0, 34);
 }
 
+// Cuenta de 0 → target con ease-out (micro-animación de entrada). Respeta
+// prefers-reduced-motion: salta al valor final sin animar.
+function useCountUp(target: number, ms = 900): number {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !target) { setV(target); return; }
+    let raf = 0; const t0 = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min((now - t0) / ms, 1);
+      setV(target * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    // Red de seguridad: rAF se pausa en pestañas en segundo plano, así que
+    // garantizamos el valor final aunque la animación nunca corra.
+    const safety = window.setTimeout(() => setV(target), ms + 120);
+    return () => { cancelAnimationFrame(raf); clearTimeout(safety); };
+  }, [target, ms]);
+  return v;
+}
+
 // ── CENTRO DE MANDO ─────────────────────────────────────────────────────────
 // El elemento firma: de un vistazo, qué funciona, qué no y la jugada. Sin leer.
 function CommandCenter({ data, t, target, cur, rangeLabel, roasDelta }: { data: MetaComprasData; t: ComprasTotals; target: number; cur: string; rangeLabel: string; roasDelta: number }) {
@@ -614,20 +635,21 @@ function CommandCenter({ data, t, target, cur, rangeLabel, roasDelta }: { data: 
   const dead = ads.filter((a) => a.spend > 150 && a.revenue <= 0);
   const deadSpend = dead.reduce((s, a) => s + a.spend, 0);
   const aura = data.ownerDetail.ia;
+  const roasAnim = useCountUp(t.roas); // 0 → ROAS, en sync con la barra
   const axis = target * 1.5;
-  const fillPct = Math.min(t.roas / axis, 1) * 100;
+  const fillPct = Math.min(roasAnim / axis, 1) * 100;
   const goalPct = (target / axis) * 100;
   const jugada: string[] = [];
   if (topWin) jugada.push(`escala ${shortName(topWin.name)} (${topWin.roas.toFixed(1)}×)`);
   if (dead.length) jugada.push(`corta ${dead.length} creativos sin venta (${formatCurrency(deadSpend, cur)})`);
   if (aura.count > 0 && aura.roas < target) jugada.push(`replantea Motor AURA (${aura.roas.toFixed(1)}×)`);
   return (
-    <div className="cc" style={{ ['--st' as string]: STAT.c } as CSSProperties}>
+    <div className="cc cc-anim" style={{ ['--st' as string]: STAT.c } as CSSProperties}>
       <div className="cc-head"><span className="cc-eyebrow">Meta Ads · Compras</span><span className="cc-range">{rangeLabel}</span></div>
       <div className="cc-body">
         <div className="cc-verdict">
           <div className="cc-status"><span className="dot" />{STAT.w}</div>
-          <div className="cc-roas">{t.roas.toFixed(1)}<span className="x">×</span><span className={'cc-delta ' + (roasDelta >= 0 ? 'up' : 'dn')}>{roasDelta >= 0 ? '▲' : '▼'} {Math.abs(roasDelta).toFixed(1)}</span></div>
+          <div className="cc-roas">{roasAnim.toFixed(1)}<span className="x">×</span><span className={'cc-delta ' + (roasDelta >= 0 ? 'up' : 'dn')}>{roasDelta >= 0 ? '▲' : '▼'} {Math.abs(roasDelta).toFixed(1)}</span></div>
           <div className="cc-track"><div className="cc-fill" style={{ width: `${fillPct}%` }} /><div className="cc-goal" style={{ left: `${goalPct}%` }} /></div>
           <div className="cc-goal-lb" style={{ left: `${goalPct}%` }}>objetivo {target}×</div>
           <div className="cc-flow">{formatCurrency(t.spend, cur)} <span className="ar">→</span> <b>{formatCurrency(t.purchaseValue, cur)}</b> <span className="mu">· {formatInt(t.purchases)} compras</span></div>
@@ -1412,5 +1434,12 @@ table.cj-t{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
 .cc-play{display:flex;align-items:center;gap:12px;margin:18px -26px 0;padding:14px 26px;border-top:1px solid var(--b1);background:var(--bg2)}
 .cc-play-lb{flex:none;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--st);border:1px solid var(--st);padding:3px 9px;border-radius:999px}
 .cc-play-tx{font-size:13.5px;color:var(--t1);font-weight:600}
+@keyframes ccIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.cc-anim .cc-verdict{animation:ccIn .55s cubic-bezier(.22,.61,.36,1) both}
+.cc-anim .cc-side .cc-card{animation:ccIn .55s cubic-bezier(.22,.61,.36,1) both}
+.cc-anim .cc-side .cc-card:nth-child(1){animation-delay:.1s}
+.cc-anim .cc-side .cc-card:nth-child(2){animation-delay:.18s}
+.cc-anim .cc-play{animation:ccIn .55s cubic-bezier(.22,.61,.36,1) .26s both}
+@media(prefers-reduced-motion:reduce){.cc-anim .cc-verdict,.cc-anim .cc-card,.cc-anim .cc-play{animation:none}}
 @media(max-width:820px){.cc-body{grid-template-columns:1fr;gap:20px}.cc-play{flex-wrap:wrap;gap:8px}}
 `;

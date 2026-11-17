@@ -5,6 +5,12 @@ import { supabase } from '@/lib/supabase';
 import { floorGadsFrom } from '@/lib/dataFloors';
 import { calcDelta } from '@/lib/utils';
 import type { DateRange } from '@/lib/period';
+import { roasAction, diagnose } from '@/lib/perfDiagnosis';
+import type { PerfAction, DiagFactor, AdLite, AdsetLite, Diagnosis } from '@/lib/perfDiagnosis';
+
+// Re-export para no romper imports existentes (Overview importaba desde aquí).
+export { roasAction };
+export type { PerfAction, DiagFactor, AdLite, AdsetLite, Diagnosis };
 
 // ============================================================
 // useEcommercePerf — lectura de RESULTADOS y ROAS para el Overview ecommerce.
@@ -20,29 +26,12 @@ const PAGE = 1000;
 // Las campañas que corre la IA de AURA se nombran "[MOTOR AURA] …".
 const isAura = (name: string | null | undefined) => /aura/i.test(name || '');
 
-// Semáforo de "qué hacer" RELATIVO al objetivo ROAS del cliente:
-//   🟢 escalar  → en o sobre el objetivo (beating goal → empujar presupuesto)
-//   🟡 vigilar  → rentable pero bajo el objetivo (optimizar, no cortar)
-//   🔴 cortar   → muy por debajo (< 60% del objetivo) → revisar/cortar
-export type PerfAction = 'escalar' | 'vigilar' | 'cortar';
-export const WATCH_FLOOR = 0.6; // fracción del objetivo bajo la cual es 🔴
-export function roasAction(roas: number, target: number): PerfAction {
-  if (roas >= target) return 'escalar';
-  if (roas >= target * WATCH_FLOOR) return 'vigilar';
-  return 'cortar';
-}
-
 export interface Totals {
   spend: number;
   revenue: number;
   purchases: number;
   roas: number;
 }
-// Diagnóstico de falla (nivel anuncio/adset) — honesto con lo que la data permite.
-export type DiagFactor = 'ok' | 'fatiga' | 'creativo' | 'angulo' | 'publico' | 'postclic';
-export interface AdLite { name: string; adset: string; spend: number; revenue: number; purchases: number; roas: number; ctr: number; thumb: string | null; }
-export interface AdsetLite { name: string; spend: number; revenue: number; roas: number; ctr: number; }
-export interface Diagnosis { factor: DiagFactor; title: string; detail: string; ctr: number; benchCtr: number; freq: number; }
 
 export interface CampaignRow {
   name: string;
@@ -146,47 +135,6 @@ function gadsTotals(rows: RawGads[]): Totals {
 function addTotals(a: Totals, b: Totals): Totals {
   const spend = a.spend + b.spend, revenue = a.revenue + b.revenue, purchases = a.purchases + b.purchases;
   return { spend, revenue, purchases, roas: roasOf(revenue, spend) };
-}
-
-const pct1 = (v: number) => `${v.toFixed(1)}%`;
-const rx2 = (v: number) => `${v.toFixed(1)}×`;
-
-/**
- * Diagnóstico del factor de falla de una campaña bajo objetivo, usando SOLO
- * señales confiables (CTR = enganche, spread de anuncios = creativo, spread de
- * adsets = público, frecuencia = fatiga). El embudo carrito→checkout→compra NO
- * se usa: en Sneakers hoy está roto (tracking) y mentiría. Por eso, cuando el
- * enganche es bueno pero el ROAS no llega, se marca "postclic (no medible)".
- */
-function diagnose(c: { roas: number; ctr: number; freq: number; ads: AdLite[]; adsets: AdsetLite[] }, benchCtr: number, target: number): Diagnosis {
-  const base = { ctr: c.ctr, benchCtr, freq: c.freq };
-  if (c.roas >= target) {
-    return { factor: 'ok', title: 'En o sobre objetivo', detail: 'Rinde a la meta o por encima. Candidata a escalar presupuesto mientras aguante la eficiencia.', ...base };
-  }
-  if (c.freq >= 3.5) {
-    return { factor: 'fatiga', title: 'Fatiga de público', detail: `Frecuencia ${rx2(c.freq)}: el público ya vio mucho los anuncios. Refrescar creativos o ampliar la audiencia.`, ...base };
-  }
-  const engancheMalo = benchCtr > 0 && c.ctr < benchCtr * 0.75;
-  if (engancheMalo) {
-    // ¿Público (un adset claramente peor) o creativo/ángulo?
-    const adsetsOk = c.adsets.filter((a) => a.spend > 500);
-    if (adsetsOk.length >= 2) {
-      const best = adsetsOk.reduce((a, b) => (b.roas > a.roas ? b : a));
-      const worst = adsetsOk.reduce((a, b) => (b.roas < a.roas ? b : a));
-      if (best.roas >= Math.max(worst.roas * 2, target) && worst.spend > 500) {
-        return { factor: 'publico', title: 'Público que no engancha', detail: `El público "${worst.name}" rinde ${rx2(worst.roas)} (CTR ${pct1(worst.ctr)}) vs "${best.name}" ${rx2(best.roas)}. Pausar o ajustar ese público y mover presupuesto al que sí responde.`, ...base };
-      }
-    }
-    // ¿Creativo (unos enganchan y otros no) o ángulo (parejo bajo)?
-    const adsOk = c.ads.filter((a) => a.spend > 300);
-    const ctrs = adsOk.map((a) => a.ctr).sort((x, y) => y - x);
-    if (ctrs.length >= 2 && ctrs[0] >= benchCtr && ctrs[0] - ctrs[ctrs.length - 1] >= benchCtr * 0.5) {
-      return { factor: 'creativo', title: 'Creativo: unos enganchan, otros no', detail: `El mejor anuncio va a CTR ${pct1(ctrs[0])} y el peor a ${pct1(ctrs[ctrs.length - 1])}. Cortar los que no enganchan y poner el presupuesto en los que sí.`, ...base };
-    }
-    return { factor: 'angulo', title: 'Ángulo/concepto flojo', detail: `CTR ${pct1(c.ctr)} muy por debajo del ${pct1(benchCtr)} de las ganadoras, parejo en todos los anuncios: el concepto no engancha. Probar un ángulo comunicativo distinto.`, ...base };
-  }
-  // Engancha bien pero no convierte → la pérdida es post-clic, hoy NO medible.
-  return { factor: 'postclic', title: 'Se pierde después del clic', detail: `Engancha bien (CTR ${pct1(c.ctr)} ≈ ganadoras) pero no convierte a la meta. Carrito/checkout/compra no son medibles hoy por el tracking roto — revisar oferta/precio/página y, sobre todo, arreglar la capa de datos para poder diagnosticarlo.`, ...base };
 }
 
 export function useEcommercePerf(clientId: string, range: DateRange, previous: DateRange, target: number) {

@@ -62,6 +62,11 @@ function DiagPanel({ c, target, cfmt, rx }: { c: CampaignRow; target: number; cf
         <span className="ov-diag-badge" style={{ background: fx.color }}>{fx.label}</span>
         <div><div className="t">{d.title}</div><div className="dt">{d.detail}</div></div>
       </div>
+      {d.near?.feasible && (
+        <div className="ov-diag-near">
+          <b>Qué falta para {rx(target)}:</b> cortar {d.near.cutAds} anuncio{d.near.cutAds > 1 ? 's' : ''} que arrastran ({cfmt(d.near.cutSpend)} de gasto) subiría el ROAS de la campaña a <b>~{d.near.projRoas.toFixed(1)}×</b>.
+        </div>
+      )}
       <div className="ov-diag-grid">
         <div className="ov-diag-metric">
           <div className="l">Enganche · CTR</div>
@@ -186,6 +191,8 @@ const CSS = `
 .ov-diag-badge{flex:none;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#fff;padding:4px 10px;border-radius:999px;margin-top:2px}
 .ov-diag-head .t{font-size:13.5px;font-weight:700}
 .ov-diag-head .dt{font-size:12.5px;color:var(--t2);line-height:1.5;margin-top:3px;max-width:78ch}
+.ov-diag-near{font-size:12.5px;color:var(--t1);background:rgba(23,184,119,.08);border:1px solid rgba(23,184,119,.25);border-radius:9px;padding:9px 12px;margin-bottom:16px;line-height:1.5}
+.ov-diag-near b{color:var(--up)}
 .ov-diag-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:520px;margin-bottom:18px}
 .ov-diag-metric .l{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
 .ov-diag-metric .v{font-size:16px;font-weight:800;margin-top:4px}

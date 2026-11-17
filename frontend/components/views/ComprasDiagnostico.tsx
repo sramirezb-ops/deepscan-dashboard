@@ -4,7 +4,8 @@ import { useState, type ReactNode } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner } from '@/lib/hooks/useMetaCompras';
+import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner, type ComprasCampaignRow } from '@/lib/hooks/useMetaCompras';
+import type { DiagFactor } from '@/lib/perfDiagnosis';
 import { useCatalog } from '@/lib/hooks/useCatalog';
 import { useMetaPlacements, type PlaceRow, type PlaceNode } from '@/lib/hooks/useMetaPlacements';
 import { Pager } from '@/components/ui/Pager';
@@ -533,10 +534,49 @@ function Cabina({ daily, cur, goal }: { daily: { date: string; spend: number; pu
   );
 }
 
+// Factor de falla → etiqueta + color (diagnóstico expandible del árbol).
+const FACTOR_C: Record<DiagFactor, { label: string; color: string }> = {
+  ok: { label: 'En objetivo', color: 'var(--up)' },
+  fatiga: { label: 'Fatiga de público', color: '#ef4444' },
+  creativo: { label: 'Creativo', color: 'var(--warn)' },
+  angulo: { label: 'Ángulo', color: 'var(--warn)' },
+  publico: { label: 'Público', color: 'var(--warn)' },
+  postclic: { label: 'Post-clic (no medible)', color: 'var(--t2)' },
+};
+
+// Panel de diagnóstico de una campaña (factor + qué falta + enganche + creativos).
+function ComprasDiag({ camp, target, cur }: { camp: ComprasCampaignRow; target: number; cur: string }) {
+  const d = camp.diag;
+  const fx = FACTOR_C[d.factor];
+  const ratio = d.benchCtr > 0 ? Math.min(100, (d.ctr / d.benchCtr) * 100) : 0;
+  const ads = camp.adsLite.filter((a) => a.spend > 150);
+  const best = ads[0];
+  const worst = ads.length > 1 ? ads[ads.length - 1] : null;
+  const rx = (v: number) => `${v.toFixed(1)}×`;
+  return (
+    <div className="mc-diag">
+      <div className="mc-diag-head">
+        <span className="mc-diag-badge" style={{ background: fx.color }}>{fx.label}</span>
+        <div><div className="t">{d.title}</div><div className="dt">{d.detail}</div></div>
+      </div>
+      {d.near?.feasible && (
+        <div className="mc-diag-near"><b>Qué falta para {rx(target)}:</b> cortar {d.near.cutAds} anuncio{d.near.cutAds > 1 ? 's' : ''} que arrastran ({formatCurrency(d.near.cutSpend, cur)} de gasto) subiría el ROAS de la campaña a <b>~{d.near.projRoas.toFixed(1)}×</b>.</div>
+      )}
+      <div className="mc-diag-grid">
+        <div className="mc-diag-m"><div className="l">Enganche · CTR</div><div className="v">{d.ctr.toFixed(1)}% <span className="mu">vs {d.benchCtr.toFixed(1)}% ganadoras</span></div><div className="bar"><div style={{ width: `${ratio}%`, background: d.ctr >= d.benchCtr ? 'var(--up)' : 'var(--warn)' }} /></div></div>
+        <div className="mc-diag-m"><div className="l">Frecuencia</div><div className="v" style={{ color: camp.freq >= 3.5 ? '#ef4444' : 'inherit' }}>{camp.freq.toFixed(1)}</div><div className="mu">{camp.freq >= 3.5 ? 'fatiga' : 'sana'}</div></div>
+        {best && <div className="mc-diag-m"><div className="l">Mejor creativo</div><div className="v sm" style={{ color: 'var(--up)' }}>{rx(best.roas)} <span className="mu">· CTR {best.ctr.toFixed(1)}%</span></div><div className="mu ell" title={best.name}>{best.name}</div></div>}
+        {worst && <div className="mc-diag-m"><div className="l">Peor creativo</div><div className="v sm" style={{ color: '#ef4444' }}>{rx(worst.roas)} <span className="mu">· CTR {worst.ctr.toFixed(1)}%</span></div><div className="mu ell" title={worst.name}>{worst.name}</div></div>}
+      </div>
+    </div>
+  );
+}
+
 export function ComprasDiagnostico() {
   const client = useClient();
   const { range, previous } = usePeriod();
-  const { data, loading, error } = useMetaCompras(client.id, range, previous);
+  const target = client.roasTarget ?? GOAL;
+  const { data, loading, error } = useMetaCompras(client.id, range, previous, target);
   const catalog = useCatalog(client.id, range);
   const salesNames = (data?.hierarchy ?? []).map((c) => c.name);
   const placements = useMetaPlacements(client.id, salesNames, range);
@@ -814,6 +854,12 @@ export function ComprasDiagnostico() {
                     {tcells(camp.d, cur)}
                   </tr>,
                 ];
+                if (cOpen) {
+                  const cr = data.campaigns.find((c) => c.name === camp.name);
+                  if (cr && cr.spend > 0) out.push(
+                    <tr key={ck + '-diag'} className="cj-diagrow"><td colSpan={TMETRICS.length + 4}><ComprasDiag camp={cr} target={target} cur={cur} /></td></tr>
+                  );
+                }
                 if (cOpen) camp.sets.forEach((s, si) => {
                   const sk = 'S:' + camp.name + '\u0000' + s.name;
                   const sOpen = !!expCj[sk];
@@ -1248,4 +1294,22 @@ table.cj-t{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
 .mc-metrics .m{background:var(--bg3);border-radius:10px;padding:10px 11px}.mc-metrics .m .l{font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3)}
 .mc-metrics .m .v{font-size:16px;font-weight:800;font-family:'Space Grotesk',sans-serif;margin-top:3px}
 @media(max-width:820px){.mc-hero{grid-template-columns:1fr;gap:22px;align-items:start}.mc-duo{grid-template-columns:1fr}.mc-fstep{grid-template-columns:92px 1fr}.mc-fstep .fp{display:none}.mc-act{grid-template-columns:1fr;gap:6px}.mc-t th:first-child,.mc-t td:first-child{min-width:200px}.mc-nm{max-width:150px}}
+/* Panel de diagnóstico dentro del árbol de campañas */
+.cj-diagrow td{background:var(--bg3);padding:0!important;border-bottom:1px solid var(--b1)}
+.mc-diag{padding:15px 16px;border-left:3px solid var(--acc)}
+.mc-diag-head{display:flex;gap:11px;align-items:flex-start;margin-bottom:12px}
+.mc-diag-badge{flex:none;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#fff;padding:4px 9px;border-radius:999px;margin-top:1px}
+.mc-diag-head .t{font-size:13px;font-weight:700}
+.mc-diag-head .dt{font-size:12px;color:var(--t2);line-height:1.5;margin-top:3px;max-width:80ch}
+.mc-diag-near{font-size:12px;color:var(--t1);background:rgba(23,184,119,.08);border:1px solid rgba(23,184,119,.25);border-radius:8px;padding:8px 11px;margin-bottom:13px;line-height:1.5}
+.mc-diag-near b{color:var(--up)}
+.mc-diag-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;max-width:760px}
+.mc-diag-m .l{font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3)}
+.mc-diag-m .v{font-size:16px;font-weight:800;margin-top:4px;font-family:'Space Grotesk',sans-serif}
+.mc-diag-m .v.sm{font-size:13px}
+.mc-diag-m .v .mu,.mc-diag-m .mu{font-size:10.5px;font-weight:500;color:var(--t3);font-family:inherit}
+.mc-diag-m .mu.ell{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.mc-diag-m .bar{height:5px;border-radius:3px;background:var(--b1);overflow:hidden;margin-top:6px}
+.mc-diag-m .bar>div{height:100%;border-radius:3px}
+@media(max-width:820px){.mc-diag-grid{grid-template-columns:1fr 1fr}}
 `;

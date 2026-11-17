@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { calcDelta } from '@/lib/utils';
 import type { DateRange } from '@/lib/period';
+import { diagnose, benchmarkCtr } from '@/lib/perfDiagnosis';
+import type { Diagnosis, AdLite, AdsetLite } from '@/lib/perfDiagnosis';
+export type { Diagnosis, AdLite, AdsetLite } from '@/lib/perfDiagnosis';
 
 // ============================================================
 // useMetaCompras — campañas de COMPRAS de Meta (campaña + anuncio)
@@ -37,6 +40,11 @@ export interface ComprasCampaignRow {
   purchaseValue: number; // revenue
   roas: number; // revenue / spend
   cpa: number; // spend / purchases (costo por compra)
+  // ── Diagnóstico (motor compartido, nivel anuncio/adset) ──
+  freq: number;          // frecuencia promedio ponderada por impresiones
+  diag: Diagnosis;       // factor de falla + "qué falta" para llegar a meta
+  adsLite: AdLite[];     // anuncios de la campaña (por ROAS desc)
+  adsetsLite: AdsetLite[]; // conjuntos/públicos (por gasto desc)
 }
 
 export interface ComprasAdRow {
@@ -149,6 +157,7 @@ interface RawRow {
   impressions: number | null;
   clicks: number | null;
   reach: number | null;
+  frequency: number | null;
   purchases: number | null;
   purchase_value: number | null;
   add_to_cart: number | null;
@@ -158,7 +167,7 @@ interface RawRow {
 }
 
 const SELECT =
-  'date, ad_id, ad_name, campaign_id, campaign_name, adset_id, adset_name, thumb_url, spend, impressions, clicks, reach, purchases, purchase_value, add_to_cart, initiate_checkout, view_content, conversations';
+  'date, ad_id, ad_name, campaign_id, campaign_name, adset_id, adset_name, thumb_url, spend, impressions, clicks, reach, frequency, purchases, purchase_value, add_to_cart, initiate_checkout, view_content, conversations';
 
 const PAGE = 1000;
 const AD_LIMIT = 60; // top anuncios por inversión
@@ -292,7 +301,53 @@ function finalizeCampaign(c: CampAgg): ComprasCampaignRow {
     purchaseValue: c.purchaseValue,
     roas: c.spend > 0 ? c.purchaseValue / c.spend : 0,
     cpa: c.purchases > 0 ? c.spend / c.purchases : 0,
+    // Placeholders — se sobreescriben con attachDiagnostics() en el ensamblado.
+    freq: 0, diag: EMPTY_DIAG, adsLite: [], adsetsLite: [],
   };
+}
+
+const EMPTY_DIAG: Diagnosis = { factor: 'ok', title: '', detail: '', ctr: 0, benchCtr: 0, freq: 0, near: null };
+
+/**
+ * Diagnóstico por campaña (factor de falla + anuncios/adsets + "qué falta"),
+ * usando el motor compartido. CTR aquí se pasa en % (el hook lo guarda en
+ * fracción, pero el motor trabaja en %). Benchmark = CTR de las ganadoras.
+ */
+function attachDiagnostics(rows: RawRow[], purchaseNames: Set<string>, target: number): Map<string, { freq: number; adsLite: AdLite[]; adsetsLite: AdsetLite[]; diag: Diagnosis }> {
+  const num = (v: number | null) => Number(v) || 0;
+  interface AAgg { name: string; adset: string; spend: number; rev: number; pur: number; impr: number; clicks: number; thumb: string | null; }
+  interface SAgg { name: string; spend: number; rev: number; impr: number; clicks: number; }
+  interface CAgg2 { impr: number; clicks: number; freqW: number; spend: number; rev: number; ads: Map<string, AAgg>; sets: Map<string, SAgg>; }
+  const cmap = new Map<string, CAgg2>();
+  for (const r of rows) {
+    const cn = r.campaign_name || '';
+    if (!purchaseNames.has(cn)) continue;
+    let c = cmap.get(cn);
+    if (!c) { c = { impr: 0, clicks: 0, freqW: 0, spend: 0, rev: 0, ads: new Map(), sets: new Map() }; cmap.set(cn, c); }
+    const sp = num(r.spend), rv = num(r.purchase_value), pu = num(r.purchases), im = num(r.impressions), cl = num(r.clicks);
+    c.spend += sp; c.rev += rv; c.impr += im; c.clicks += cl; c.freqW += num(r.frequency) * im;
+    const an = r.ad_name || '(sin nombre)'; const asn = r.adset_name || '(sin conjunto)';
+    let a = c.ads.get(an);
+    if (!a) { a = { name: an, adset: asn, spend: 0, rev: 0, pur: 0, impr: 0, clicks: 0, thumb: null }; c.ads.set(an, a); }
+    a.spend += sp; a.rev += rv; a.pur += pu; a.impr += im; a.clicks += cl; if (!a.thumb && r.thumb_url) a.thumb = r.thumb_url;
+    let s = c.sets.get(asn);
+    if (!s) { s = { name: asn, spend: 0, rev: 0, impr: 0, clicks: 0 }; c.sets.set(asn, s); }
+    s.spend += sp; s.rev += rv; s.impr += im; s.clicks += cl;
+  }
+  const ctrP = (cl: number, im: number) => (im > 0 ? (cl / im) * 100 : 0);
+  const roasOf = (rv: number, sp: number) => (sp > 0 ? rv / sp : 0);
+  const benchCtr = benchmarkCtr([...cmap.values()].map((c) => ({ clicks: c.clicks, impressions: c.impr, roas: roasOf(c.rev, c.spend) })), target);
+  const out = new Map<string, { freq: number; adsLite: AdLite[]; adsetsLite: AdsetLite[]; diag: Diagnosis }>();
+  for (const [cn, c] of cmap) {
+    const adsLite: AdLite[] = [...c.ads.values()].map((a) => ({ name: a.name, adset: a.adset, spend: a.spend, revenue: a.rev, purchases: a.pur, roas: roasOf(a.rev, a.spend), ctr: ctrP(a.clicks, a.impr), thumb: a.thumb })).sort((x, y) => y.roas - x.roas);
+    const adsetsLite: AdsetLite[] = [...c.sets.values()].map((s) => ({ name: s.name, spend: s.spend, revenue: s.rev, roas: roasOf(s.rev, s.spend), ctr: ctrP(s.clicks, s.impr) })).sort((x, y) => y.spend - x.spend);
+    const ctr = ctrP(c.clicks, c.impr);
+    const freq = c.impr > 0 ? c.freqW / c.impr : 0;
+    const roas = roasOf(c.rev, c.spend);
+    const diag = diagnose({ roas, ctr, freq, ads: adsLite, adsets: adsetsLite }, benchCtr, target);
+    out.set(cn, { freq, adsLite, adsetsLite, diag });
+  }
+  return out;
 }
 
 /** Agrupa por anuncio (ad_id) las filas de las campañas de compras dadas. */
@@ -580,7 +635,8 @@ function monthlyRoasFrom(rows: RawRow[], salesNames: Set<string>): { month: stri
 export function useMetaCompras(
   clientId: string,
   range: DateRange,
-  previous: DateRange
+  previous: DateRange,
+  target: number
 ): UseMetaComprasResult {
   const [data, setData] = useState<MetaComprasData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -633,6 +689,12 @@ export function useMetaCompras(
         };
 
         const purchaseNames = new Set(purchaseAgg.map((c) => c.name));
+        // Diagnóstico por campaña (factor de falla + anuncios/adsets + "qué falta").
+        const diagMap = attachDiagnostics(nowRows, purchaseNames, target);
+        for (const c of campaigns) {
+          const d = diagMap.get(c.name);
+          if (d) { c.freq = d.freq; c.diag = d.diag; c.adsLite = d.adsLite; c.adsetsLite = d.adsetsLite; }
+        }
         const ads = aggregateAds(nowRows, purchaseNames).slice(0, AD_LIMIT);
         const daily = buildDaily(nowRows, purchaseNames);
 
@@ -730,7 +792,7 @@ export function useMetaCompras(
     return () => {
       cancelled = true;
     };
-  }, [clientId, range.from, range.to, previous.from, previous.to, tick]);
+  }, [clientId, range.from, range.to, previous.from, previous.to, target, tick]);
 
   return { data, loading, error, refresh: () => setTick((x) => x + 1) };
 }

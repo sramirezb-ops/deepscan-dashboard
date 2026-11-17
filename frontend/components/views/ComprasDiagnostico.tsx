@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, type ReactNode, type CSSProperties } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
@@ -614,6 +614,49 @@ function OwnerCard({ o, label, color, target, cur }: { o: OwnerDetail; label: st
   );
 }
 
+// Muro visual de creativos: cada anuncio = tarjeta con miniatura; barra y badge
+// de color por estado de ROAS vs objetivo; ordenado por gasto. Reemplaza la tabla.
+function CreativeWall({ rows, cur, target, onPreview }: { rows: { ad: ComprasHierNode; camp: string; set: string }[]; cur: string; target: number; onPreview: (ad: ComprasHierNode, camp: string, set: string) => void }) {
+  const items = rows.map(({ ad, camp, set }) => {
+    const m = ad.m;
+    const roas = m.spend > 0 ? m.purchaseValue / m.spend : 0;
+    return { ad, camp, set, name: ad.name, thumb: ad.thumbUrl, isVideo: !!ad.isVideo, spend: m.spend, rev: m.purchaseValue, roas, ctr: m.impressions > 0 ? (m.clicks / m.impressions) * 100 : 0 };
+  }).filter((a) => a.spend > 150).sort((a, b) => b.spend - a.spend);
+  type CItem = typeof items[number];
+  const statusOf = (a: CItem) => (a.rev <= 0 ? 'dead' : a.roas >= target ? 'good' : a.roas >= target * 0.6 ? 'warn' : 'bad');
+  const COL: Record<string, string> = { good: 'var(--up)', warn: 'var(--warn)', bad: '#ef4444', dead: '#8a8f98' };
+  const LBL: Record<string, string> = { good: `En objetivo (≥${target}×)`, warn: 'Cerca', bad: 'Bajo', dead: 'Sin venta' };
+  const counts: Record<string, number> = { good: 0, warn: 0, bad: 0, dead: 0 };
+  const spendBy: Record<string, number> = { good: 0, warn: 0, bad: 0, dead: 0 };
+  items.forEach((a) => { const s = statusOf(a); counts[s] += 1; spendBy[s] += a.spend; });
+  const top = items.slice(0, 28);
+  return (
+    <div>
+      <div className="cw-legend">
+        {(['good', 'warn', 'bad', 'dead'] as const).map((s) => (
+          <span key={s} className="cw-lg"><i style={{ background: COL[s] }} /> {LBL[s]} <b>{counts[s]}</b> <span className="mu">· {formatCurrency(spendBy[s], cur)}</span></span>
+        ))}
+        <span className="cw-lg mu" style={{ marginLeft: 'auto' }}>top {top.length} por gasto · {items.length} con inversión</span>
+      </div>
+      <div className="cw-grid">
+        {top.map((a, i) => {
+          const s = statusOf(a);
+          return (
+            <button className="cw-card" key={i} style={{ ['--s' as string]: COL[s] } as CSSProperties} onClick={() => onPreview(a.ad, a.camp, a.set)} title={`${a.name}\n${a.roas.toFixed(1)}× · ${formatCurrency(a.spend, cur)} · CTR ${a.ctr.toFixed(1)}%`}>
+              <div className="cw-th" style={a.thumb ? { backgroundImage: `url(${a.thumb})` } : undefined}>
+                {!a.thumb && <span className="cw-ph">{a.isVideo ? '▶' : '🖼'}</span>}
+                {a.isVideo && a.thumb && <span className="cw-vb">▶</span>}
+                <span className="cw-roas" style={{ background: COL[s] }}>{a.roas.toFixed(1)}×</span>
+              </div>
+              <div className="cw-meta"><span className="cw-sp">{formatCurrency(a.spend, cur)}</span><span className="cw-ctr">CTR {a.ctr.toFixed(1)}%</span></div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ComprasDiagnostico() {
   const client = useClient();
   const { range, previous } = usePeriod();
@@ -744,8 +787,8 @@ export function ComprasDiagnostico() {
         <div className="mc-eyebrow">Meta Ads · Compras · {rangeLabel}</div>
         <div className="mc-hero">
           <div>
-            <div className="mc-thesis">Las campañas de venta rinden <span className="hl">ROAS {t.roas.toFixed(1)}×</span> — el número mezclado esconde lo bueno.</div>
-            <div className="mc-sub">El ROAS "de todo Meta" (~{naiveRoas.toFixed(1)}×) mete el gasto de <b>WhatsApp</b> en el denominador. Separado, las {data.campaignCount} campañas de venta devuelven <b>{cur} {t.roas.toFixed(1)} por cada 1</b>: <b>{formatCurrency(t.spend, cur)} → {formatCurrency(t.purchaseValue, cur)}</b> en {formatInt(t.purchases)} compras.</div>
+            <div className="mc-thesis">Venta Meta a <span className="hl">ROAS {t.roas.toFixed(1)}×</span> · objetivo {GOAL}×.</div>
+            <div className="mc-sub"><b>{formatCurrency(t.spend, cur)}</b> → <b>{formatCurrency(t.purchaseValue, cur)}</b> en {formatInt(t.purchases)} compras ({data.campaignCount} campañas de venta). <span className="mc-sub-note">El ROAS "de todo Meta" ({naiveRoas.toFixed(1)}×) mezcla WhatsApp — aquí va separado.</span></div>
           </div>
           <div className="mc-north">
             <div className="k">ROAS · campañas de venta</div>
@@ -937,9 +980,9 @@ export function ComprasDiagnostico() {
           </table>
         </div></div>
 
-        {/* TOP ANUNCIOS — tabla plana de todos los anuncios */}
-        <div className="mc-sh"><h2>Top anuncios</h2><span className="hint">todos los anuncios · ordena por cualquier métrica · con su conjunto y campaña</span></div>
-        <TopAdsTable rows={(data.hierarchy ?? []).flatMap((c) => (c.kids ?? []).flatMap((s) => (s.kids ?? []).map((ad) => ({ ad, camp: c.name, set: s.name }))))} cur={cur} />
+        {/* CREATIVOS · muro visual (reemplaza la tabla de 60 filas) */}
+        <div className="mc-sh"><h2>Creativos</h2><span className="hint">cada anuncio = una tarjeta · tamaño por gasto · color por ROAS vs objetivo {target}×</span></div>
+        <CreativeWall rows={(data.hierarchy ?? []).flatMap((c) => (c.kids ?? []).flatMap((s) => (s.kids ?? []).map((ad) => ({ ad, camp: c.name, set: s.name }))))} cur={cur} target={target} onPreview={(ad, camp, set) => setPreview({ node: ad, cmp: camp, set })} />
 
         {/* DÓNDE CONVIERTE — plataforma y placement (P3) */}
         <div className="mc-sh"><h2>Dónde convierte · plataforma y placement</h2><span className="hint">Facebook vs Instagram · ¿Advantage+ completo o restringir?</span></div>
@@ -1119,7 +1162,8 @@ const CSS = `
 .mc-hero{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:36px;align-items:end;padding-bottom:32px;border-bottom:1px solid var(--b1)}
 .mc-thesis{font-size:clamp(21px,2.9vw,32px);font-weight:800;letter-spacing:-.02em;line-height:1.17}
 .mc-thesis .hl{color:var(--up)}
-.mc-sub{font-size:13px;color:var(--t2);margin-top:14px;line-height:1.6}.mc-sub b{color:var(--t1)}
+.mc-sub{font-size:13px;color:var(--t2);margin-top:12px;line-height:1.6}.mc-sub b{color:var(--t1)}
+.mc-sub-note{display:block;margin-top:5px;font-size:11.5px;color:var(--t3)}
 .mc-north .k{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:8px}
 .mc-north .v{font-size:clamp(30px,3.4vw,38px);font-weight:800;letter-spacing:-.03em;line-height:.95;color:var(--up);font-family:'Space Grotesk',sans-serif}
 .mc-north .old{font-size:12px;color:var(--t3);margin-top:8px}.mc-north .old s{color:var(--dn)}
@@ -1368,4 +1412,19 @@ table.cj-t{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
 .mc-own-fmt{display:flex;flex-wrap:wrap;gap:12px;margin-top:9px;font-size:11px;color:var(--t3)}
 .mc-own-fmt .fmt b{color:var(--t1);font-weight:800}
 @media(max-width:820px){.mc-owns{grid-template-columns:1fr}}
+/* Muro de creativos */
+.cw-legend{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:13px;font-size:11.5px;color:var(--t2)}
+.cw-lg{display:inline-flex;align-items:center;gap:6px}
+.cw-lg i{width:10px;height:10px;border-radius:3px}
+.cw-lg b{font-weight:800}.cw-lg .mu{color:var(--t3)}
+.cw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(134px,1fr));gap:12px}
+.cw-card{text-align:left;padding:0;border:1px solid var(--b1);border-radius:12px;overflow:hidden;background:var(--bg1);cursor:pointer;transition:transform .1s,box-shadow .1s}
+.cw-card:hover{transform:translateY(-2px);box-shadow:0 7px 18px rgba(0,0,0,.2)}
+.cw-th{aspect-ratio:1/1;background:var(--bg3) center/cover no-repeat;position:relative;border-bottom:3px solid var(--s)}
+.cw-th .cw-ph{position:absolute;inset:0;display:grid;place-items:center;font-size:26px;opacity:.45}
+.cw-roas{position:absolute;top:7px;right:7px;color:#fff;font-weight:800;font-size:12.5px;padding:3px 8px;border-radius:999px;font-family:'Space Grotesk',sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.cw-vb{position:absolute;bottom:7px;left:7px;background:rgba(0,0,0,.62);color:#fff;font-size:10px;padding:2px 6px;border-radius:5px}
+.cw-meta{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;font-size:11px}
+.cw-meta .cw-sp{font-weight:800;font-family:'Space Grotesk',sans-serif}
+.cw-meta .cw-ctr{color:var(--t3)}
 `;

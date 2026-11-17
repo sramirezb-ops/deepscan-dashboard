@@ -989,12 +989,54 @@ def extract_conversions_by_action(client, customer_id, client_id, date_start, da
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def check_freshness(clients, date_end, failures):
+    """Guard de frescura de Google Ads: reporta el último dato por cliente y
+    FALLA el job si algún cliente dio error en esta corrida — así el job NO queda
+    verde cuando algo se rompió (caso Sneakers 7-nov: el error se tragaba y nadie
+    se enteraba). Un cliente atrasado SIN error (p.ej. pausado) solo avisa ⚠️,
+    para no generar falsas alarmas. Flags de entorno:
+      · GADS_STALE_DAYS    (def 2) — tolerancia de atraso vs date_end.
+      · GADS_FAIL_ON_ERROR (def 1) — fallar el job si un cliente dio error.
+      · GADS_FAIL_ON_STALE (def 0) — además fallar por atraso sin error."""
+    fail_names = {n for n, _ in failures}
+    tol = int(os.environ.get("GADS_STALE_DAYS", "2"))
+    threshold = (datetime.strptime(date_end, "%Y-%m-%d") - timedelta(days=tol)).strftime("%Y-%m-%d")
+    log.info("\n══ FRESCURA · Google Ads por cliente ══")
+    stale = []
+    for c in clients:
+        name, cid = c["name"], c["id"]
+        try:
+            res = supabase.table("gads_campaigns").select("date") \
+                .eq("client_id", cid).order("date", desc=True).limit(1).execute()
+            last = res.data[0]["date"] if res.data else None
+        except Exception as e:
+            last = None
+            log.warning(f"   (no pude leer frescura de {name}: {e})")
+        if name in fail_names:
+            log.error(f"   ✗  {name:24} ERROR en esta corrida — último dato {last or '—'}")
+        elif last is None or last < threshold:
+            log.warning(f"   ⚠  {name:24} ATRASADO — último dato {last or '—'} (umbral {threshold})")
+            stale.append(name)
+        else:
+            log.info(f"   ✅ {name:24} fresco — {last}")
+
+    fail_on_error = os.environ.get("GADS_FAIL_ON_ERROR", "1") not in ("0", "false", "False", "")
+    fail_on_stale = os.environ.get("GADS_FAIL_ON_STALE", "0") in ("1", "true", "True")
+    if (failures and fail_on_error) or (stale and fail_on_stale):
+        bad = ", ".join(sorted(fail_names | (set(stale) if fail_on_stale else set())))
+        log.error(f"\n❌ Google Ads con problemas: {bad}. El job falla a propósito para alertar "
+                  f"(pon GADS_FAIL_ON_ERROR=0 para no fallar por error de cliente).")
+        raise SystemExit(1)
+
+
 def run():
     date_start, date_end = get_date_range(DAYS)
     log.info(f"Google Ads API extractor — {date_start} → {date_end}")
 
     clients = get_clients()
     log.info(f"Clientes con Google Ads: {len(clients)}")
+
+    failures = []  # (name, motivo) — clientes que lanzaron error en esta corrida
 
     for c in clients:
         cid = c["id"]
@@ -1074,6 +1116,16 @@ def run():
 
         except Exception as e:
             log.error(f"   ✗ Error {name}: {e}")
+            failures.append((name, str(e)[:300]))
+
+    # ── GUARD DE FRESCURA ───────────────────────────────────────────────────
+    # El loop de arriba traga los errores por-cliente (para que un cliente no
+    # tumbe a los demás). Sin esto, el job salía SIEMPRE verde aunque un cliente
+    # llevara días sin datos (caso Sneakers 7-nov). El guard revisa el max(date)
+    # real de cada cliente y FALLA el job si alguno dio error (señal clara de que
+    # se rompió). Un cliente atrasado SIN error (p.ej. pausado) solo avisa ⚠️,
+    # para no generar falsas alarmas.
+    check_freshness(clients, date_end, failures)
 
     log.info("\n✅ Google Ads API extractor completado")
 

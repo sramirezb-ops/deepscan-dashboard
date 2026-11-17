@@ -84,7 +84,7 @@ function AdThumb({ url, name }: { url: string | null; name: string }) {
 export function MetaCompras() {
   const client = useClient();
   const { range, previous } = usePeriod();
-  const { data, loading, error } = useMetaCompras(client.id, range, previous);
+  const { data, loading, error } = useMetaCompras(client.id, range, previous, client.roasTarget ?? 7);
 
   const rangeLabel = formatRangeLabel(range);
   const previousLabel = formatRangeLabel(previous);

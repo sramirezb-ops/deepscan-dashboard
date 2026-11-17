@@ -3,12 +3,11 @@
 
 export type ChannelId =
   | 'ov2' | 'week' | 'bot'
-  | 'gads' | 'pmax' | 'srch' | 'shop' | 'yt' | 'prop' | 'avsia'
+  | 'gads' | 'pmax' | 'srch' | 'shop' | 'yt' | 'prop'
   | 'meta' | 'mili' | 'wa' | 'ig'
   | 'ttok' | 'ttkc' | 'ttkr' | 'ttkm'
-  | 'ga4' | 'cro' | 'gsc'
-  | 'shp' | 'gmc'
-  | 'ia' | 'abtest' | 'learn';
+  | 'ga4' | 'cro'
+  | 'shp' | 'gmc';
 
 export interface ChannelMeta {
   icon: string;
@@ -108,17 +107,6 @@ export const CHANNEL_META: Partial<Record<ChannelId, ChannelMeta>> = {
       'Recomendaciones CRO quirúrgicas',
     ],
   },
-  gsc: {
-    icon: '🔍',
-    title: 'Google Search Console no configurado',
-    desc: 'No detectamos una propiedad de <b>Search Console</b> conectada. Es crítica para SEO orgánico.',
-    benefits: [
-      'Keywords ganando/perdiendo',
-      'Impresiones y CTR por query',
-      'Errores técnicos detectados',
-      'Recomendaciones SEO IA',
-    ],
-  },
   gmc: {
     icon: '📦',
     title: 'Google Merchant Center no configurado',
@@ -156,7 +144,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'ov2', label: 'Overview', icon: '▣', href: '/overview', crumb1: 'General', crumb2: 'Overview' },
       { id: 'week', label: 'Esta semana', icon: '⚡', href: '/week', crumb1: 'General', crumb2: 'Accionables' },
-      { id: 'avsia', label: 'Agencia vs IA', icon: '⚖️', href: '/google-ads/agencia-vs-ia', crumb1: 'General', crumb2: 'Agencia vs IA' },
       { id: 'bot', label: 'Bot & Operación', icon: '🤖', href: '/bot', crumb1: 'General', crumb2: 'Bot' },
     ],
   },
@@ -195,21 +182,12 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: 'ga4', label: 'GA4', icon: '◇', href: '/analytics/ga4', crumb1: 'Analytics', crumb2: 'GA4' },
       { id: 'cro', label: 'Clarity · CRO', icon: '◉', href: '/analytics/clarity', crumb1: 'Analytics', crumb2: 'Clarity' },
-      { id: 'gsc', label: 'Search Console', icon: '🔍', href: '/analytics/search-console', crumb1: 'Analytics', crumb2: 'Search Console' },
     ],
   },
   {
     label: 'Ecommerce',
     items: [
       { id: 'gmc', label: 'Merchant Center', icon: '📦', href: '/ecommerce/merchant-center', crumb1: 'Ecommerce', crumb2: 'GMC' },
-    ],
-  },
-  {
-    label: 'IA & Aprendizajes',
-    items: [
-      { id: 'ia', label: 'Conclusiones IA', icon: '✦', href: '/ai/insights', crumb1: 'IA', crumb2: 'Conclusiones' },
-      { id: 'abtest', label: 'A/B tests', icon: '🧪', href: '/ai/ab-tests', crumb1: 'IA', crumb2: 'A/B tests', isSubItem: true },
-      { id: 'learn', label: 'Aprendizajes', icon: '📚', href: '/ai/learnings', crumb1: 'IA', crumb2: 'Aprendizajes', isSubItem: true },
     ],
   },
 ];

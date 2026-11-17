@@ -37,7 +37,6 @@ const CHANNEL_BRAND: Record<ChannelId, Brand> = {
   shop: 'google-ads',
   yt: 'youtube',
   prop: 'google-ads',
-  avsia: 'google-ads',
   meta: 'meta',
   mili: 'meta',
   wa: 'whatsapp',
@@ -48,12 +47,8 @@ const CHANNEL_BRAND: Record<ChannelId, Brand> = {
   ttkm: 'tiktok',
   ga4: 'google-analytics',
   cro: 'clarity',
-  gsc: 'search-console',
   shp: 'shopify',
   gmc: 'merchant',
-  ia: 'deepscan',
-  abtest: 'deepscan',
-  learn: 'deepscan',
 };
 
 export function brandForChannel(id: ChannelId): Brand {

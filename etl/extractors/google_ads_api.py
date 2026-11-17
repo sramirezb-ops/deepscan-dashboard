@@ -69,6 +69,23 @@ def delete_for_client(table: str, client_id: str):
     supabase.table(table).delete().eq("client_id", client_id).execute()
 
 
+def delete_api_window(table: str, client_id: str, date_start: str, date_end: str, date_col: str = "date"):
+    """Borra las filas de la API (campaign_id NO nulo) de un cliente dentro de la
+    ventana de fechas, ANTES de reescribirla por nombre.
+
+    Por qué: cuando una campaña se RENOMBRA (mismo campaign_id, nuevo nombre), el
+    upsert on_conflict=(client_id,date,campaign_name) no encuentra el nombre nuevo
+    → intenta INSERT → choca contra la unique vieja (client_id,date,campaign_id)
+    de la base viva → error 23505 → se cae TODO el bloque de Google del cliente.
+    Limpiar la ventana primero deja el upsert por nombre sin colisión y sin
+    duplicar gasto. Las filas históricas de la hoja (campaign_id NULL) se preservan."""
+    supabase.table(table).delete() \
+        .eq("client_id", client_id) \
+        .gte(date_col, date_start).lte(date_col, date_end) \
+        .not_.is_("campaign_id", "null") \
+        .execute()
+
+
 # ── QUERIES GAQL ─────────────────────────────────────────────────────────────
 
 def extract_campaigns(client, customer_id, client_id, date_start, date_end):
@@ -989,6 +1006,10 @@ def run():
             gads = build_client(customer_id)
 
             rows = extract_campaigns(gads, customer_id, cid, date_start, date_end)
+            # Limpia la ventana (filas de la API) antes de reescribir: si una
+            # campaña se renombró, evita el choque 23505 contra la unique vieja
+            # (client_id,date,campaign_id) y no duplica. Ver delete_api_window.
+            delete_api_window("gads_campaigns", cid, date_start, date_end)
             # Conflicto por NOMBRE (no por id): la identidad canónica de una
             # campaña-día en esta tabla es (client_id, date, campaign_name) —es
             # la unique constraint del esquema y la que comparten el sheet y la

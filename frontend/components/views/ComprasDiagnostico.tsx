@@ -4,7 +4,7 @@ import { useState, type ReactNode, type CSSProperties } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner, type ComprasCampaignRow, type OwnerDetail } from '@/lib/hooks/useMetaCompras';
+import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner, type ComprasCampaignRow, type OwnerDetail, type ComprasTotals, type MetaComprasData } from '@/lib/hooks/useMetaCompras';
 import type { DiagFactor } from '@/lib/perfDiagnosis';
 import { useCatalog } from '@/lib/hooks/useCatalog';
 import { useMetaPlacements, type PlaceRow, type PlaceNode } from '@/lib/hooks/useMetaPlacements';
@@ -609,6 +609,60 @@ function CreativeWall({ rows, cur, target, onPreview }: { rows: { ad: ComprasHie
   );
 }
 
+// Nombre corto de campaña: la parte con significado (antes del primer separador).
+function shortName(n: string): string {
+  const s = n.replace(/\[[^\]]*\]/g, '').split(/[|·]/)[0].trim();
+  return (s || n).slice(0, 34);
+}
+
+// ── CENTRO DE MANDO ─────────────────────────────────────────────────────────
+// El elemento firma: de un vistazo, qué funciona, qué no y la jugada. Sin leer.
+function CommandCenter({ data, t, target, cur, rangeLabel, roasDelta }: { data: MetaComprasData; t: ComprasTotals; target: number; cur: string; rangeLabel: string; roasDelta: number }) {
+  const status = t.roas >= target ? 'good' : t.roas >= target * 0.6 ? 'warn' : 'bad';
+  const STAT = ({ good: { c: 'var(--up)', w: 'En objetivo' }, warn: { c: 'var(--warn)', w: 'Rentable · bajo meta' }, bad: { c: '#ef4444', w: 'Bajo objetivo' } } as const)[status];
+  const winners = data.campaigns.filter((c) => c.roas >= target && c.purchaseValue > 0).sort((a, b) => b.purchaseValue - a.purchaseValue);
+  const winRev = winners.reduce((s, c) => s + c.purchaseValue, 0);
+  const topWin = winners[0];
+  const ads = data.campaigns.flatMap((c) => c.adsLite);
+  const dead = ads.filter((a) => a.spend > 150 && a.revenue <= 0);
+  const deadSpend = dead.reduce((s, a) => s + a.spend, 0);
+  const aura = data.ownerDetail.ia;
+  const axis = target * 1.5;
+  const fillPct = Math.min(t.roas / axis, 1) * 100;
+  const goalPct = (target / axis) * 100;
+  const jugada: string[] = [];
+  if (topWin) jugada.push(`escala ${shortName(topWin.name)} (${topWin.roas.toFixed(1)}×)`);
+  if (dead.length) jugada.push(`corta ${dead.length} creativos sin venta (${formatCurrency(deadSpend, cur)})`);
+  if (aura.count > 0 && aura.roas < target) jugada.push(`replantea Motor AURA (${aura.roas.toFixed(1)}×)`);
+  return (
+    <div className="cc" style={{ ['--st' as string]: STAT.c } as CSSProperties}>
+      <div className="cc-head"><span className="cc-eyebrow">Meta Ads · Compras</span><span className="cc-range">{rangeLabel}</span></div>
+      <div className="cc-body">
+        <div className="cc-verdict">
+          <div className="cc-status"><span className="dot" />{STAT.w}</div>
+          <div className="cc-roas">{t.roas.toFixed(1)}<span className="x">×</span><span className={'cc-delta ' + (roasDelta >= 0 ? 'up' : 'dn')}>{roasDelta >= 0 ? '▲' : '▼'} {Math.abs(roasDelta).toFixed(1)}</span></div>
+          <div className="cc-track"><div className="cc-fill" style={{ width: `${fillPct}%` }} /><div className="cc-goal" style={{ left: `${goalPct}%` }} /></div>
+          <div className="cc-goal-lb" style={{ left: `${goalPct}%` }}>objetivo {target}×</div>
+          <div className="cc-flow">{formatCurrency(t.spend, cur)} <span className="ar">→</span> <b>{formatCurrency(t.purchaseValue, cur)}</b> <span className="mu">· {formatInt(t.purchases)} compras</span></div>
+        </div>
+        <div className="cc-side">
+          <div className="cc-card ok">
+            <div className="cc-lbl">Funciona</div>
+            <div className="cc-big">{formatCurrency(winRev, cur)}</div>
+            <div className="cc-note">{winners.length} campañas en objetivo{topWin ? ` · ↑ ${shortName(topWin.name)} ${topWin.roas.toFixed(1)}×` : ''}</div>
+          </div>
+          <div className="cc-card bad">
+            <div className="cc-lbl">Fuga</div>
+            <div className="cc-big">{formatCurrency(deadSpend, cur)}</div>
+            <div className="cc-note">{dead.length} creativos sin venta{aura.count > 0 ? ` · AURA ${aura.roas.toFixed(1)}× (${aura.diversity.winners}/${aura.diversity.activeAds} ganan)` : ''}</div>
+          </div>
+        </div>
+      </div>
+      {jugada.length > 0 && <div className="cc-play"><span className="cc-play-lb">La jugada</span><span className="cc-play-tx">{jugada.join(' · ')}.</span></div>}
+    </div>
+  );
+}
+
 export function ComprasDiagnostico() {
   const client = useClient();
   const { range, previous } = usePeriod();
@@ -737,34 +791,12 @@ export function ComprasDiagnostico() {
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="mc">
 
-        {/* HERO */}
-        <div className="mc-eyebrow">Meta Ads · Compras · {rangeLabel}</div>
-        <div className="mc-hero">
-          <div>
-            <div className="mc-thesis">Venta Meta a <span className="hl">ROAS {t.roas.toFixed(1)}×</span> · objetivo {GOAL}×.</div>
-            <div className="mc-sub"><b>{formatCurrency(t.spend, cur)}</b> → <b>{formatCurrency(t.purchaseValue, cur)}</b> en {formatInt(t.purchases)} compras ({data.campaignCount} campañas de venta). <span className="mc-sub-note">El ROAS "de todo Meta" ({naiveRoas.toFixed(1)}×) mezcla WhatsApp — aquí va separado.</span></div>
-          </div>
-          <div className="mc-north">
-            <div className="k">ROAS · campañas de venta</div>
-            <div className="v">{t.roas.toFixed(1)}× <span className={'nd ' + (data.roasDelta >= 0 ? 'up' : 'dn')} title="Momentum del ROAS vs el período anterior.">{data.roasDelta >= 0 ? '▲' : '▼'} {Math.abs(data.roasDelta).toFixed(1)}×</span></div>
-            <div className="old">no <s>{naiveRoas.toFixed(1)}×</s> — eso mezcla WhatsApp</div>
-            <div className="r">
-              <div><div className="l">Compras</div><div className="rv">{formatInt(t.purchases)}</div></div>
-              <div><div className="l">AOV</div><div className="rv">{formatCurrency(t.aov, cur)}</div></div>
-              <div><div className="l">CPA</div><div className="rv">{formatCurrency(t.cpa, cur)}</div></div>
-            </div>
-          </div>
-        </div>
+        {/* CENTRO DE MANDO — el veredicto ejecutivo de un vistazo */}
+        <CommandCenter data={data} t={t} target={target} cur={cur} rangeLabel={rangeLabel} roasDelta={data.roasDelta} />
 
         {/* CABINA DE ESCALAMIENTO (P1) */}
-        <div className="mc-sh"><h2>Cabina de escalamiento</h2><span className="hint">¿sube la inversión sin perder eficiencia?</span></div>
-        <div className="cab-kpis">
-          <div className="cab-kpi">
-            <div className="cab-k">ROAS · venta</div>
-            <div className="cab-v" style={{ color: t.roas >= GOAL ? 'var(--up)' : 'var(--warn)' }}>{t.roas.toFixed(1)}×</div>
-            <GaugeBar value={t.roas} goal={GOAL} />
-            <div className="cab-foot"><span>meta {GOAL}×</span><span className={data.roasDelta >= 0 ? 'up' : 'dn'}>{data.roasDelta >= 0 ? '▲' : '▼'} {Math.abs(data.roasDelta).toFixed(1)}× vs previo</span></div>
-          </div>
+        <div className="mc-sh"><h2>Tendencia y eficiencia</h2><span className="hint">ROAS e inversión por día · CPA e ingreso con su micro-tendencia</span></div>
+        <div className="cab-kpis cab-kpis-3">
           <div className="cab-kpi">
             <div className="cab-k">CPA · costo/compra</div>
             <div className="cab-v">{formatCurrency(t.cpa, cur)}</div>
@@ -1222,6 +1254,7 @@ table.mc-t{border-collapse:collapse;width:100%;min-width:1200px;font-size:12.5px
 /* Catálogo */
 /* Cabina de escalamiento */
 .cab-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.cab-kpis-3{grid-template-columns:repeat(3,1fr)}
 .cab-kpi{background:var(--bg1);border:1px solid var(--b1);border-radius:14px;padding:14px 16px}
 .cab-k{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3);margin-bottom:6px}
 .cab-v{font-size:26px;font-weight:800;color:var(--t1);letter-spacing:-.5px;line-height:1.1;margin-bottom:9px}
@@ -1393,4 +1426,33 @@ table.cj-t{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
 .cw-meta{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;font-size:11px}
 .cw-meta .cw-sp{font-weight:800;font-family:'Space Grotesk',sans-serif}
 .cw-meta .cw-ctr{color:var(--t3)}
+/* ── Centro de mando (firma) ── */
+.cc{position:relative;border:1px solid var(--b1);border-radius:16px;background:var(--bg1);padding:22px 26px 0;overflow:hidden;margin-bottom:30px}
+.cc::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--st)}
+.cc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.cc-eyebrow{font-size:10.5px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--t3)}
+.cc-range{font-size:12px;color:var(--t3)}
+.cc-body{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:34px;align-items:center;padding-bottom:4px}
+.cc-status{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--st)}
+.cc-status .dot{width:8px;height:8px;border-radius:50%;background:var(--st)}
+.cc-roas{display:flex;align-items:baseline;gap:14px;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:clamp(46px,6vw,76px);line-height:1;letter-spacing:-.03em;color:var(--st);margin:7px 0 6px}
+.cc-roas .x{font-size:.5em;font-weight:700;opacity:.82}
+.cc-delta{font-size:13px;font-weight:700;align-self:center}
+.cc-delta.up{color:var(--up)}.cc-delta.dn{color:var(--warn)}
+.cc-track{position:relative;height:9px;border-radius:5px;background:var(--bg3);margin-top:6px}
+.cc-fill{height:100%;border-radius:5px;background:var(--st)}
+.cc-goal{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--t1);opacity:.55}
+.cc-goal-lb{position:relative;display:inline-block;font-size:10px;color:var(--t3);margin-top:5px;transform:translateX(-50%);white-space:nowrap}
+.cc-flow{font-size:14px;color:var(--t2);margin-top:14px}.cc-flow b{color:var(--t1);font-weight:800}.cc-flow .ar{color:var(--t3);margin:0 3px}.cc-flow .mu{color:var(--t3)}
+.cc-side{display:grid;gap:12px}
+.cc-card{padding:12px 15px;border-radius:12px;background:var(--bg3);border-left:3px solid var(--b2)}
+.cc-card.ok{border-left-color:var(--up)}.cc-card.bad{border-left-color:#ef4444}
+.cc-lbl{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--t3)}
+.cc-card.ok .cc-lbl{color:var(--up)}.cc-card.bad .cc-lbl{color:#ef4444}
+.cc-big{font-size:24px;font-weight:800;font-family:'Space Grotesk',sans-serif;letter-spacing:-.02em;margin-top:3px}
+.cc-note{font-size:11.5px;color:var(--t2);margin-top:4px;line-height:1.45}
+.cc-play{display:flex;align-items:center;gap:12px;margin:18px -26px 0;padding:14px 26px;border-top:1px solid var(--b1);background:var(--bg2)}
+.cc-play-lb{flex:none;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--st);border:1px solid var(--st);padding:3px 9px;border-radius:999px}
+.cc-play-tx{font-size:13.5px;color:var(--t1);font-weight:600}
+@media(max-width:820px){.cc-body{grid-template-columns:1fr;gap:20px}.cc-play{flex-wrap:wrap;gap:8px}}
 `;

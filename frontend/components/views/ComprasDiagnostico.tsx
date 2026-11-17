@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner, type ComprasCampaignRow } from '@/lib/hooks/useMetaCompras';
+import { useMetaCompras, type ComprasHierNode, type ComprasMetric, type ComprasOwner, type ComprasCampaignRow, type OwnerDetail } from '@/lib/hooks/useMetaCompras';
 import type { DiagFactor } from '@/lib/perfDiagnosis';
 import { useCatalog } from '@/lib/hooks/useCatalog';
 import { useMetaPlacements, type PlaceRow, type PlaceNode } from '@/lib/hooks/useMetaPlacements';
@@ -122,8 +122,11 @@ function siteOf(campaignName: string): Site {
 }
 // Chip de gestor (Agencia vs IA·Aura) — quién creó la campaña/conjunto.
 const OWNER_CHIP: Record<'agencia' | 'ia', { l: string; c: string }> = {
-  agencia: { l: 'Agencia', c: '#0ea5e9' }, ia: { l: 'IA·Aura', c: '#8b5cf6' },
+  agencia: { l: 'Agencia', c: '#0ea5e9' }, ia: { l: 'MOTOR AURA', c: '#8b5cf6' },
 };
+// Motor AURA por NOMBRE (consistente con el Overview y ownerDetail): algunas
+// las subió la agencia con ayuda de AURA, así que el creador no es fiable.
+const isAuraName = (n?: string) => /aura/i.test(n || '');
 function ownerChip(o?: ComprasOwner) {
   if (o !== 'agencia' && o !== 'ia') return null;
   const m = OWNER_CHIP[o];
@@ -572,6 +575,45 @@ function ComprasDiag({ camp, target, cur }: { camp: ComprasCampaignRow; target: 
   );
 }
 
+// Tarjeta de owner (Agencia / Motor AURA): resultados + qué escala + diversidad.
+function OwnerCard({ o, label, color, target, cur }: { o: OwnerDetail; label: string; color: string; target: number; cur: string }) {
+  const dv = o.diversity;
+  const rCol = (r: number) => (r >= target ? 'var(--up)' : r >= target * 0.6 ? 'var(--warn)' : '#ef4444');
+  const conc = Math.round(dv.concentration);
+  return (
+    <div className="mc-own" style={{ borderTopColor: color }}>
+      <div className="mc-own-h" style={{ color }}>{label}</div>
+      <div className="mc-own-roas"><span className="rx" style={{ color: rCol(o.roas) }}>{o.roas > 0 ? o.roas.toFixed(1) + '×' : '—'}</span> <span className="mu">ROAS · objetivo {target}×</span></div>
+      <div className="mc-own-kpis">
+        <div><div className="l">Inversión</div><div className="v">{formatCurrency(o.spend, cur)}</div></div>
+        <div><div className="l">Revenue</div><div className="v">{formatCurrency(o.value, cur)}</div></div>
+        <div><div className="l">Compras</div><div className="v">{formatInt(o.purchases)}</div></div>
+        <div><div className="l">Campañas</div><div className="v">{o.count}</div></div>
+      </div>
+      {o.topCampaigns.length > 0 && <>
+        <div className="mc-own-sub">Qué escala</div>
+        <div className="mc-own-tc">
+          {o.topCampaigns.map((c, i) => (
+            <div className="tc" key={i}><span className="nm" title={c.name}>{c.name}</span><span className="rs" style={{ color: rCol(c.roas) }}>{c.roas.toFixed(1)}×</span><span className="sp">{formatCurrency(c.spend, cur)}</span></div>
+          ))}
+        </div>
+      </>}
+      <div className="mc-own-sub">Diversidad creativa</div>
+      <div className="mc-own-div">
+        <span className="pill">{dv.activeAds} creativos</span>
+        <span className="pill good">{dv.winners} ganadores</span>
+        {dv.dead > 0 && <span className="pill bad">{dv.dead} en 0×</span>}
+        <span className={'pill' + (conc >= 60 ? ' bad' : '')} title="Gasto concentrado en el anuncio top">{conc}% en el top</span>
+      </div>
+      {dv.formats.length > 0 && (
+        <div className="mc-own-fmt">
+          {dv.formats.slice(0, 4).map((f) => <span key={f.label} className="fmt">{f.label} <b>{f.ads}</b></span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ComprasDiagnostico() {
   const client = useClient();
   const { range, previous } = usePeriod();
@@ -819,24 +861,16 @@ export function ComprasDiagnostico() {
             )}
           </div>
         )}
-        {data.ownerSplit.ia.count > 0 && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch', margin: '2px 0 12px' }}>
-            {([['nosotros', 'Nosotros', '#0ea5e9'], ['ia', 'IA · Aura', '#8b5cf6']] as const).map(([k, lbl, col]) => {
-              const s = data.ownerSplit[k];
-              return (
-                <div key={k} style={{ flex: '1 1 210px', minWidth: 190, border: '1px solid var(--b1)', borderLeft: `3px solid ${col}`, borderRadius: 12, padding: '10px 14px', background: 'var(--bg1)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.03em', color: col }}>{lbl}</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 3 }}>
-                    <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-.02em' }}>{s.roas > 0 ? s.roas.toFixed(1) + '×' : '—'}</span>
-                    <span style={{ fontSize: 11, color: 'var(--t3)' }}>ROAS · {s.count} camp. · {formatCurrency(s.spend, cur)} · {formatInt(s.purchases)} compras</span>
-                  </div>
-                </div>
-              );
-            })}
-            <div style={{ alignSelf: 'center', fontSize: 11, color: 'var(--t3)', maxWidth: 220 }}>Quién creó cada campaña. "Nosotros" incluye lo histórico sin registro de creación.</div>
-          </div>
+        {data.ownerDetail.ia.count > 0 && (
+          <>
+            <div className="mc-sh" style={{ margin: '14px 0 12px' }}><h2>Agencia vs Motor AURA · a detalle</h2><span className="hint">resultados · qué escala cada uno · diversidad creativa</span></div>
+            <div className="mc-owns">
+              <OwnerCard o={data.ownerDetail.nosotros} label="Agencia" color="#0ea5e9" target={target} cur={cur} />
+              <OwnerCard o={data.ownerDetail.ia} label="Motor AURA" color="#8b5cf6" target={target} cur={cur} />
+            </div>
+          </>
         )}
-        <div className="cj-hint">Clic en una campaña para ver sus conjuntos, y en un conjunto para ver sus anuncios · clic en un anuncio para su preview. Los chips <b>Agencia</b> / <b>IA·Aura</b> marcan quién creó cada campaña o conjunto.</div>
+        <div className="cj-hint">Clic en una campaña para ver su diagnóstico, sus conjuntos y anuncios · clic en un anuncio para su preview. El chip <b>MOTOR AURA</b> marca las campañas de la IA (por nombre); el resto es Agencia.</div>
         <div className="mc-wrap"><div className="mc-scroll">
           <table className="cj-t sortable">
             <thead><tr><th className="cj-caret"></th><th>Campaña · conjunto · anuncio</th>{th('veredicto', 'Veredicto')}{th('mom', 'Momentum')}{TMETRICS.map((m) => th(m.k, m.l))}</tr></thead>
@@ -848,7 +882,7 @@ export function ComprasDiagnostico() {
                   <tr key={ck} className={'cj-row cj-camp clk' + (cOpen ? ' open' : '')}
                     onClick={() => setExpCj((e) => ({ ...e, [ck]: !e[ck] }))}>
                     <td className="cj-caret">{camp.sets.length ? (cOpen ? '▾' : '▸') : ''}</td>
-                    <td className="nm" title={camp.name}>{siteBadge(camp.site)} {ownerChip(camp.owner)}{camp.name}</td>
+                    <td className="nm" title={camp.name}>{siteBadge(camp.site)} {isAuraName(camp.name) ? ownerChip('ia') : null}{camp.name}</td>
                     <td><span className={`v-badge ${camp.v.c}`} title={camp.v.tip}>{camp.v.l}</span></td>
                     <td>{momBadge(camp.mom, camp.hadPrev)}</td>
                     {tcells(camp.d, cur)}
@@ -868,7 +902,7 @@ export function ComprasDiagnostico() {
                     <tr key={sk} className={'cj-row cj-set' + (sOpen ? ' open' : '') + (ads.length ? ' clk' : '')}
                       onClick={() => ads.length && setExpCj((e) => ({ ...e, [sk]: !e[sk] }))}>
                       <td className="cj-caret l2">{ads.length ? (sOpen ? '▾' : '▸') : ''}</td>
-                      <td className="nm sub" title={s.name}>{ownerChip(s.owner)}{s.name}</td>
+                      <td className="nm sub" title={s.name}>{isAuraName(camp.name) ? ownerChip('ia') : null}{s.name}</td>
                       <td><span className={`v-badge ${s.v.c}`} title={s.v.tip}>{s.v.l}</span></td>
                       <td>{momBadge(s.mom, s.hadPrev)}</td>
                       {tcells(s.d, cur)}
@@ -1312,4 +1346,26 @@ table.cj-t{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
 .mc-diag-m .bar{height:5px;border-radius:3px;background:var(--b1);overflow:hidden;margin-top:6px}
 .mc-diag-m .bar>div{height:100%;border-radius:3px}
 @media(max-width:820px){.mc-diag-grid{grid-template-columns:1fr 1fr}}
+/* Agencia vs Motor AURA · a detalle */
+.mc-owns{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px}
+.mc-own{background:var(--bg1);border:1px solid var(--b1);border-top:3px solid var(--acc);border-radius:13px;padding:15px 16px}
+.mc-own-h{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.mc-own-roas{display:flex;align-items:baseline;gap:9px;margin-top:5px}
+.mc-own-roas .rx{font-size:30px;font-weight:800;letter-spacing:-.02em;font-family:'Space Grotesk',sans-serif}
+.mc-own-roas .mu{font-size:11px;color:var(--t3)}
+.mc-own-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:13px}
+.mc-own-kpis .l{font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--t3)}
+.mc-own-kpis .v{font-size:13.5px;font-weight:800;margin-top:3px;font-family:'Space Grotesk',sans-serif}
+.mc-own-sub{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3);margin:14px 0 8px}
+.mc-own-tc{display:flex;flex-direction:column;gap:5px}
+.mc-own-tc .tc{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;font-size:11.5px;padding:5px 9px;background:var(--bg3);border-radius:7px}
+.mc-own-tc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc-own-tc .rs{font-weight:800}.mc-own-tc .sp{color:var(--t3);font-variant-numeric:tabular-nums}
+.mc-own-div{display:flex;flex-wrap:wrap;gap:6px}
+.mc-own-div .pill{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--bg3);color:var(--t2)}
+.mc-own-div .pill.good{background:rgba(23,184,119,.13);color:var(--up)}
+.mc-own-div .pill.bad{background:rgba(239,68,68,.13);color:#ef4444}
+.mc-own-fmt{display:flex;flex-wrap:wrap;gap:12px;margin-top:9px;font-size:11px;color:var(--t3)}
+.mc-own-fmt .fmt b{color:var(--t1);font-weight:800}
+@media(max-width:820px){.mc-owns{grid-template-columns:1fr}}
 `;

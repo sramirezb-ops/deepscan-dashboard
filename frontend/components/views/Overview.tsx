@@ -1,10 +1,11 @@
 'use client';
 
+import { useState, Fragment } from 'react';
 import { LeadsOverview } from './LeadsOverview';
 import { useClient } from '@/lib/useClient';
 import { usePeriod } from '@/lib/usePeriod';
 import { formatRangeLabel } from '@/lib/period';
-import { useEcommercePerf, roasAction, type PerfAction, type CampaignRow, type AdRow } from '@/lib/hooks/useEcommercePerf';
+import { useEcommercePerf, roasAction, type PerfAction, type CampaignRow, type AdRow, type AdLite, type DiagFactor } from '@/lib/hooks/useEcommercePerf';
 import { formatCurrency, formatInt, formatDelta, deltaDirection } from '@/lib/utils';
 
 // ── Router del Overview ejecutivo ────────────────────────────
@@ -20,6 +21,87 @@ export function OverviewSwitch() {
 
 // Semáforo de acción → color.
 const ACT_COLOR: Record<PerfAction, string> = { escalar: 'var(--up)', vigilar: 'var(--warn)', cortar: '#ef4444' };
+// Factor de falla → etiqueta corta + color (para el diagnóstico expandible).
+const FACTOR: Record<DiagFactor, { label: string; color: string }> = {
+  ok: { label: 'En objetivo', color: 'var(--up)' },
+  fatiga: { label: 'Fatiga de público', color: '#ef4444' },
+  creativo: { label: 'Creativo', color: 'var(--warn)' },
+  angulo: { label: 'Ángulo', color: 'var(--warn)' },
+  publico: { label: 'Público', color: 'var(--warn)' },
+  postclic: { label: 'Post-clic (no medible)', color: 'var(--t2)' },
+};
+
+function roasCol(roas: number, target: number): string {
+  return roas >= target ? 'var(--up)' : roas >= target * 0.6 ? 'var(--warn)' : '#ef4444';
+}
+
+function AdChip({ a, target, cfmt, rx }: { a: AdLite; target: number; cfmt: (v: number) => string; rx: (v: number) => string }) {
+  return (
+    <div className="ov-adchip">
+      <div className="th" style={a.thumb ? { backgroundImage: `url(${a.thumb})` } : undefined} />
+      <div style={{ minWidth: 0 }}>
+        <div className="nm" title={a.name}>{a.name}</div>
+        <div className="mx"><b style={{ color: roasCol(a.roas, target) }}>{rx(a.roas)}</b> · CTR {a.ctr.toFixed(1)}% · {cfmt(a.spend)}</div>
+      </div>
+    </div>
+  );
+}
+
+function DiagPanel({ c, target, cfmt, rx }: { c: CampaignRow; target: number; cfmt: (v: number) => string; rx: (v: number) => string }) {
+  const d = c.diag;
+  const fx = FACTOR[d.factor];
+  const ctrRatio = d.benchCtr > 0 ? Math.min(100, (d.ctr / d.benchCtr) * 100) : 0;
+  const withSpend = c.ads.filter((a) => a.spend > 200);
+  const best = withSpend.slice(0, 2);
+  const nWorst = Math.min(2, Math.max(0, withSpend.length - 2));
+  const worst = nWorst > 0 ? withSpend.slice(-nWorst).reverse() : [];
+  const adsets = c.adsets.filter((a) => a.spend > 200);
+  return (
+    <div className="ov-diag">
+      <div className="ov-diag-head">
+        <span className="ov-diag-badge" style={{ background: fx.color }}>{fx.label}</span>
+        <div><div className="t">{d.title}</div><div className="dt">{d.detail}</div></div>
+      </div>
+      <div className="ov-diag-grid">
+        <div className="ov-diag-metric">
+          <div className="l">Enganche · CTR</div>
+          <div className="v">{d.ctr.toFixed(1)}% <span className="mu">vs {d.benchCtr.toFixed(1)}% ganadoras</span></div>
+          <div className="bar"><div style={{ width: `${ctrRatio}%`, background: d.ctr >= d.benchCtr ? 'var(--up)' : 'var(--warn)' }} /></div>
+        </div>
+        <div className="ov-diag-metric">
+          <div className="l">Frecuencia</div>
+          <div className="v" style={{ color: c.freq >= 3.5 ? '#ef4444' : 'var(--t1)' }}>{c.freq.toFixed(1)}</div>
+          <div className="mu">{c.freq >= 3.5 ? 'fatiga' : 'sana'}</div>
+        </div>
+      </div>
+      {best.length > 0 && (
+        <>
+          <div className="ov-diag-sub">Creativos · mejor vs peor (por ROAS)</div>
+          <div className="ov-diag-ads">
+            {best.map((a) => <AdChip key={'b' + a.name} a={a} target={target} cfmt={cfmt} rx={rx} />)}
+            {worst.length > 0 && <span className="ov-diag-vs">vs</span>}
+            {worst.map((a) => <AdChip key={'w' + a.name} a={a} target={target} cfmt={cfmt} rx={rx} />)}
+          </div>
+        </>
+      )}
+      {adsets.length > 1 && (
+        <>
+          <div className="ov-diag-sub">Públicos · adsets</div>
+          <div className="ov-diag-adsets">
+            {adsets.slice(0, 4).map((s) => (
+              <div className="ov-aset" key={s.name}>
+                <span className="nm" title={s.name}>{s.name}</span>
+                <span className="mu">CTR {s.ctr.toFixed(1)}%</span>
+                <span style={{ color: roasCol(s.roas, target), fontWeight: 700 }}>{rx(s.roas)}</span>
+                <span className="mu">{cfmt(s.spend)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 const ACT_LABEL: Record<PerfAction, string> = { escalar: 'Escalar', vigilar: 'Vigilar', cortar: 'Cortar' };
 
 const CSS = `
@@ -92,14 +174,47 @@ const CSS = `
 .ov-mini .row3 .rv{font-size:15px;font-weight:800;margin-top:3px}
 .ov-fn{margin-top:38px;display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--t3);border-top:1px solid var(--b1);padding-top:18px}
 .ov-fn b{color:var(--t2);font-weight:800}
-@media(max-width:820px){.ov-hero{grid-template-columns:1fr;gap:26px;align-items:start}.ov-strip{grid-template-columns:1fr 1fr}.ov-cell:nth-child(3){border-left:none}.ov-duo{grid-template-columns:1fr}.ov-crea{grid-template-columns:1fr 1fr}.ov-cname{max-width:200px}}
+/* Fila expandible + diagnóstico */
+.ov-ctbl th:nth-child(2),.ov-ctbl td:nth-child(2){text-align:left;white-space:normal}
+.ov-crow{cursor:pointer}
+.ov-crow:hover td{background:var(--bg3)}
+.ov-chev{color:var(--t3);font-size:11px;width:16px;text-align:center}
+.ov-fx{font-size:10.5px;font-weight:700;margin-top:3px;display:flex;align-items:center;gap:4px}
+.ov-diagrow td{background:var(--bg3);padding:0!important}
+.ov-diag{padding:18px 16px;border-left:3px solid var(--acc)}
+.ov-diag-head{display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+.ov-diag-badge{flex:none;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#fff;padding:4px 10px;border-radius:999px;margin-top:2px}
+.ov-diag-head .t{font-size:13.5px;font-weight:700}
+.ov-diag-head .dt{font-size:12.5px;color:var(--t2);line-height:1.5;margin-top:3px;max-width:78ch}
+.ov-diag-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:520px;margin-bottom:18px}
+.ov-diag-metric .l{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
+.ov-diag-metric .v{font-size:16px;font-weight:800;margin-top:4px}
+.ov-diag-metric .v .mu,.ov-diag-metric .mu{font-size:11px;font-weight:500;color:var(--t3)}
+.ov-diag-metric .bar{height:6px;border-radius:3px;background:var(--b1);overflow:hidden;margin-top:7px}
+.ov-diag-metric .bar>div{height:100%;border-radius:3px}
+.ov-diag-sub{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);margin:14px 0 9px}
+.ov-diag-ads{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.ov-diag-vs{font-size:11px;color:var(--t3);font-weight:700;padding:0 2px}
+.ov-adchip{display:flex;gap:9px;align-items:center;background:var(--bg1);border:1px solid var(--b1);border-radius:10px;padding:8px 11px 8px 8px;max-width:270px}
+.ov-adchip .th{width:34px;height:34px;border-radius:7px;background:var(--bg3) center/cover no-repeat;flex:none}
+.ov-adchip .nm{font-size:11.5px;font-weight:600;line-height:1.25;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ov-adchip .mx{font-size:10.5px;color:var(--t3);margin-top:2px}
+.ov-diag-adsets{display:flex;flex-direction:column;gap:6px;max-width:560px}
+.ov-aset{display:grid;grid-template-columns:1fr auto auto auto;gap:14px;font-size:11.5px;align-items:center;padding:6px 10px;background:var(--bg1);border:1px solid var(--b1);border-radius:8px}
+.ov-aset .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ov-aset .mu{color:var(--t3)}
+@media(max-width:820px){.ov-hero{grid-template-columns:1fr;gap:26px;align-items:start}.ov-strip{grid-template-columns:1fr 1fr}.ov-cell:nth-child(3){border-left:none}.ov-duo{grid-template-columns:1fr}.ov-crea{grid-template-columns:1fr 1fr}.ov-cname{max-width:200px}.ov-diag-grid{grid-template-columns:1fr}}
 @media(max-width:520px){.ov-crea{grid-template-columns:1fr}}
 `;
 
 export function Overview() {
   const client = useClient();
   const { range, previous } = usePeriod();
-  const { data, loading, error } = useEcommercePerf(client.id, range, previous);
+  // Objetivo ROAS de referencia (config por cliente en getClient · CLIENT_TARGETS).
+  // Default 4 si no hay. Se pasa al hook para el benchmark y el diagnóstico.
+  const target = client.roasTarget ?? 4;
+  const { data, loading, error } = useEcommercePerf(client.id, range, previous, target);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const rangeLabel = formatRangeLabel(range);
   const cur = client.currency;
@@ -137,9 +252,6 @@ export function Overview() {
   }
 
   const m = data.meta;
-  // Objetivo ROAS de referencia (config por cliente en getClient · CLIENT_TARGETS).
-  // Visible en la UI para que siempre se sepa qué meta aplica. Default 4 si no hay.
-  const target = client.roasTarget ?? 4;
   const roasColor = (r: number) => (r >= target ? 'var(--up)' : r >= target * 0.6 ? 'var(--warn)' : '#ef4444');
   const onTarget = m.roas >= target;
   const enRitmo = m.roasDelta >= 0;
@@ -203,21 +315,33 @@ export function Overview() {
         </div>
 
         {/* QUÉ ESCALAR */}
-        <div className="ov-sh"><h2>Qué escalar</h2><span className="hint">campañas por revenue · semáforo vs objetivo {txT(target)}</span></div>
+        <div className="ov-sh"><h2>Qué escalar</h2><span className="hint">clic en una campaña para ver el factor de falla · semáforo vs objetivo {txT(target)}</span></div>
         <table className="ov-ctbl">
-          <thead><tr><th>Campaña</th><th>Inversión</th><th>Revenue</th><th>ROAS</th><th>Compras</th><th>Acción</th></tr></thead>
+          <thead><tr><th style={{ width: 16 }}></th><th>Campaña</th><th>Inversión</th><th>Revenue</th><th>ROAS</th><th>Compras</th><th>Acción</th></tr></thead>
           <tbody>
             {topCampaigns.map((c) => {
               const act = roasAction(c.roas, target);
+              const open = expanded === c.name;
+              const below = c.roas < target;
+              const fx = FACTOR[c.diag.factor];
               return (
-                <tr key={c.name}>
-                  <td><span className="ov-cname">{c.name}</span>{seg(c)}</td>
-                  <td>{cfmt(c.spend)}</td>
-                  <td>{cfmt(c.revenue)}</td>
-                  <td className="ov-roas" style={{ color: ACT_COLOR[act] }}>{rx(c.roas)}</td>
-                  <td>{formatInt(c.purchases)}</td>
-                  <td><span className="ov-act" style={{ color: ACT_COLOR[act] }}><span className="dot" style={{ background: ACT_COLOR[act] }} />{ACT_LABEL[act]}</span></td>
-                </tr>
+                <Fragment key={c.name}>
+                  <tr className="ov-crow" onClick={() => setExpanded(open ? null : c.name)}>
+                    <td className="ov-chev">{open ? '▾' : '▸'}</td>
+                    <td>
+                      <span className="ov-cname">{c.name}</span>{seg(c)}
+                      {below && <div className="ov-fx" style={{ color: fx.color }}>⚠ {fx.label}</div>}
+                    </td>
+                    <td>{cfmt(c.spend)}</td>
+                    <td>{cfmt(c.revenue)}</td>
+                    <td className="ov-roas" style={{ color: ACT_COLOR[act] }}>{rx(c.roas)}</td>
+                    <td>{formatInt(c.purchases)}</td>
+                    <td><span className="ov-act" style={{ color: ACT_COLOR[act] }}><span className="dot" style={{ background: ACT_COLOR[act] }} />{ACT_LABEL[act]}</span></td>
+                  </tr>
+                  {open && (
+                    <tr className="ov-diagrow"><td colSpan={7}><DiagPanel c={c} target={target} cfmt={cfmt} rx={rx} /></td></tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>

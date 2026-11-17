@@ -38,6 +38,12 @@ export interface Totals {
   purchases: number;
   roas: number;
 }
+// Diagnóstico de falla (nivel anuncio/adset) — honesto con lo que la data permite.
+export type DiagFactor = 'ok' | 'fatiga' | 'creativo' | 'angulo' | 'publico' | 'postclic';
+export interface AdLite { name: string; adset: string; spend: number; revenue: number; purchases: number; roas: number; ctr: number; thumb: string | null; }
+export interface AdsetLite { name: string; spend: number; revenue: number; roas: number; ctr: number; }
+export interface Diagnosis { factor: DiagFactor; title: string; detail: string; ctr: number; benchCtr: number; freq: number; }
+
 export interface CampaignRow {
   name: string;
   segment: 'Agencia' | 'AURA';
@@ -47,6 +53,11 @@ export interface CampaignRow {
   roas: number;
   atc: number;
   checkout: number;
+  ctr: number;        // % (clicks/impr)
+  freq: number;       // frecuencia promedio ponderada por impresiones
+  ads: AdLite[];      // anuncios de la campaña, por ROAS desc
+  adsets: AdsetLite[];// adsets (públicos) de la campaña, por spend desc
+  diag: Diagnosis;    // factor de falla probable
 }
 export interface AdRow {
   campaign: string;
@@ -69,9 +80,9 @@ export interface EcommercePerfData {
 }
 
 interface RawMeta {
-  campaign_name: string | null; ad_name: string | null;
+  campaign_name: string | null; ad_name: string | null; adset_name: string | null;
   spend: number | null; purchase_value: number | null; purchases: number | null;
-  impressions: number | null; clicks: number | null;
+  impressions: number | null; clicks: number | null; frequency: number | null;
   add_to_cart: number | null; initiate_checkout: number | null; thumb_url: string | null;
 }
 
@@ -82,7 +93,7 @@ async function fetchMeta(clientId: string, from: string, to: string): Promise<Ra
   while (true) {
     const { data, error } = await supabase
       .from('meta_campaigns')
-      .select('campaign_name, ad_name, spend, purchase_value, purchases, impressions, clicks, add_to_cart, initiate_checkout, thumb_url')
+      .select('campaign_name, ad_name, adset_name, spend, purchase_value, purchases, impressions, clicks, frequency, add_to_cart, initiate_checkout, thumb_url')
       .eq('client_id', clientId)
       .gte('date', from)
       .lte('date', to)
@@ -137,7 +148,48 @@ function addTotals(a: Totals, b: Totals): Totals {
   return { spend, revenue, purchases, roas: roasOf(revenue, spend) };
 }
 
-export function useEcommercePerf(clientId: string, range: DateRange, previous: DateRange) {
+const pct1 = (v: number) => `${v.toFixed(1)}%`;
+const rx2 = (v: number) => `${v.toFixed(1)}×`;
+
+/**
+ * Diagnóstico del factor de falla de una campaña bajo objetivo, usando SOLO
+ * señales confiables (CTR = enganche, spread de anuncios = creativo, spread de
+ * adsets = público, frecuencia = fatiga). El embudo carrito→checkout→compra NO
+ * se usa: en Sneakers hoy está roto (tracking) y mentiría. Por eso, cuando el
+ * enganche es bueno pero el ROAS no llega, se marca "postclic (no medible)".
+ */
+function diagnose(c: { roas: number; ctr: number; freq: number; ads: AdLite[]; adsets: AdsetLite[] }, benchCtr: number, target: number): Diagnosis {
+  const base = { ctr: c.ctr, benchCtr, freq: c.freq };
+  if (c.roas >= target) {
+    return { factor: 'ok', title: 'En o sobre objetivo', detail: 'Rinde a la meta o por encima. Candidata a escalar presupuesto mientras aguante la eficiencia.', ...base };
+  }
+  if (c.freq >= 3.5) {
+    return { factor: 'fatiga', title: 'Fatiga de público', detail: `Frecuencia ${rx2(c.freq)}: el público ya vio mucho los anuncios. Refrescar creativos o ampliar la audiencia.`, ...base };
+  }
+  const engancheMalo = benchCtr > 0 && c.ctr < benchCtr * 0.75;
+  if (engancheMalo) {
+    // ¿Público (un adset claramente peor) o creativo/ángulo?
+    const adsetsOk = c.adsets.filter((a) => a.spend > 500);
+    if (adsetsOk.length >= 2) {
+      const best = adsetsOk.reduce((a, b) => (b.roas > a.roas ? b : a));
+      const worst = adsetsOk.reduce((a, b) => (b.roas < a.roas ? b : a));
+      if (best.roas >= Math.max(worst.roas * 2, target) && worst.spend > 500) {
+        return { factor: 'publico', title: 'Público que no engancha', detail: `El público "${worst.name}" rinde ${rx2(worst.roas)} (CTR ${pct1(worst.ctr)}) vs "${best.name}" ${rx2(best.roas)}. Pausar o ajustar ese público y mover presupuesto al que sí responde.`, ...base };
+      }
+    }
+    // ¿Creativo (unos enganchan y otros no) o ángulo (parejo bajo)?
+    const adsOk = c.ads.filter((a) => a.spend > 300);
+    const ctrs = adsOk.map((a) => a.ctr).sort((x, y) => y - x);
+    if (ctrs.length >= 2 && ctrs[0] >= benchCtr && ctrs[0] - ctrs[ctrs.length - 1] >= benchCtr * 0.5) {
+      return { factor: 'creativo', title: 'Creativo: unos enganchan, otros no', detail: `El mejor anuncio va a CTR ${pct1(ctrs[0])} y el peor a ${pct1(ctrs[ctrs.length - 1])}. Cortar los que no enganchan y poner el presupuesto en los que sí.`, ...base };
+    }
+    return { factor: 'angulo', title: 'Ángulo/concepto flojo', detail: `CTR ${pct1(c.ctr)} muy por debajo del ${pct1(benchCtr)} de las ganadoras, parejo en todos los anuncios: el concepto no engancha. Probar un ángulo comunicativo distinto.`, ...base };
+  }
+  // Engancha bien pero no convierte → la pérdida es post-clic, hoy NO medible.
+  return { factor: 'postclic', title: 'Se pierde después del clic', detail: `Engancha bien (CTR ${pct1(c.ctr)} ≈ ganadoras) pero no convierte a la meta. Carrito/checkout/compra no son medibles hoy por el tracking roto — revisar oferta/precio/página y, sobre todo, arreglar la capa de datos para poder diagnosticarlo.`, ...base };
+}
+
+export function useEcommercePerf(clientId: string, range: DateRange, previous: DateRange, target: number) {
   const [data, setData] = useState<EcommercePerfData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -156,32 +208,50 @@ export function useEcommercePerf(clientId: string, range: DateRange, previous: D
         const tot = metaTotals(cur);
         const totPrev = metaTotals(prev);
 
-        // Campañas
-        const cmap = new Map<string, CampaignRow>();
-        for (const r of cur) {
-          const name = r.campaign_name || '(sin nombre)';
-          const e = cmap.get(name) || { name, segment: isAura(name) ? 'AURA' : 'Agencia', spend: 0, revenue: 0, purchases: 0, roas: 0, atc: 0, checkout: 0 };
-          e.spend += n(r.spend); e.revenue += n(r.purchase_value); e.purchases += n(r.purchases);
-          e.atc += n(r.add_to_cart); e.checkout += n(r.initiate_checkout);
-          cmap.set(name, e);
-        }
-        const campaigns = [...cmap.values()].map((c) => ({ ...c, roas: roasOf(c.revenue, c.spend) })).sort((a, b) => b.revenue - a.revenue);
-
-        // Creativos (ad_name × campaña)
-        const amap = new Map<string, AdRow & { impressions: number; clicks: number }>();
+        // Agregación por campaña → con sus anuncios y adsets (para el diagnóstico).
+        interface AdAgg { name: string; adset: string; spend: number; revenue: number; purchases: number; impressions: number; clicks: number; thumb: string | null; }
+        interface AsAgg { name: string; spend: number; revenue: number; impressions: number; clicks: number; }
+        interface CAgg { name: string; segment: 'Agencia' | 'AURA'; spend: number; revenue: number; purchases: number; atc: number; checkout: number; impressions: number; clicks: number; freqW: number; ads: Map<string, AdAgg>; adsets: Map<string, AsAgg>; }
+        const cmap = new Map<string, CAgg>();
         for (const r of cur) {
           const cn = r.campaign_name || '(sin nombre)';
           const an = r.ad_name || '(sin nombre)';
-          const key = cn + '¦' + an;
-          const e = amap.get(key) || { campaign: cn, name: an, segment: isAura(cn) ? 'AURA' : 'Agencia', spend: 0, revenue: 0, purchases: 0, roas: 0, ctr: 0, thumb: null, impressions: 0, clicks: 0 };
-          e.spend += n(r.spend); e.revenue += n(r.purchase_value); e.purchases += n(r.purchases);
-          e.impressions += n(r.impressions); e.clicks += n(r.clicks);
-          if (!e.thumb && r.thumb_url) e.thumb = r.thumb_url;
-          amap.set(key, e);
+          const asn = r.adset_name || '(sin adset)';
+          let e = cmap.get(cn);
+          if (!e) { e = { name: cn, segment: isAura(cn) ? 'AURA' : 'Agencia', spend: 0, revenue: 0, purchases: 0, atc: 0, checkout: 0, impressions: 0, clicks: 0, freqW: 0, ads: new Map(), adsets: new Map() }; cmap.set(cn, e); }
+          const sp = n(r.spend), rv = n(r.purchase_value), pu = n(r.purchases), im = n(r.impressions), cl = n(r.clicks);
+          e.spend += sp; e.revenue += rv; e.purchases += pu; e.atc += n(r.add_to_cart); e.checkout += n(r.initiate_checkout);
+          e.impressions += im; e.clicks += cl; e.freqW += n(r.frequency) * im;
+          let a = e.ads.get(an);
+          if (!a) { a = { name: an, adset: asn, spend: 0, revenue: 0, purchases: 0, impressions: 0, clicks: 0, thumb: null }; e.ads.set(an, a); }
+          a.spend += sp; a.revenue += rv; a.purchases += pu; a.impressions += im; a.clicks += cl; if (!a.thumb && r.thumb_url) a.thumb = r.thumb_url;
+          let s = e.adsets.get(asn);
+          if (!s) { s = { name: asn, spend: 0, revenue: 0, impressions: 0, clicks: 0 }; e.adsets.set(asn, s); }
+          s.spend += sp; s.revenue += rv; s.impressions += im; s.clicks += cl;
         }
-        const ads = [...amap.values()]
+        const ctrOf = (clicks: number, impr: number) => (impr > 0 ? (clicks / impr) * 100 : 0);
+        // Benchmark CTR = ganadoras (ROAS ≥ objetivo), ponderado por impresiones;
+        // si no hay ganadoras, cae al CTR global de la cuenta.
+        let winC = 0, winI = 0;
+        for (const e of cmap.values()) if (e.spend > 0 && roasOf(e.revenue, e.spend) >= target) { winC += e.clicks; winI += e.impressions; }
+        const allC = [...cmap.values()].reduce((s, e) => s + e.clicks, 0);
+        const allI = [...cmap.values()].reduce((s, e) => s + e.impressions, 0);
+        const benchCtr = winI > 0 ? ctrOf(winC, winI) : ctrOf(allC, allI);
+
+        const campaigns: CampaignRow[] = [...cmap.values()].map((e) => {
+          const ads: AdLite[] = [...e.ads.values()].map((a) => ({ name: a.name, adset: a.adset, spend: a.spend, revenue: a.revenue, purchases: a.purchases, roas: roasOf(a.revenue, a.spend), ctr: ctrOf(a.clicks, a.impressions), thumb: a.thumb })).sort((x, y) => y.roas - x.roas);
+          const adsets: AdsetLite[] = [...e.adsets.values()].map((s) => ({ name: s.name, spend: s.spend, revenue: s.revenue, roas: roasOf(s.revenue, s.spend), ctr: ctrOf(s.clicks, s.impressions) })).sort((x, y) => y.spend - x.spend);
+          const ctr = ctrOf(e.clicks, e.impressions);
+          const freq = e.impressions > 0 ? e.freqW / e.impressions : 0;
+          const roas = roasOf(e.revenue, e.spend);
+          const diag = diagnose({ roas, ctr, freq, ads, adsets }, benchCtr, target);
+          return { name: e.name, segment: e.segment, spend: e.spend, revenue: e.revenue, purchases: e.purchases, roas, atc: e.atc, checkout: e.checkout, ctr, freq, ads, adsets, diag };
+        }).sort((a, b) => b.revenue - a.revenue);
+
+        // Creativos ganadores globales (bloque "Creativos"): de todas las campañas.
+        const ads: AdRow[] = campaigns
+          .flatMap((c) => c.ads.map((a) => ({ campaign: c.name, name: a.name, segment: c.segment, spend: a.spend, revenue: a.revenue, purchases: a.purchases, roas: a.roas, ctr: a.ctr, thumb: a.thumb })))
           .filter((a) => a.spend > 300 && a.revenue > 0)
-          .map((a) => ({ campaign: a.campaign, name: a.name, segment: a.segment, spend: a.spend, revenue: a.revenue, purchases: a.purchases, roas: roasOf(a.revenue, a.spend), ctr: a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0, thumb: a.thumb }))
           .sort((a, b) => b.roas - a.roas);
 
         // Segmentos — CROSS-PLATAFORMA (Meta + Google), por nombre de campaña.
@@ -218,7 +288,7 @@ export function useEcommercePerf(clientId: string, range: DateRange, previous: D
       }
     })();
     return () => { alive = false; };
-  }, [clientId, range.from, range.to, previous.from, previous.to]);
+  }, [clientId, range.from, range.to, previous.from, previous.to, target]);
 
   return { data, loading, error };
 }

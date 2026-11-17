@@ -39,9 +39,8 @@ export const DEMO_CLIENT: Client = {
     'gads', 'pmax', 'srch', 'shop', 'yt',
     'meta', 'mili', 'wa', 'ig',
     'ttok',
-    'ga4', 'cro', 'gsc',
+    'ga4', 'cro',
     'shp', 'gmc',
-    'ia', 'abtest', 'learn',
   ],
   // Sneakers Store es ecommerce puro → objetivo de ventas.
   // Un cliente con captación de prospectos llevaría ['ventas','leads'], etc.

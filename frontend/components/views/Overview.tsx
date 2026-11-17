@@ -105,6 +105,7 @@ export function Overview() {
   const cur = client.currency;
   const cfmt = (v: number) => formatCurrency(v, cur);
   const rx = (v: number) => `${v.toFixed(2)}×`;
+  const txT = (v: number) => `${Number.isInteger(v) ? v : v.toFixed(1)}×`; // objetivo "limpio" (7×, no 7.00×)
 
   if (loading && !data) {
     return (
@@ -136,6 +137,11 @@ export function Overview() {
   }
 
   const m = data.meta;
+  // Objetivo ROAS de referencia (config por cliente en getClient · CLIENT_TARGETS).
+  // Visible en la UI para que siempre se sepa qué meta aplica. Default 4 si no hay.
+  const target = client.roasTarget ?? 4;
+  const roasColor = (r: number) => (r >= target ? 'var(--up)' : r >= target * 0.6 ? 'var(--warn)' : '#ef4444');
+  const onTarget = m.roas >= target;
   const enRitmo = m.roasDelta >= 0;
   const topCampaigns = data.campaigns.filter((c) => c.spend > 0).slice(0, 8);
   const topAds = data.ads.slice(0, 6);
@@ -169,7 +175,7 @@ export function Overview() {
         <div className="ov-hero">
           <div>
             <div className="ov-eyebrow" style={{ marginBottom: 18 }}>La lectura del período</div>
-            <div className="ov-thesis">Revenue de compra <span className="hl">{cfmt(m.revenue)}</span> a ROAS {rx(m.roas)}.</div>
+            <div className="ov-thesis">Revenue de compra <span className="hl">{cfmt(m.revenue)}</span> a ROAS <span style={{ color: roasColor(m.roas) }}>{rx(m.roas)}</span> · objetivo {txT(target)}.</div>
             <div className="ov-thesis-sub">
               Lo que rinde, lo que hay que <b>escalar</b> y con qué <b>creativos</b> — medido sobre la inversión en Meta Ads de {client.name}. {data.google ? 'Google PMAX se reporta aparte.' : ''}
             </div>
@@ -178,7 +184,8 @@ export function Overview() {
             <div className="k">Revenue · compra (Meta)</div>
             <div className="v" style={{ color: 'var(--up)' }}>{cfmt(m.revenue)}</div>
             <div className="r">
-              <div><div className="l">ROAS</div><div className="rv">{rx(m.roas)}</div></div>
+              <div><div className="l">ROAS</div><div className="rv" style={{ color: roasColor(m.roas) }}>{rx(m.roas)}</div></div>
+              <div><div className="l">Objetivo</div><div className="rv" style={{ color: 'var(--t3)' }}>{txT(target)}</div></div>
               <div><div className="l">Inversión</div><div className="rv">{cfmt(m.spend)}</div></div>
               <div><div className="l">Compras</div><div className="rv">{formatInt(m.purchases)}</div></div>
             </div>
@@ -189,19 +196,19 @@ export function Overview() {
         <div className="ov-sh"><h2>Indicadores</h2><span className="hint">vs período anterior</span></div>
         <div className="ov-strip">
           <div className="ov-cell"><div className="l">Revenue compra</div><div className="v">{cfmt(m.revenue)}</div><div className={`d ${deltaDirection(m.revenueDelta)}`}>{formatDelta(m.revenueDelta)}</div></div>
-          <div className="ov-cell"><div className="l">ROAS</div><div className="v" style={{ color: 'var(--up)' }}>{rx(m.roas)}</div><div className={`d ${deltaDirection(m.roasDelta)}`}>{formatDelta(m.roasDelta)}</div></div>
+          <div className="ov-cell"><div className="l">ROAS</div><div className="v" style={{ color: roasColor(m.roas) }}>{rx(m.roas)}</div><div className={`d ${deltaDirection(m.roasDelta)}`}>{formatDelta(m.roasDelta)} · obj {txT(target)}</div></div>
           <div className="ov-cell"><div className="l">Inversión</div><div className="v">{cfmt(m.spend)}</div><div className="d">Meta Ads{data.google ? ` · Google ${cfmt(data.google.spend)} aparte` : ''}</div></div>
           <div className="ov-cell"><div className="l">Compras</div><div className="v">{formatInt(m.purchases)}</div><div className={`d ${deltaDirection(m.purchasesDelta)}`}>{formatDelta(m.purchasesDelta)}</div></div>
           <div className="ov-cell"><div className="l">Costo por compra</div><div className="v">{cfmt(m.cpa)}</div><div className="d">CPA Meta</div></div>
         </div>
 
         {/* QUÉ ESCALAR */}
-        <div className="ov-sh"><h2>Qué escalar</h2><span className="hint">campañas por revenue · semáforo de ROAS</span></div>
+        <div className="ov-sh"><h2>Qué escalar</h2><span className="hint">campañas por revenue · semáforo vs objetivo {txT(target)}</span></div>
         <table className="ov-ctbl">
           <thead><tr><th>Campaña</th><th>Inversión</th><th>Revenue</th><th>ROAS</th><th>Compras</th><th>Acción</th></tr></thead>
           <tbody>
             {topCampaigns.map((c) => {
-              const act = roasAction(c.roas);
+              const act = roasAction(c.roas, target);
               return (
                 <tr key={c.name}>
                   <td><span className="ov-cname">{c.name}</span>{seg(c)}</td>
@@ -242,7 +249,7 @@ export function Overview() {
         <div className="ov-duo">
           <div className="ov-mini">
             <div className="top"><div className="t">Agencia</div><div className="chip ag">Nosotros</div></div>
-            <div className="big"><div className="n" style={{ color: 'var(--up)' }}>{rx(ag.roas)}</div><div className="x">ROAS</div></div>
+            <div className="big"><div className="n" style={{ color: roasColor(ag.roas) }}>{rx(ag.roas)}</div><div className="x">ROAS</div></div>
             <div className="row3">
               <div><div className="l">Revenue</div><div className="rv">{cfmt(ag.revenue)}</div></div>
               <div><div className="l">Inversión</div><div className="rv">{cfmt(ag.spend)}</div></div>
@@ -251,7 +258,7 @@ export function Overview() {
           </div>
           <div className="ov-mini">
             <div className="top"><div className="t">Motor AURA</div><div className="chip au">IA</div></div>
-            <div className="big"><div className="n" style={{ color: 'var(--aura)' }}>{au.spend > 0 ? rx(au.roas) : '—'}</div><div className="x">ROAS</div></div>
+            <div className="big"><div className="n" style={{ color: au.spend > 0 ? roasColor(au.roas) : 'var(--t3)' }}>{au.spend > 0 ? rx(au.roas) : '—'}</div><div className="x">ROAS</div></div>
             <div className="row3">
               <div><div className="l">Revenue</div><div className="rv">{cfmt(au.revenue)}</div></div>
               <div><div className="l">Inversión</div><div className="rv">{cfmt(au.spend)}</div></div>

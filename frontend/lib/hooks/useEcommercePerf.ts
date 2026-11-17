@@ -20,13 +20,15 @@ const PAGE = 1000;
 // Las campañas que corre la IA de AURA se nombran "[MOTOR AURA] …".
 const isAura = (name: string | null | undefined) => /aura/i.test(name || '');
 
-// Umbrales de ROAS para el semáforo de "qué hacer" (heurística de ecommerce).
-export const ROAS_SCALE = 4; // 🟢 escalar
-export const ROAS_WATCH = 2.5; // 🟡 vigilar · por debajo → 🔴 cortar
+// Semáforo de "qué hacer" RELATIVO al objetivo ROAS del cliente:
+//   🟢 escalar  → en o sobre el objetivo (beating goal → empujar presupuesto)
+//   🟡 vigilar  → rentable pero bajo el objetivo (optimizar, no cortar)
+//   🔴 cortar   → muy por debajo (< 60% del objetivo) → revisar/cortar
 export type PerfAction = 'escalar' | 'vigilar' | 'cortar';
-export function roasAction(roas: number): PerfAction {
-  if (roas >= ROAS_SCALE) return 'escalar';
-  if (roas >= ROAS_WATCH) return 'vigilar';
+export const WATCH_FLOOR = 0.6; // fracción del objetivo bajo la cual es 🔴
+export function roasAction(roas: number, target: number): PerfAction {
+  if (roas >= target) return 'escalar';
+  if (roas >= target * WATCH_FLOOR) return 'vigilar';
   return 'cortar';
 }
 

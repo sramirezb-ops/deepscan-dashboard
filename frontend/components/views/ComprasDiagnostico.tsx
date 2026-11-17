@@ -373,19 +373,6 @@ function Sparkline({ vals, color, w = 96, h = 28 }: { vals: number[]; color: str
     </svg>
   );
 }
-// Medidor horizontal contra meta (para ROAS: verde si ≥ meta).
-function GaugeBar({ value, goal }: { value: number; goal: number }) {
-  const axisMax = goal * 1.6;
-  const pct = Math.max(0, Math.min(value / axisMax, 1)) * 100;
-  const goalPct = Math.min((goal / axisMax) * 100, 100);
-  const good = value >= goal;
-  return (
-    <div className="gauge" title={`${value.toFixed(1)}× vs meta ${goal}×`}>
-      <div className="gauge-fill" style={{ width: pct + '%', background: good ? 'var(--up)' : 'var(--warn)' }} />
-      <div className="gauge-goal" style={{ left: goalPct + '%' }} />
-    </div>
-  );
-}
 // Chart de doble eje: barras = inversión diaria, línea = ROAS, guía = meta.
 function Cabina({ daily, cur, goal }: { daily: { date: string; spend: number; purchases: number; purchaseValue: number }[]; cur: string; goal: number }) {
   const [hover, setHover] = useState<number | null>(null);
@@ -695,7 +682,6 @@ export function ComprasDiagnostico() {
   const targetCpa = t.aov > 0 ? t.aov / GOAL : 0; // costo/compra esperado a la meta
   const split = data.spendSplit;
   const totalMeta = split.sales + split.whatsapp + split.brand || 1;
-  const naiveRoas = totalMeta > 0 ? t.purchaseValue / totalMeta : 0;
   const pct = (v: number) => Math.round((v / totalMeta) * 100);
 
   // Series diarias para la cabina de escalamiento (P1).
@@ -707,13 +693,6 @@ export function ComprasDiagnostico() {
   const avgDailySpend = daily.length ? t.spend / daily.length : 0;
 
   // Acciones derivadas.
-  const flat: { name: string; d: Derived }[] = [];
-  data.hierarchy.forEach((c) => flat.push({ name: c.name, d: derive(c.m) }));
-  const best = flat.filter((x) => x.d.roas >= GOAL && x.d.spend > 0).sort((a, b) => b.d.roas - a.d.roas)[0];
-  const zeros = data.hierarchy.filter((c) => c.m.spend > 0 && c.m.purchases === 0);
-  const worstMonth = (data.monthlyRoas ?? []).filter((m) => m.roas > 0).sort((a, b) => a.roas - b.roas)[0];
-  const maxMR = Math.max(...(data.monthlyRoas ?? []).map((m) => m.roas), 1);
-  const MO: Record<string, string> = { '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun', '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic' };
 
   // Leaderboard plano de conjuntos de anuncios — el "qué escalar / qué descartar".
   // Momentum: ROAS de este período vs el anterior (mismo conjunto), para saber si
@@ -1057,32 +1036,11 @@ export function ComprasDiagnostico() {
         <Funnel t={t} />
         {daily.length >= 2 && <div style={{ marginTop: 12 }}><FunnelTrend daily={daily} cur={cur} /></div>}
 
-        {/* TREND + BRIDGE */}
-        <div className="mc-sh"><h2>Tendencia y la venta que no se ve</h2></div>
-        <div className="mc-duo">
-          <div className="mc-mini"><h3>ROAS de compras por mes</h3>
-            <div className="mc-spark">
-              {(data.monthlyRoas ?? []).map((m) => (
-                <div className="col" key={m.month}>
-                  <div className="bv" style={{ color: m.roas >= GOAL ? 'var(--up)' : m.roas >= GOAL * 0.7 ? 'var(--warn)' : 'var(--dn)' }}>{m.roas.toFixed(1)}×</div>
-                  <div className="bb" style={{ height: Math.max(6, (m.roas / maxMR) * 100) + '%', background: m.roas >= GOAL ? 'var(--up)' : m.roas >= GOAL * 0.7 ? 'var(--warn)' : 'var(--dn)' }} />
-                  <div className="bl">{MO[m.month.slice(5)] || m.month}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="mc-mini mc-bridge"><h3>Las compras web son la punta del iceberg</h3>
-            <div className="big"><div className="n" style={{ color: '#12b76a' }}>{formatInt(data.waConversations)}</div><div className="x">conversaciones de WhatsApp que Meta también generó</div></div>
-            <p>El píxel solo cuenta la compra <b>que cierra en la web</b>. La mayoría de la venta que Meta empuja se cierra <b>conversando por WhatsApp</b> y se cobra en <b>AURA</b>. El ROAS web subvalora el retorno real de Meta.</p>
-          </div>
-        </div>
-
-        {/* ACCIONES */}
-        <div className="mc-sh"><h2>Acciones</h2><span className="hint">lente de agencia</span></div>
-        <div className="mc-acts">
-          {best && <div className="mc-act"><div className="tag"><span className="dot" style={{ background: 'var(--up)' }} />Escalar</div><div className="body"><b>{best.name.split('·')[0].trim()}:</b> ROAS {best.d.roas.toFixed(1)}× con {formatCurrency(best.d.spend, cur)} de gasto. Es la campaña de mejor retorno — subir presupuesto es la palanca más clara.</div></div>}
-          {worstMonth && worstMonth.roas < GOAL && <div className="mc-act"><div className="tag"><span className="dot" style={{ background: 'var(--warn)' }} />Investigar</div><div className="body"><b>{MO[worstMonth.month.slice(5)] || worstMonth.month} rindió {worstMonth.roas.toFixed(1)}×</b>, debajo de la meta. Revisar fatiga de creativo, audiencia o mezcla ese mes.</div></div>}
-          {zeros.length > 0 && <div className="mc-act"><div className="tag"><span className="dot" style={{ background: 'var(--dn)' }} />Revisar tracking</div><div className="body"><b>{zeros.length} campaña{zeros.length > 1 ? 's' : ''} de venta</b> gastó {formatCurrency(zeros.reduce((s, c) => s + c.m.spend, 0), cur)} con <b>0 compras</b>. Probable píxel sin disparar — validar el tracking antes de seguir invirtiendo ahí.</div></div>}
+        {/* LA VENTA QUE NO SE VE — iceberg WhatsApp/AURA */}
+        <div className="mc-sh"><h2>La venta que no se ve</h2><span className="hint">el píxel solo cuenta la compra web</span></div>
+        <div className="mc-mini mc-bridge">
+          <div className="big"><div className="n" style={{ color: '#12b76a' }}>{formatInt(data.waConversations)}</div><div className="x">conversaciones de WhatsApp que Meta también generó</div></div>
+          <p>El píxel solo cuenta la compra <b>que cierra en la web</b>. La mayoría de la venta que Meta empuja se cierra <b>conversando por WhatsApp</b> y se cobra en <b>AURA</b> — el ROAS web subvalora el retorno real de Meta.</p>
         </div>
 
         <div className="mc-fn">Meta Ads · Compras · datos de meta_campaigns · {rangeLabel} · {cur}. El ROAS de venta excluye WhatsApp y marca. La tabla trae las métricas por campaña → conjunto → anuncio. Meta de ROAS {GOAL}× (configurable por cliente).</div>

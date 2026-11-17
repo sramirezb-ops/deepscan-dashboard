@@ -17,6 +17,9 @@ export interface Client {
   // en config de cliente y no en las tablas de métricas. Si no está definida,
   // el tablero simplemente no muestra línea de meta.
   cplTarget?: number;
+  // Objetivo ROAS de referencia (semáforo del Overview ecommerce). Igual que
+  // cplTarget: lo define la agencia, no la plataforma. Si no está, usa un default.
+  roasTarget?: number;
 }
 
 export interface KpiData {

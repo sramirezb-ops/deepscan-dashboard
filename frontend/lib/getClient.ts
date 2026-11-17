@@ -38,9 +38,11 @@ const CLIENT_LOGOS: Record<string, string> = {
 // las métricas, una meta NO la entrega ninguna plataforma: la define la agencia
 // con el cliente. Por eso vive aquí, en config, y no en una tabla de datos.
 // Mientras no exista un editor en el tablero, este mapa es la fuente de verdad.
-const CLIENT_TARGETS: Record<string, { cplTarget?: number }> = {
+const CLIENT_TARGETS: Record<string, { cplTarget?: number; roasTarget?: number }> = {
   // Meta de septiembre 2026: bajar el CPL a $2.000 (antes $2.800).
   'ofero-colombia': { cplTarget: 2000 },
+  // Objetivo ROAS de referencia para el semáforo del Overview ecommerce.
+  'sneakers-store': { roasTarget: 7 },
 };
 
 function rowToClient(row: ClientRow): Client {
@@ -54,6 +56,7 @@ function rowToClient(row: ClientRow): Client {
     activeChannels: (Array.isArray(row.enabled_channels) ? row.enabled_channels : []) as ChannelId[],
     objectives: (Array.isArray(row.objectives) ? row.objectives : []) as ObjectiveId[],
     cplTarget: targets.cplTarget,
+    roasTarget: targets.roasTarget,
   };
 }
 

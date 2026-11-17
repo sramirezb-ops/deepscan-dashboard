@@ -268,86 +268,6 @@ function PlacementBars({ rows, cur, goal }: { rows: PlaceRow[]; cur: string; goa
     </div>
   );
 }
-// Top anuncios: tabla plana de TODOS los anuncios con sus métricas, ordenable
-// por cualquier columna y paginada (10/20/30). Cada fila muestra a qué conjunto
-// y campaña pertenece, para verlo "desde afuera" sin abrir el árbol.
-function TopAdsTable({ rows, cur }: { rows: { ad: ComprasHierNode; camp: string; set: string }[]; cur: string }) {
-  const [sortK, setSortK] = useState<string>('roas');
-  const [dir, setDir] = useState(-1);
-  const [pageSize, setPageSize] = useState(10);
-  const [page, setPage] = useState(1);
-
-  const total = rows.reduce((s, r) => s + r.ad.m.spend, 0) || 1;
-  const items = rows.map((r) => {
-    const d = derive(r.ad.m), m = r.ad.m;
-    return {
-      ad: r.ad, camp: r.camp, set: r.set,
-      roas: d.roas, spend: d.spend, share: (d.spend / total) * 100, purch: d.purch, rev: m.purchaseValue,
-      cr: d.clicks ? d.purch / d.clicks : 0, atc: d.atc, cartpct: d.clicks ? d.atc / d.clicks : 0,
-      vc: d.vc, ctr: d.impr ? d.clicks / d.impr : 0, cpm: d.impr ? (d.spend / d.impr) * 1000 : 0, freq: d.freq,
-    };
-  });
-  type Item = typeof items[number];
-  const money = (v: number) => formatCurrency(v, cur);
-  const pctf = (v: number, dec = 1) => (v > 0 ? (v * 100).toFixed(dec) + '%' : '—');
-  const COLS: { k: string; l: string; f: (x: Item) => ReactNode; sem?: boolean }[] = [
-    { k: 'roas', l: 'ROAS', f: (x) => (x.roas > 0 ? x.roas.toFixed(1) + '×' : '—'), sem: true },
-    { k: 'spend', l: 'Gasto', f: (x) => money(x.spend) },
-    { k: 'share', l: '%Gasto', f: (x) => (x.share >= 0.5 ? Math.round(x.share) + '%' : '<1%') },
-    { k: 'purch', l: 'Compras', f: (x) => formatInt(x.purch) },
-    { k: 'rev', l: 'Revenue', f: (x) => (x.rev > 0 ? money(x.rev) : '—') },
-    { k: 'cr', l: 'CR%', f: (x) => pctf(x.cr) },
-    { k: 'atc', l: 'Carritos', f: (x) => formatInt(x.atc) },
-    { k: 'cartpct', l: '%Carr', f: (x) => pctf(x.cartpct) },
-    { k: 'vc', l: 'Vistas prod.', f: (x) => formatInt(x.vc) },
-    { k: 'ctr', l: 'CTR', f: (x) => pctf(x.ctr, 2) },
-    { k: 'cpm', l: 'CPM', f: (x) => (x.cpm > 0 ? money(x.cpm) : '—') },
-    { k: 'freq', l: 'Frec.', f: (x) => (x.freq > 0 ? x.freq.toFixed(1) : '—') },
-  ];
-  if (items.length === 0) return <div className="cat-msg">Sin anuncios con datos en el período.</div>;
-  const sorted = [...items].sort((a, b) => dir * (((a as any)[sortK] ?? 0) - ((b as any)[sortK] ?? 0)));
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const curPage = Math.min(page, totalPages);
-  const paged = sorted.slice((curPage - 1) * pageSize, curPage * pageSize);
-  const onSort = (k: string) => { if (sortK === k) setDir((d) => -d); else { setSortK(k); setDir(-1); } setPage(1); };
-  return (
-    <>
-      <div className="mc-wrap"><div className="mc-scroll">
-        <table className="cj-t sortable">
-          <thead><tr>
-            <th style={{ textAlign: 'left' }}>Anuncio</th>
-            <th style={{ textAlign: 'left' }}>Conjunto</th>
-            <th style={{ textAlign: 'left' }}>Campaña</th>
-            {COLS.map((c) => (
-              <th key={c.k} className={'srt' + (sortK === c.k ? ' on' : '')} onClick={() => onSort(c.k)} style={{ cursor: 'pointer' }}>
-                {c.l}<span className="ar">{sortK === c.k ? (dir < 0 ? '▼' : '▲') : '⇅'}</span>
-              </th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {paged.map((x, i) => (
-              <tr key={i} className="cj-row">
-                <td className="nm ad" title={x.ad.name} style={{ maxWidth: 230 }}>
-                  <span className="cj-thwrap">
-                    {x.ad.thumbUrl ? <img className="cj-thmb" src={x.ad.thumbUrl} alt="" loading="lazy" /> : <span className="cj-thmb">🖼</span>}
-                    {x.ad.isVideo && <span className="cj-vb">▶</span>}
-                  </span>
-                  <span className="cj-adnm">{x.ad.name}</span>
-                </td>
-                <td className="nm sub" title={x.set} style={{ maxWidth: 160 }}>{x.set}</td>
-                <td className="nm sub" title={x.camp} style={{ maxWidth: 160 }}>{x.camp}</td>
-                {COLS.map((c) => (
-                  <td key={c.k} className={c.sem ? (x.purch > 0 ? semCls(x.roas) : '') : ''}>{c.f(x)}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div></div>
-      <Pager total={sorted.length} page={curPage} pageSize={pageSize} onPage={setPage} onPageSize={(s) => { setPageSize(s); setPage(1); }} sizes={[10, 20, 30]} label="anuncios" />
-    </>
-  );
-}
 // P4d: tendencia diaria del funnel (carritos y compras).
 function FunnelTrend({ daily, cur }: { daily: { date: string; addToCart: number; purchases: number; purchaseValue: number }[]; cur: string }) {
   const W = 920, H = 190, X0 = 40, X1 = 900, YT = 16, YB = 150;
@@ -469,21 +389,23 @@ function GaugeBar({ value, goal }: { value: number; goal: number }) {
 // Chart de doble eje: barras = inversión diaria, línea = ROAS, guía = meta.
 function Cabina({ daily, cur, goal }: { daily: { date: string; spend: number; purchases: number; purchaseValue: number }[]; cur: string; goal: number }) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 920, H = 250, X0 = 46, X1 = 884, YT = 20, YB = 200;
   const d = daily.filter((x) => x.spend > 0);
   if (d.length < 2) return <div className="cab-empty">Se necesitan ≥2 días con inversión para trazar la cabina.</div>;
+  const W = 920, X0 = 50, X1 = 892;
+  const R_T = 18, R_B = 150;   // panel ROAS (arriba) — un solo eje
+  const S_T = 182, S_B = 262;  // panel inversión (abajo) — un solo eje
+  const XB = 280;              // fila de fechas compartida
   const spendMax = Math.max(...d.map((x) => x.spend)) || 1;
-  const roas = d.map((x) => (x.spend > 0 ? x.purchaseValue / x.spend : 0));
-  const roasMax = Math.max(goal * 1.4, Math.min(Math.max(...roas), goal * 3));
-  const band = (X1 - X0) / d.length, barW = Math.min(band * 0.62, 26);
-  const yS = (v: number) => YB - (v / spendMax) * (YB - YT);
-  const yR = (v: number) => YB - (Math.min(v, roasMax) / roasMax) * (YB - YT);
+  const roasArr = d.map((x) => (x.spend > 0 ? x.purchaseValue / x.spend : 0));
+  const roasMax = Math.max(goal * 1.4, Math.min(Math.max(...roasArr), goal * 3));
+  const band = (X1 - X0) / d.length, barW = Math.min(band * 0.6, 24);
   const xC = (i: number) => X0 + band * i + band / 2;
-  const line = roas.map((r, i) => `${xC(i).toFixed(1)},${yR(r).toFixed(1)}`).join(' ');
-  const abbr = (n: number) => n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${Math.round(n)}`;
+  const yR = (v: number) => R_B - (Math.min(v, roasMax) / roasMax) * (R_B - R_T);
+  const yS = (v: number) => S_B - (v / spendMax) * (S_B - S_T);
+  const line = roasArr.map((r, i) => `${xC(i).toFixed(1)},${yR(r).toFixed(1)}`).join(' ');
+  const abbr = (n: number) => (n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `$${Math.round(n / 1e3)}K` : `$${Math.round(n)}`);
   const sd = (s: string) => { const dt = new Date(`${s}T00:00:00`); return isNaN(dt.getTime()) ? s : dt.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }); };
   const xi = d.length <= 1 ? [0] : [0, Math.floor((d.length - 1) * 0.33), Math.floor((d.length - 1) * 0.66), d.length - 1];
-  // Lectura de escalamiento: primera mitad vs segunda mitad.
   const h1 = d.slice(0, Math.floor(d.length / 2)), h2 = d.slice(Math.floor(d.length / 2));
   const avg = (arr: typeof d, f: (x: typeof d[number]) => number) => arr.reduce((s, x) => s + f(x), 0) / (arr.length || 1);
   const s1 = avg(h1, (x) => x.spend), s2 = avg(h2, (x) => x.spend);
@@ -494,42 +416,43 @@ function Cabina({ daily, cur, goal }: { daily: { date: string; spend: number; pu
   else if (s2 < s1 * 0.9) read = { t: 'Bajaste la inversión en la segunda mitad — hay margen para reactivar donde rinde.', c: 'var(--t3)' };
   return (
     <div className="cab-chart">
-      <div className="cab-legend">
-        <span><i className="lg-bar" /> Inversión/día</span>
-        <span><i className="lg-line" /> ROAS</span>
-        <span><i className="lg-goal" /> meta {goal}×</span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet">
-        {[0, 1 / 3, 2 / 3, 1].map((f, i) => (
-          <g key={i}>
-            <line x1={X0} y1={yS(spendMax * f)} x2={X1} y2={yS(spendMax * f)} stroke={i === 0 ? 'var(--b2)' : 'var(--b1)'} />
-            <text x={X0 - 6} y={yS(spendMax * f) + 4} textAnchor="end" style={{ fontSize: 11, fill: 'var(--t3)' }}>{abbr(spendMax * f)}</text>
-            <text x={X1 + 6} y={yR(roasMax * f) + 4} textAnchor="start" style={{ fontSize: 11, fill: 'var(--up)' }}>{(roasMax * f).toFixed(0)}×</text>
+      <svg viewBox={`0 0 ${W} 284`} width="100%" preserveAspectRatio="xMidYMid meet">
+        <text x={X0} y={R_T - 6} style={{ fontSize: 11, fontWeight: 700, fill: 'var(--t2)' }}>ROAS por día</text>
+        {[0, goal, roasMax].map((v, i) => (
+          <g key={'rg' + i}>
+            <line x1={X0} y1={yR(v)} x2={X1} y2={yR(v)} stroke={i === 0 ? 'var(--b2)' : 'var(--b1)'} />
+            <text x={X0 - 7} y={yR(v) + 4} textAnchor="end" style={{ fontSize: 10.5, fill: 'var(--t3)' }}>{v.toFixed(0)}×</text>
           </g>
         ))}
-        {hover != null && <line x1={xC(hover)} y1={YT} x2={xC(hover)} y2={YB} stroke="var(--b2)" strokeDasharray="3 3" />}
-        {d.map((x, i) => (
-          <rect key={i} x={xC(i) - barW / 2} y={yS(x.spend)} width={barW} height={Math.max(YB - yS(x.spend), 0)} rx="2" fill="#3b82f6" opacity={hover === i ? 0.85 : 0.45} />
-        ))}
         <line x1={X0} y1={yR(goal)} x2={X1} y2={yR(goal)} stroke="var(--warn)" strokeWidth="1.5" strokeDasharray="5 4" />
+        <text x={X1} y={yR(goal) - 5} textAnchor="end" style={{ fontSize: 10, fill: 'var(--warn)', fontWeight: 700 }}>meta {goal}×</text>
         <polyline points={line} fill="none" stroke="var(--up)" strokeWidth="2.5" strokeLinejoin="round" />
-        {roas.map((r, i) => <circle key={i} cx={xC(i)} cy={yR(r)} r={hover === i ? 4.5 : 2.5} fill="var(--up)" />)}
-        {xi.map((i, k) => <text key={k} x={xC(i)} y={YB + 20} textAnchor="middle" style={{ fontSize: 11, fill: 'var(--t3)' }}>{sd(d[i].date)}</text>)}
-        {/* Bandas invisibles que capturan el hover por día */}
+        {roasArr.map((r, i) => <circle key={'rc' + i} cx={xC(i)} cy={yR(r)} r={hover === i ? 4.5 : 2.5} fill="var(--up)" />)}
+        <text x={X0} y={S_T - 6} style={{ fontSize: 11, fontWeight: 700, fill: 'var(--t2)' }}>Inversión / día</text>
+        {[0, spendMax].map((v, i) => (
+          <g key={'sg' + i}>
+            <line x1={X0} y1={yS(v)} x2={X1} y2={yS(v)} stroke={i === 0 ? 'var(--b2)' : 'var(--b1)'} />
+            <text x={X0 - 7} y={yS(v) + 4} textAnchor="end" style={{ fontSize: 10.5, fill: 'var(--t3)' }}>{abbr(v)}</text>
+          </g>
+        ))}
         {d.map((x, i) => (
-          <rect key={'hb' + i} x={X0 + band * i} y={YT} width={band} height={YB - YT} fill="transparent" style={{ cursor: 'pointer' }}
+          <rect key={'bar' + i} x={xC(i) - barW / 2} y={yS(x.spend)} width={barW} height={Math.max(S_B - yS(x.spend), 0)} rx="2" fill="#3b82f6" opacity={hover === i ? 0.9 : 0.5} />
+        ))}
+        {xi.map((i, k) => <text key={'xd' + k} x={xC(i)} y={XB} textAnchor="middle" style={{ fontSize: 10.5, fill: 'var(--t3)' }}>{sd(d[i].date)}</text>)}
+        {hover != null && <line x1={xC(hover)} y1={R_T} x2={xC(hover)} y2={S_B} stroke="var(--b2)" strokeDasharray="3 3" />}
+        {d.map((x, i) => (
+          <rect key={'hb' + i} x={X0 + band * i} y={R_T} width={band} height={S_B - R_T} fill="transparent" style={{ cursor: 'pointer' }}
             onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover((h) => (h === i ? null : h))} />
         ))}
-        {/* Tooltip del día */}
         {hover != null && (() => {
-          const i = hover, x = d[i], tw = 130, th = 72;
-          const tx = Math.min(Math.max(xC(i) - tw / 2, X0), X1 - tw), ty = YT + 2;
+          const i = hover, x = d[i], tw = 142, th = 70;
+          const tx = Math.min(Math.max(xC(i) - tw / 2, X0), X1 - tw), ty = R_T + 2;
           return (
             <g pointerEvents="none">
               <rect x={tx} y={ty} width={tw} height={th} rx="8" fill="var(--bg1)" stroke="var(--b2)" />
               <text x={tx + 11} y={ty + 19} style={{ fontSize: 11.5, fontWeight: 700, fill: 'var(--t1)' }}>{sd(x.date)}</text>
-              <text x={tx + 11} y={ty + 36} style={{ fontSize: 11, fill: 'var(--t2)' }}>Inversión {abbr(x.spend)}</text>
-              <text x={tx + 11} y={ty + 51} style={{ fontSize: 11, fontWeight: 700, fill: 'var(--up)' }}>ROAS {roas[i].toFixed(1)}×</text>
+              <text x={tx + 11} y={ty + 36} style={{ fontSize: 11, fontWeight: 700, fill: 'var(--up)' }}>ROAS {roasArr[i].toFixed(1)}×</text>
+              <text x={tx + 11} y={ty + 51} style={{ fontSize: 11, fill: 'var(--t2)' }}>Inversión {abbr(x.spend)}</text>
               <text x={tx + 11} y={ty + 66} style={{ fontSize: 11, fill: 'var(--t2)' }}>{Math.round(x.purchases)} compras · {abbr(x.purchaseValue)}</text>
             </g>
           );

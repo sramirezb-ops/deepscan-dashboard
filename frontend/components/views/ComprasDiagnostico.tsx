@@ -55,8 +55,11 @@ const TMETRICS: TMet[] = [
   { k: 'ctr', l: 'CTR', t: 'pct' }, { k: 'freq', l: 'Frec.', t: 'freq' },
   { k: 'cpa', l: 'CPA', t: 'money' },
 ];
-function tcells(d: Derived, cur: string): ReactNode[] {
-  return TMETRICS.map((m) => {
+// Columnas esenciales (siempre visibles); el resto (tasas de funnel + conteos,
+// varias poco fiables por el tracking) se ocultan tras el toggle "ver todas".
+const CORE_METRICS = new Set(['spend', 'purch', 'roas', 'ctr', 'freq']);
+function tcells(d: Derived, cur: string, mets: TMet[]): ReactNode[] {
+  return mets.map((m) => {
     const v = dval(d, m.k);
     let node: ReactNode;
     if (m.t === 'money') node = m.k === 'cpa' && d.purch === 0 ? '—' : formatCurrency(v, cur);
@@ -575,6 +578,32 @@ function ComprasDiag({ camp, target, cur }: { camp: ComprasCampaignRow; target: 
   );
 }
 
+// Barra comparativa de ROAS Agencia vs Motor AURA, con marca de objetivo.
+function OwnerRoasBar({ nosotros, aura, target }: { nosotros: number; aura: number; target: number }) {
+  const axis = Math.max(target * 1.3, nosotros, aura) || 1;
+  const goalPct = Math.min(target / axis, 1) * 100;
+  const row = (label: string, v: number) => {
+    const col = v >= target ? 'var(--up)' : v >= target * 0.6 ? 'var(--warn)' : '#ef4444';
+    return (
+      <div className="orb-row" key={label}>
+        <span className="orb-lb">{label}</span>
+        <div className="orb-track">
+          <div className="orb-fill" style={{ width: `${Math.min(v / axis, 1) * 100}%`, background: col }} />
+          <div className="orb-goal" style={{ left: `${goalPct}%` }} />
+        </div>
+        <span className="orb-v" style={{ color: col }}>{v > 0 ? v.toFixed(1) + '×' : '—'}</span>
+      </div>
+    );
+  };
+  return (
+    <div className="orb">
+      {row('Agencia', nosotros)}
+      {row('Motor AURA', aura)}
+      <div className="orb-cap">Línea vertical = objetivo {target}×</div>
+    </div>
+  );
+}
+
 // Tarjeta de owner (Agencia / Motor AURA): resultados + qué escala + diversidad.
 function OwnerCard({ o, label, color, target, cur }: { o: OwnerDetail; label: string; color: string; target: number; cur: string }) {
   const dv = o.diversity;
@@ -670,6 +699,8 @@ export function ComprasDiagnostico() {
 
   const [preview, setPreview] = useState<{ node: ComprasHierNode; cmp: string; set: string } | null>(null);
   const [expCj, setExpCj] = useState<Record<string, boolean>>({}); // nodos desplegados en el árbol de decisión
+  const [showAllMets, setShowAllMets] = useState(false); // columnas del árbol: esenciales vs todas
+  const mets = showAllMets ? TMETRICS : TMETRICS.filter((m) => CORE_METRICS.has(m.k));
   const [treeSk, setTreeSk] = useState<string | null>(null); // orden del árbol (null = por veredicto)
   const [treeDir, setTreeDir] = useState<1 | -1>(-1);
 
@@ -847,7 +878,7 @@ export function ComprasDiagnostico() {
         <div className="mc-mernote">El ROAS de venta mira solo la <b>compra web</b>. Las campañas <b>Shopify</b> miden un <b>purchase que mezcla COD</b> (no pagado) → se optimizan y juzgan por <b>Compra Pagada</b>, no por ese ROAS. El juez final del negocio es el <b>MER</b> (venta real ÷ inversión, incluye WhatsApp/AURA), que se alimenta de la hoja diaria de <b>AURA</b> y vive en el <b>Overview</b>.</div>
 
         {/* ÁRBOL DE DECISIÓN — campaña → conjunto → anuncio */}
-        <div className="mc-sh"><h2>Campañas → conjuntos → anuncios · qué escalar y qué descartar</h2><span className="hint">meta ROAS {GOAL}× · objetivo {SET_BUDGET_HINT}</span></div>
+        <div className="mc-sh"><h2>Campañas → conjuntos → anuncios · qué escalar y qué descartar</h2><span className="hint">meta ROAS {GOAL}× · objetivo {SET_BUDGET_HINT}</span><button className="mc-colbtn" onClick={() => setShowAllMets((v) => !v)}>{showAllMets ? '− columnas esenciales' : '+ ver todas las métricas'}</button></div>
         <div className="cj-sum">
           <span className="v-badge v-scale">{vCount('Escalar')} escalar</span>
           <span className="v-badge v-iter">{vCount('Iterar')} iterar</span>
@@ -907,6 +938,7 @@ export function ComprasDiagnostico() {
         {data.ownerDetail.ia.count > 0 && (
           <>
             <div className="mc-sh" style={{ margin: '14px 0 12px' }}><h2>Agencia vs Motor AURA · a detalle</h2><span className="hint">resultados · qué escala cada uno · diversidad creativa</span></div>
+            <OwnerRoasBar nosotros={data.ownerDetail.nosotros.roas} aura={data.ownerDetail.ia.roas} target={target} />
             <div className="mc-owns">
               <OwnerCard o={data.ownerDetail.nosotros} label="Agencia" color="#0ea5e9" target={target} cur={cur} />
               <OwnerCard o={data.ownerDetail.ia} label="Motor AURA" color="#8b5cf6" target={target} cur={cur} />
@@ -916,7 +948,7 @@ export function ComprasDiagnostico() {
         <div className="cj-hint">Clic en una campaña para ver su diagnóstico, sus conjuntos y anuncios · clic en un anuncio para su preview. El chip <b>MOTOR AURA</b> marca las campañas de la IA (por nombre); el resto es Agencia.</div>
         <div className="mc-wrap"><div className="mc-scroll">
           <table className="cj-t sortable">
-            <thead><tr><th className="cj-caret"></th><th>Campaña · conjunto · anuncio</th>{th('veredicto', 'Veredicto')}{th('mom', 'Momentum')}{TMETRICS.map((m) => th(m.k, m.l))}</tr></thead>
+            <thead><tr><th className="cj-caret"></th><th>Campaña · conjunto · anuncio</th>{th('veredicto', 'Veredicto')}{th('mom', 'Momentum')}{mets.map((m) => th(m.k, m.l))}</tr></thead>
             <tbody>
               {campanas.flatMap((camp) => {
                 const ck = 'C:' + camp.name;
@@ -928,13 +960,13 @@ export function ComprasDiagnostico() {
                     <td className="nm" title={camp.name}>{siteBadge(camp.site)} {isAuraName(camp.name) ? ownerChip('ia') : null}{camp.name}</td>
                     <td><span className={`v-badge ${camp.v.c}`} title={camp.v.tip}>{camp.v.l}</span></td>
                     <td>{momBadge(camp.mom, camp.hadPrev)}</td>
-                    {tcells(camp.d, cur)}
+                    {tcells(camp.d, cur, mets)}
                   </tr>,
                 ];
                 if (cOpen) {
                   const cr = data.campaigns.find((c) => c.name === camp.name);
                   if (cr && cr.spend > 0) out.push(
-                    <tr key={ck + '-diag'} className="cj-diagrow"><td colSpan={TMETRICS.length + 4}><ComprasDiag camp={cr} target={target} cur={cur} /></td></tr>
+                    <tr key={ck + '-diag'} className="cj-diagrow"><td colSpan={mets.length + 4}><ComprasDiag camp={cr} target={target} cur={cur} /></td></tr>
                   );
                 }
                 if (cOpen) camp.sets.forEach((s, si) => {
@@ -948,7 +980,7 @@ export function ComprasDiagnostico() {
                       <td className="nm sub" title={s.name}>{isAuraName(camp.name) ? ownerChip('ia') : null}{s.name}</td>
                       <td><span className={`v-badge ${s.v.c}`} title={s.v.tip}>{s.v.l}</span></td>
                       <td>{momBadge(s.mom, s.hadPrev)}</td>
-                      {tcells(s.d, cur)}
+                      {tcells(s.d, cur, mets)}
                     </tr>
                   );
                   if (sOpen) ads.forEach((ad, j) => {
@@ -969,7 +1001,7 @@ export function ComprasDiagnostico() {
                         </td>
                         <td><span className={`v-badge ${av.c}`} title={av.tip}>{av.l}</span></td>
                         <td>{momBadge(am.mom, am.hadPrev)}</td>
-                        {tcells(dd, cur)}
+                        {tcells(dd, cur, mets)}
                       </tr>
                     );
                   });
@@ -1170,6 +1202,8 @@ const CSS = `
 .mc-north .r{display:flex;gap:20px;margin-top:14px}.mc-north .r .l{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--t3)}
 .mc-north .r .rv{font-size:17px;font-weight:800;margin-top:2px;font-family:'Space Grotesk',sans-serif}
 .mc-sh{display:flex;align-items:baseline;gap:12px;margin:40px 0 16px}.mc-sh h2{font-size:14.5px;font-weight:700;margin:0}.mc-sh .hint{font-size:11.5px;color:var(--t3)}
+.mc-colbtn{margin-left:auto;font-size:11px;font-weight:700;color:var(--t2);background:var(--bg3);border:1px solid var(--b1);border-radius:999px;padding:4px 11px;cursor:pointer}
+.mc-colbtn:hover{color:var(--t1);border-color:var(--b2)}
 .mc-splitbar{height:15px;border-radius:8px;overflow:hidden;display:flex;background:var(--bg3)}
 .mc-splitlg{display:flex;gap:20px;flex-wrap:wrap;font-size:12px;margin-top:11px}.mc-splitlg .it{display:flex;align-items:center;gap:7px}
 .mc-splitlg .sw{width:10px;height:10px;border-radius:3px}.mc-splitlg b{font-weight:800}.mc-splitlg .mut{color:var(--t3)}
@@ -1390,6 +1424,15 @@ table.cj-t{border-collapse:collapse;width:100%;min-width:860px;font-size:12.5px}
 .mc-diag-m .bar{height:5px;border-radius:3px;background:var(--b1);overflow:hidden;margin-top:6px}
 .mc-diag-m .bar>div{height:100%;border-radius:3px}
 @media(max-width:820px){.mc-diag-grid{grid-template-columns:1fr 1fr}}
+/* Barra comparativa ROAS Agencia vs AURA */
+.orb{margin:0 0 14px;padding:13px 15px;background:var(--bg1);border:1px solid var(--b1);border-radius:12px}
+.orb-row{display:grid;grid-template-columns:92px 1fr 48px;gap:12px;align-items:center;margin:6px 0}
+.orb-lb{font-size:11px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;color:var(--t2)}
+.orb-track{position:relative;height:13px;border-radius:7px;background:var(--bg3);overflow:hidden}
+.orb-fill{height:100%;border-radius:7px}
+.orb-goal{position:absolute;top:-1px;bottom:-1px;width:2px;background:var(--t1);opacity:.5}
+.orb-v{font-size:14px;font-weight:800;text-align:right;font-family:'Space Grotesk',sans-serif}
+.orb-cap{font-size:10px;color:var(--t3);margin-top:7px;padding-left:104px}
 /* Agencia vs Motor AURA · a detalle */
 .mc-owns{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px}
 .mc-own{background:var(--bg1);border:1px solid var(--b1);border-top:3px solid var(--acc);border-radius:13px;padding:15px 16px}

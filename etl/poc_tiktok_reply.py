@@ -77,12 +77,22 @@ def api_get(path, token, params):
 
 
 def api_post(path, token, body):
-    """POST JSON a la Marketing API. Devuelve (code, data, msg, raw)."""
+    """POST JSON a la Marketing API. Devuelve (code, data, msg, raw).
+    Si la respuesta no es JSON, captura el status HTTP y el cuerpo crudo para
+    diagnosticar (404 de path, HTML de WAF, etc.)."""
     try:
         r = requests.post(f"{BASE_URL}{path}",
                           headers={"Access-Token": token, "Content-Type": "application/json"},
                           json=body, timeout=60)
-        j = r.json()
+        try:
+            j = r.json()
+        except Exception:
+            return -1, {}, (f"HTTP {r.status_code}; cuerpo no-JSON: "
+                            f"{(r.text or '[vacío]')[:400]!r}"), {
+                "http_status": r.status_code,
+                "url": r.url,
+                "text": (r.text or "")[:400],
+            }
         return int(j.get("code", -1)), (j.get("data") or {}), j.get("message", ""), j
     except Exception as e:
         return -1, {}, f"excepción local: {e}", {}

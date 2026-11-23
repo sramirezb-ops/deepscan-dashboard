@@ -1,0 +1,57 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# POC MANUAL — Bot de respuestas a comentarios de anuncios de TikTok (Ofero)
+# ─────────────────────────────────────────────────────────────────────────────
+# Qué hace: corre etl/poc_tiktok_reply.py reutilizando los secrets que YA tienes
+# (OFERO_TIKTOK_*). Prueba viabilidad + genera BORRADORES. NO publica nada.
+# Los borradores quedan como "artifact" descargable al final del run.
+#
+# Cómo activarlo (por la web de GitHub, porque desde aquí no puedo subir .yml):
+#   1) En tu repo → pestaña "Add file" → "Create new file".
+#   2) Nombre del archivo:  .github/workflows/poc_tiktok_reply.yml
+#   3) Pega TODO este contenido y "Commit".
+#   4) (Si aún no está) sube también etl/poc_tiktok_reply.py al repo.
+#   5) Ve a la pestaña "Actions" → "POC · TikTok reply" → "Run workflow".
+#   6) Cuando termine, descarga el artifact "borradores-tiktok".
+# ─────────────────────────────────────────────────────────────────────────────
+name: POC · TikTok reply (borradores, no publica)
+
+on:
+  workflow_dispatch:   # solo manual, cuando tú le des "Run"
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install requests
+
+      - name: Correr POC (genera borradores, NO publica)
+        env:
+          TIKTOK_ACCESS_TOKEN:  ${{ secrets.OFERO_TIKTOK_ACCESS_TOKEN }}
+          TIKTOK_ADVERTISER_ID: ${{ secrets.OFERO_TIKTOK_ADVERTISER_ID }}
+          # Opcional: si tienes GROQ_API_KEY como secret, los borradores usan IA.
+          GROQ_API_KEY:         ${{ secrets.GROQ_API_KEY }}
+          LLM_MODEL:            "llama-3.3-70b-versatile"
+        run: |
+          cd etl
+          python poc_tiktok_reply.py | tee poc_salida.txt
+
+      - name: Subir borradores como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: borradores-tiktok
+          path: |
+            etl/poc_tiktok_reply_drafts.csv
+            etl/poc_tiktok_reply_drafts.json
+            etl/poc_salida.txt
+          if-no-files-found: warn

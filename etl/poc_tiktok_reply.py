@@ -38,6 +38,7 @@ import json
 import os
 import sys
 import time
+from datetime import date, timedelta
 import requests
 
 BASE_URL = "https://business-api.tiktok.com/open_api/v1.3"
@@ -46,7 +47,7 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # Cuántos borradores generar como máximo en el POC.
 MAX_DRAFTS = 8
 # Cuántos grupos de anuncios revisar (acota la carga y evita timeouts 51010).
-MAX_ADGROUPS = 4
+MAX_ADGROUPS = 12
 PAGE_SIZE = 50
 
 WA_NUMBER = "573024094822"  # WhatsApp nacional de Ofero
@@ -133,13 +134,19 @@ def get_adgroup_ids(token, adv):
 
 
 def fetch_comments(token, adv, adgroup_ids):
-    """Trae comentarios de los primeros grupos (1 página por grupo para el POC)."""
+    """Trae comentarios de los primeros grupos (1 página por grupo para el POC).
+    El endpoint EXIGE start_time/end_time (formato YYYY-MM-DD). Usamos una ventana
+    corta de 7 días para traer comentarios recientes sin saturar la API (51010)."""
+    end_time = date.today().isoformat()
+    start_time = (date.today() - timedelta(days=7)).isoformat()
     out = {}
     for ag in adgroup_ids:
         code, data, msg = api_get("/comment/list/", token, {
             "advertiser_id": adv,
             "search_field": "ADGROUP_ID",
             "search_value": ag,
+            "start_time": start_time,
+            "end_time": end_time,
             "page": 1,
             "page_size": PAGE_SIZE,
         })

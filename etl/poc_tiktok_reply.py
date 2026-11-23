@@ -76,6 +76,18 @@ def api_get(path, token, params):
         return -1, {}, f"excepción local: {e}"
 
 
+def api_post(path, token, body):
+    """POST JSON a la Marketing API. Devuelve (code, data, msg, raw)."""
+    try:
+        r = requests.post(f"{BASE_URL}{path}",
+                          headers={"Access-Token": token, "Content-Type": "application/json"},
+                          json=body, timeout=60)
+        j = r.json()
+        return int(j.get("code", -1)), (j.get("data") or {}), j.get("message", ""), j
+    except Exception as e:
+        return -1, {}, f"excepción local: {e}", {}
+
+
 def _s(x):
     return str(x if x is not None else "").strip()
 
@@ -173,6 +185,39 @@ def fetch_comments(token, adv, adgroup_ids):
             }
         time.sleep(0.2)
     return list(out.values())
+
+
+def ofero_identity_id(identities):
+    """Busca el identity_id de la cuenta 'oferocolombia' (BC_AUTH_TT) entre las
+    identidades. Es la cuenta desde la que el usuario quiere responder."""
+    for it in identities:
+        name = _s(it.get("display_name")).lower()
+        if name == "oferocolombia" or ("ofero" in name and "colombia" in name):
+            return _s(it.get("identity_id")), _s(it.get("identity_type"))
+    return "", ""
+
+
+def resolve_ad_identities(token, adv, ad_ids):
+    """Para un conjunto de ad_id, devuelve {ad_id: identity_id} vía /ad/get/.
+    Así sabemos qué comentarios están en anuncios de oferocolombia (= responder
+    como oferocolombia) y cuáles en anuncios de creadores."""
+    out = {}
+    ids = [a for a in ad_ids if a]
+    for i in range(0, len(ids), 100):
+        chunk = ids[i:i + 100]
+        code, data, msg = api_get("/ad/get/", token, {
+            "advertiser_id": adv,
+            "filtering": json.dumps({"ad_ids": chunk}),
+            "fields": json.dumps(["ad_id", "identity_id", "identity_type"]),
+            "page_size": 100,
+        })
+        if code != 0:
+            print(f"   ⚠ /ad/get/ no resolvió identidades (code={code}): {msg}")
+            continue
+        for ad in data.get("list", []) or []:
+            out[_s(ad.get("ad_id"))] = _s(ad.get("identity_id"))
+        time.sleep(0.2)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -282,21 +327,48 @@ def build_drafts(comments, groq_key, model):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🚫 PUBLICAR — DESHABILITADO A PROPÓSITO
+# PRUEBA PUBLICADA — se activa SOLO con REPLY_COMMENT_ID + REPLY_TEXT en el entorno
 # ─────────────────────────────────────────────────────────────────────────────
-def publish_reply(*args, **kwargs):
-    """NO IMPLEMENTADO EN EL POC. Publicar en comentarios públicos es una acción
-    de cara al público: se activa solo después de (1) confirmar el endpoint
-    oficial de respuesta en el portal de TikTok, (2) pasar la prueba de
-    viabilidad, y (3) definir el flujo de aprobación humana. La operación de
-    respuesta de TikTok NO es idempotente: nunca reintentar a ciegas."""
-    raise NotImplementedError("Publicar está deshabilitado en el POC (ver guardrails).")
+def test_one_reply(token, adv, comment_id, text):
+    """Envía UNA sola respuesta a UN comentario, para probar si TikTok permite
+    responder como la identidad del anuncio (p.ej. oferocolombia BC_AUTH_TT).
+    Imprime la respuesta cruda de la API: si code=0 → publicó; si no → el error
+    nos dice si está bloqueado. NO es idempotente: se corre una vez.
+    Endpoint hermano del /comment/list/ que ya usamos."""
+    print("=" * 70)
+    print("PRUEBA PUBLICADA · enviando UNA respuesta de prueba")
+    print("=" * 70)
+    print(f"   comment_id: {comment_id}")
+    print(f"   texto:      {text}")
+    code, data, msg, raw = api_post("/comment/reply/create/", token, {
+        "advertiser_id": adv,
+        "comment_id": comment_id,
+        "text": text,
+    })
+    print(f"\n   → code={code}  message={msg!r}")
+    print(f"   → respuesta cruda: {json.dumps(raw, ensure_ascii=False)[:800]}")
+    if code == 0:
+        print("\n   ✅ PUBLICÓ. TikTok SÍ permite responder por API con esta identidad.")
+    else:
+        print("\n   ⛔ NO publicó. El error de arriba dice por qué (p.ej. identidad BC bloqueada).")
+    print("\nFin de la prueba. Solo se intentó UNA respuesta.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
     token = _env("TIKTOK_ACCESS_TOKEN")
     adv = _env("TIKTOK_ADVERTISER_ID")
+
+    # ── MODO PRUEBA PUBLICADA ──
+    # Si están REPLY_COMMENT_ID + REPLY_TEXT, el POC SOLO envía esa una respuesta
+    # y termina. Es la prueba controlada (sí publica). Sin esas variables, el POC
+    # corre normal y NO publica nada.
+    reply_cid = os.environ.get("REPLY_COMMENT_ID", "").strip()
+    reply_txt = os.environ.get("REPLY_TEXT", "").strip()
+    if reply_cid and reply_txt:
+        test_one_reply(token, adv, reply_cid, reply_txt)
+        return
+
     groq_key = _env("GROQ_API_KEY", required=False)
     model = _env("LLM_MODEL", required=False, default="llama-3.3-70b-versatile")
 
@@ -313,6 +385,26 @@ def main():
         print("   ⚠ No se hallaron grupos de anuncios. Sin ellos no hay comentarios que leer.")
     comments = fetch_comments(token, adv, adgroups) if adgroups else []
     print(f"   • Grupos revisados: {len(adgroups)} · comentarios leídos: {len(comments)}")
+
+    # Candidatos para la PRUEBA PUBLICADA: comentarios en anuncios de OFEROCOLOMBIA
+    # (así la respuesta saldría como oferocolombia). Resolvemos ad→identity.
+    ofero_id, ofero_type = ofero_identity_id(idinfo.get("identities", []))
+    print("\n── A2b. Candidatos para la PRUEBA (comentarios en anuncios de OFEROCOLOMBIA) ──")
+    if not ofero_id:
+        print("   ⚠ No encontré la identidad 'oferocolombia' en la lista.")
+    else:
+        print(f"   identidad oferocolombia: {ofero_id} [{ofero_type}]")
+        ad_ids = {c["ad_id"] for c in comments if c["ad_id"]}
+        ad2id = resolve_ad_identities(token, adv, list(ad_ids))
+        cands = [c for c in comments
+                 if ad2id.get(c["ad_id"]) == ofero_id
+                 and not c["parent_comment_id"] and c["replies"] == 0
+                 and c["content"] and c["comment_status"].lower() not in ("hidden", "deleted")]
+        if not cands:
+            print("   (ninguno en la ventana de 7 días; sube MAX_ADGROUPS o amplía fechas)")
+        for c in cands[:10]:
+            print(f"   • comment_id={c['comment_id']}  @{c['author'] or 'usuario'}: {c['content'][:90]}")
+        print("   ↑ Elige UN comment_id de aquí y lo usamos con REPLY_COMMENT_ID + REPLY_TEXT.")
 
     print("\n── A3. VEREDICTO DE VIABILIDAD ──")
     if idinfo["has_repliable"]:
